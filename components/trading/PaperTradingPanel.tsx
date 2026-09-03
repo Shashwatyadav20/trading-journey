@@ -58,21 +58,7 @@ async function fetchLivePrice(
 
   // ── XAU / USD ──────────────────────────────────────────────────────────────
   if (isXAU) {
-    // Source 1: Binance XAUSDT futures
-    try {
-      const res = await fetchWithTimeout(
-        "https://api.binance.com/api/v3/ticker/price?symbol=XAUSDT"
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const price = parseFloat(data.price);
-        if (!isNaN(price) && price > 100) {
-          return { price, source: "Binance XAUSDT" };
-        }
-      }
-    } catch (_) {}
-
-    // Source 2: Binance PAXGUSDT (tokenized gold — very close to spot XAU)
+    // Source 1: Binance PAXGUSDT (tokenized gold — highly accurate real-time spot tracking)
     try {
       const res = await fetchWithTimeout(
         "https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT"
@@ -80,13 +66,13 @@ async function fetchLivePrice(
       if (res.ok) {
         const data = await res.json();
         const price = parseFloat(data.price);
-        if (!isNaN(price) && price > 100) {
+        if (typeof price === "number" && Number.isFinite(price) && price > 100) {
           return { price, source: "Binance PAXG/USDT" };
         }
       }
     } catch (_) {}
 
-    // Source 3: CoinGecko PAXG (tokenized gold)
+    // Source 2: CoinGecko PAXG (tokenized gold)
     try {
       const res = await fetchWithTimeout(
         "https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd"
@@ -94,26 +80,28 @@ async function fetchLivePrice(
       if (res.ok) {
         const data = await res.json();
         const price = data?.["pax-gold"]?.usd;
-        if (price && !isNaN(price) && price > 100) {
+        if (typeof price === "number" && Number.isFinite(price) && price > 100) {
           return { price, source: "CoinGecko PAXG" };
         }
       }
     } catch (_) {}
 
-    // Source 4: metals.live (free, no key, real gold spot)
+    // Source 3: metals.live (free, no key, real gold spot)
     try {
       const res = await fetchWithTimeout("https://metals.live/api/v1/spot");
       if (res.ok) {
         const data = await res.json();
-        // metals.live returns array of { metal, price }
         if (Array.isArray(data)) {
           const gold = data.find(
             (d: any) =>
               typeof d.metal === "string" &&
               d.metal.toLowerCase().includes("gold")
           );
-          if (gold && !isNaN(parseFloat(gold.price))) {
-            return { price: parseFloat(gold.price), source: "metals.live" };
+          if (gold) {
+            const price = parseFloat(gold.price);
+            if (typeof price === "number" && Number.isFinite(price) && price > 100) {
+              return { price, source: "metals.live" };
+            }
           }
         }
       }
@@ -315,7 +303,7 @@ export default function PaperTradingPanel({
       stopLoss,
       targetPrice,
       quantity,
-      fees: 5,
+      fees: 0,
       status: "OPEN",
       orderType: "MARKET",
       notes: `Paper ${side} @ $${execPrice.toFixed(2)} via ${priceSource || "live feed"} — ${assignedStrategy}`,

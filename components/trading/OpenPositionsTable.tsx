@@ -39,7 +39,9 @@ export default function OpenPositionsTable({
 
   const handleOpenCloseModal = (trade: Trade) => {
     setSelectedTrade(trade);
-    setExitPrice(trade.entryPrice); // user overrides in modal
+    // If trade has targetPrice or entryPrice, default exitPrice to targetPrice if in profit, or entryPrice
+    const defaultPrice = trade.targetPrice && trade.targetPrice > 0 ? trade.targetPrice : trade.entryPrice;
+    setExitPrice(defaultPrice);
   };
 
   const handleConfirmClose = () => {
@@ -290,7 +292,7 @@ export default function OpenPositionsTable({
                       </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-                      <span className="text-slate-500 text-[10px] block">Net P/L (−$5 fee)</span>
+                      <span className="text-slate-500 text-[10px] block">Net P/L (-${fees} fee)</span>
                       <span className={`font-bold text-sm ${netPnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         {formatCurrency(netPnl, true)}
                       </span>

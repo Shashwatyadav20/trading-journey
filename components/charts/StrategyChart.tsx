@@ -13,7 +13,13 @@ import { detectLiquiditySweeps, Candle, StrategySignal } from "../../lib/strateg
 import { Loader2, ArrowUpRight, ArrowDownRight, Target, ShieldAlert, DollarSign, Zap, CheckCircle2 } from "lucide-react";
 import ChartDrawingToolbar from "./ChartDrawingToolbar";
 import { ChartDrawing } from "../../types/chart";
+import { useAuth } from "../../context/AuthContext";
 import { useTrades } from "../../context/TradeContext";
+import {
+  fetchDrawingsCloud,
+  upsertDrawingCloud,
+  deleteDrawingCloud,
+} from "../../lib/cloudSync";
 import {
   loadDrawingsFromStorage,
   saveDrawingsToStorage,
@@ -21,6 +27,7 @@ import {
 } from "../../lib/drawingStorage";
 
 function StrategyChartComponent() {
+  const { user } = useAuth();
   const { addTrade } = useTrades();
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -249,6 +256,25 @@ function StrategyChartComponent() {
     };
   }, []);
 
+  // Sync drawings with Cloud / Storage
+  useEffect(() => {
+    async function loadDrawings() {
+      if (user) {
+        try {
+          const cloudDr = await fetchDrawingsCloud(user.id);
+          setDrawings(cloudDr);
+        } catch (e) {
+          console.error("Failed to load drawings from cloud:", e);
+          setDrawings(loadDrawingsFromStorage());
+        }
+      } else {
+        const saved = loadDrawingsFromStorage();
+        setDrawings(saved);
+      }
+    }
+    loadDrawings();
+  }, [user]);
+
   // Drawing Handlers
   const handleAddDrawing = (drawingInput: Omit<ChartDrawing, "id">) => {
     const newDrawing: ChartDrawing = {
@@ -258,7 +284,12 @@ function StrategyChartComponent() {
 
     const nextDrawings = [...drawings, newDrawing];
     setDrawings(nextDrawings);
-    saveDrawingsToStorage(nextDrawings);
+
+    if (user) {
+      upsertDrawingCloud(newDrawing, user.id);
+    } else {
+      saveDrawingsToStorage(nextDrawings);
+    }
 
     if (seriesRef.current) {
       renderDrawingsOnChart(seriesRef.current as any, nextDrawings);
@@ -268,7 +299,12 @@ function StrategyChartComponent() {
   const handleDeleteDrawing = (id: string) => {
     const nextDrawings = drawings.filter((d) => d.id !== id);
     setDrawings(nextDrawings);
-    saveDrawingsToStorage(nextDrawings);
+
+    if (user) {
+      deleteDrawingCloud(id, user.id);
+    } else {
+      saveDrawingsToStorage(nextDrawings);
+    }
 
     if (seriesRef.current) {
       renderDrawingsOnChart(seriesRef.current as any, nextDrawings);
@@ -276,8 +312,12 @@ function StrategyChartComponent() {
   };
 
   const handleClearAllDrawings = () => {
+    if (user) {
+      drawings.forEach((dr) => deleteDrawingCloud(dr.id, user.id));
+    } else {
+      clearDrawingsStorage();
+    }
     setDrawings([]);
-    clearDrawingsStorage();
 
     if (seriesRef.current) {
       renderDrawingsOnChart(seriesRef.current as any, []);

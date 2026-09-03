@@ -12,6 +12,9 @@ import {
   TrendingDown,
   Sparkles,
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { useTrades } from "@/context/TradeContext";
+import { LogOut, User as UserIcon, Loader2, AlertCircle } from "lucide-react";
 import { NavTabId, NAV_ITEMS } from "./Sidebar";
 
 interface HeaderProps {
@@ -25,6 +28,8 @@ export default function Header({
   onOpenMobileMenu,
   collapsed,
 }: HeaderProps) {
+  const { user, signOut } = useAuth();
+  const { syncStatus, syncError } = useTrades();
   const [timeString, setTimeString] = useState<string>("");
 
   useEffect(() => {
@@ -76,7 +81,7 @@ export default function Header({
         </div>
       </div>
 
-      {/* Center Section: Live Market Ticker simulation (Hidden on smaller screens) */}
+      {/* Center Section: Live Market Ticker simulation */}
       <div className="hidden xl:flex items-center gap-4 px-4 py-1.5 rounded-full bg-slate-900/80 border border-slate-800/80 font-mono text-xs">
         <div className="flex items-center gap-1.5 text-slate-300">
           <Globe className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
@@ -109,7 +114,7 @@ export default function Header({
         </div>
       </div>
 
-      {/* Right Section: Time, Search, Quick Add, Notifications */}
+      {/* Right Section: Time, User Badge & Logout */}
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Live Terminal Clock */}
         <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/60 border border-slate-800/60 text-xs font-mono text-slate-300">
@@ -117,35 +122,50 @@ export default function Header({
           <span>{timeString || "00:00:00 UTC"}</span>
         </div>
 
-        {/* Quick Search Shortcut Placeholder */}
-        <button
-          className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/60 text-xs text-slate-400 transition-colors"
-          title="Search trades or strategies"
-        >
-          <Search className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">Quick Search...</span>
-          <kbd className="px-1.5 py-0.5 text-[10px] bg-slate-800 text-slate-400 rounded border border-slate-700 font-mono">
-            ⌘K
-          </kbd>
-        </button>
+        {/* User Cloud Account Badge & Logout */}
+        {user && (
+          <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+            <div className="hidden md:flex flex-col text-right font-mono">
+              <span className="text-[11px] text-cyan-400 font-bold max-w-[140px] truncate">
+                {user.email}
+              </span>
+              <span className="text-[9px] flex items-center justify-end gap-1">
+                {syncStatus === "synced" ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-emerald-400 font-bold">Cloud Synced</span>
+                  </>
+                ) : syncStatus === "syncing" ? (
+                  <>
+                    <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />
+                    <span className="text-cyan-400">Syncing...</span>
+                  </>
+                ) : syncStatus === "error" ? (
+                  <>
+                    <AlertCircle className="w-3 h-3 text-rose-400" />
+                    <span className="text-rose-400 font-bold" title={syncError || "Sync Error"}>
+                      Sync Error
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                    <span className="text-slate-400">Local Mode</span>
+                  </>
+                )}
+              </span>
+            </div>
 
-        {/* Log Trade Quick Action Button Placeholder */}
-        <button
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold text-xs shadow-md shadow-cyan-500/20 transition-all active:scale-95"
-          title="Log new trade (Step 3 feature)"
-        >
-          <Plus className="w-4 h-4 stroke-[3]" />
-          <span className="hidden sm:inline">Log Trade</span>
-        </button>
-
-        {/* Notifications Icon */}
-        <button
-          className="relative p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border border-slate-800/60 transition-colors"
-          aria-label="Notifications"
-        >
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-cyan-400 pulse-dot" />
-        </button>
+            <button
+              onClick={() => signOut()}
+              title="Sign Out of Cloud Account"
+              className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-slate-800/60 hover:border-rose-500/30 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-medium"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

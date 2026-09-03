@@ -11,12 +11,36 @@ import AnalyticsView from "../views/AnalyticsView";
 import CalendarView from "../views/CalendarView";
 import MonthlyReviewView from "../views/MonthlyReviewView";
 import SettingsView from "../views/SettingsView";
-import { TradeProvider } from "../../context/TradeContext";
+import { TradeProvider, useTrades } from "../../context/TradeContext";
+import { AuthProvider, useAuth } from "../../context/AuthContext";
+import AuthModal from "../auth/AuthModal";
+import MigrationModal from "../auth/MigrationModal";
+import { Loader2, TrendingUp } from "lucide-react";
 
-export default function MainLayout() {
+function MainContent() {
+  const { user, loading } = useAuth();
+  const { refreshCloudData } = useTrades();
   const [activeTab, setActiveTab] = useState<NavTabId>("dashboard");
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
   const [collapsed, setCollapsed] = useState<boolean>(false);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#090d16] flex flex-col items-center justify-center space-y-4">
+        <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 animate-pulse">
+          <TrendingUp className="w-6 h-6" />
+        </div>
+        <div className="flex items-center gap-2 text-slate-400 font-mono text-xs">
+          <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+          <span>Authenticating Supabase Session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthModal />;
+  }
 
   const renderActiveView = () => {
     switch (activeTab) {
@@ -42,49 +66,61 @@ export default function MainLayout() {
   };
 
   return (
-    <TradeProvider>
-      <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
-        {/* Sidebar Component */}
-        <Sidebar
+    <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
+      {/* LocalStorage Data Migration Modal */}
+      <MigrationModal onMigrationComplete={() => refreshCloudData()} />
+
+      {/* Sidebar Component */}
+      <Sidebar
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        mobileOpen={mobileOpen}
+        onCloseMobile={() => setMobileOpen(false)}
+        collapsed={collapsed}
+        onToggleCollapse={() => setCollapsed(!collapsed)}
+      />
+
+      {/* Main Content Area Wrapper */}
+      <div
+        className={`
+          flex-1 flex flex-col transition-all duration-300 ease-in-out
+          ${collapsed ? "lg:pl-20" : "lg:pl-64"}
+        `}
+      >
+        {/* Header Top Bar Component */}
+        <Header
           activeTab={activeTab}
-          onSelectTab={setActiveTab}
-          mobileOpen={mobileOpen}
-          onCloseMobile={() => setMobileOpen(false)}
+          onOpenMobileMenu={() => setMobileOpen(true)}
           collapsed={collapsed}
-          onToggleCollapse={() => setCollapsed(!collapsed)}
         />
 
-        {/* Main Content Area Wrapper */}
-        <div
-          className={`
-            flex-1 flex flex-col transition-all duration-300 ease-in-out
-            ${collapsed ? "lg:pl-20" : "lg:pl-64"}
-          `}
-        >
-          {/* Header Top Bar Component */}
-          <Header
-            activeTab={activeTab}
-            onOpenMobileMenu={() => setMobileOpen(true)}
-            collapsed={collapsed}
-          />
+        {/* Main Content View */}
+        <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6">
+          {renderActiveView()}
+        </main>
 
-          {/* Main Content View */}
-          <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6">
-            {renderActiveView()}
-          </main>
-
-          {/* Status Footer */}
-          <footer className="py-3 px-6 border-t border-slate-800/60 bg-[#0d1322]/50 text-center text-xs font-mono text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />
-              <span>Trading Journey v1.0 Terminal</span>
-            </div>
-            <div>
-              Active Tab: <span className="text-cyan-400 capitalize">{activeTab.replace("-", " ")}</span>
-            </div>
-          </footer>
-        </div>
+        {/* Status Footer */}
+        <footer className="py-3 px-6 border-t border-slate-800/60 bg-[#0d1322]/50 text-center text-xs font-mono text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />
+            <span>Trading Journey v1.0 Terminal</span>
+            <span className="text-cyan-400/80">• Cloud Synced</span>
+          </div>
+          <div>
+            Active Tab: <span className="text-cyan-400 capitalize">{activeTab.replace("-", " ")}</span>
+          </div>
+        </footer>
       </div>
-    </TradeProvider>
+    </div>
+  );
+}
+
+export default function MainLayout() {
+  return (
+    <AuthProvider>
+      <TradeProvider>
+        <MainContent />
+      </TradeProvider>
+    </AuthProvider>
   );
 }
