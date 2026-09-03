@@ -15,15 +15,17 @@ import { TradeProvider, useTrades } from "../../context/TradeContext";
 import { AuthProvider, useAuth } from "../../context/AuthContext";
 import AuthModal from "../auth/AuthModal";
 import MigrationModal from "../auth/MigrationModal";
+import PendingApprovalScreen from "../auth/PendingApprovalScreen";
 import { Loader2, TrendingUp } from "lucide-react";
 
 function MainContent() {
-  const { user, loading } = useAuth();
+  const { user, loading, approved, approvalLoading } = useAuth();
   const { refreshCloudData } = useTrades();
   const [activeTab, setActiveTab] = useState<NavTabId>("dashboard");
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
   const [collapsed, setCollapsed] = useState<boolean>(false);
 
+  // STEP 1: Auth session is still resolving → show spinner
   if (loading) {
     return (
       <div className="min-h-screen bg-[#090d16] flex flex-col items-center justify-center space-y-4">
@@ -38,10 +40,33 @@ function MainContent() {
     );
   }
 
+  // STEP 2: Not logged in → show auth modal
   if (!user) {
     return <AuthModal />;
   }
 
+  // STEP 3: Logged in, but approval status is still loading → show spinner
+  // CRITICAL: Do NOT render trading dashboard until approval is confirmed.
+  if (approvalLoading || approved === null) {
+    return (
+      <div className="min-h-screen bg-[#090d16] flex flex-col items-center justify-center space-y-4">
+        <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 animate-pulse">
+          <TrendingUp className="w-6 h-6" />
+        </div>
+        <div className="flex items-center gap-2 text-slate-400 font-mono text-xs">
+          <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+          <span>Checking account authorization...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // STEP 4: Approval check complete — user is NOT approved
+  if (approved === false) {
+    return <PendingApprovalScreen />;
+  }
+
+  // STEP 5: approved === true → render full trading application
   const renderActiveView = () => {
     switch (activeTab) {
       case "dashboard":
