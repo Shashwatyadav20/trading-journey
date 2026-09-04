@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useTrades } from "../../context/TradeContext";
+import { useMarketData } from "../../context/MarketDataContext";
 import { Trade } from "../../types/trade";
 import {
   ArrowUpRight,
@@ -19,150 +20,11 @@ import {
   WifiOff,
 } from "lucide-react";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// fetchLivePrice — tries multiple public APIs with a hard 5-second timeout.
-// Returns { price, error } — price is 0 on failure.
-//
-// XAU/USD sources tried in order:
-//   1. Binance XAUSUSDT (perpetual futures — tracks spot very closely)
-//   2. Open Exchange Rates free tier (no key needed for USD base)
-//   3. Frankfurter.app (ECB data, updated daily — last resort)
-//
-// BTC/USD source:
-//   1. Binance BTCUSDT spot (highly reliable)
-//   2. CoinGecko simple price (no key needed)
-// ─────────────────────────────────────────────────────────────────────────────
-async function fetchLivePrice(
-  symbol: string
-): Promise<{ price: number; source: string; error?: string }> {
-  const TIMEOUT_MS = 5000;
-
-  const fetchWithTimeout = async (url: string): Promise<Response> => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const res = await fetch(url, {
-        signal: controller.signal,
-        cache: "no-store",
-      });
-      clearTimeout(id);
-      return res;
-    } catch (e) {
-      clearTimeout(id);
-      throw e;
-    }
-  };
-
-  const isXAU = symbol.includes("XAU") || symbol.includes("GOLD");
-  const isBTC = symbol.includes("BTC");
-
-  // ── XAU / USD ──────────────────────────────────────────────────────────────
-  if (isXAU) {
-    // Source 1: Binance PAXGUSDT (tokenized gold — highly accurate real-time spot tracking)
-    try {
-      const res = await fetchWithTimeout(
-        "https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT"
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const price = parseFloat(data.price);
-        if (typeof price === "number" && Number.isFinite(price) && price > 100) {
-          return { price, source: "Binance PAXG/USDT" };
-        }
-      }
-    } catch (_) {}
-
-    // Source 2: CoinGecko PAXG (tokenized gold)
-    try {
-      const res = await fetchWithTimeout(
-        "https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd"
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const price = data?.["pax-gold"]?.usd;
-        if (typeof price === "number" && Number.isFinite(price) && price > 100) {
-          return { price, source: "CoinGecko PAXG" };
-        }
-      }
-    } catch (_) {}
-
-    // Source 3: metals.live (free, no key, real gold spot)
-    try {
-      const res = await fetchWithTimeout("https://metals.live/api/v1/spot");
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          const gold = data.find(
-            (d: any) =>
-              typeof d.metal === "string" &&
-              d.metal.toLowerCase().includes("gold")
-          );
-          if (gold) {
-            const price = parseFloat(gold.price);
-            if (typeof price === "number" && Number.isFinite(price) && price > 100) {
-              return { price, source: "metals.live" };
-            }
-          }
-        }
-      }
-    } catch (_) {}
-
-    return {
-      price: 0,
-      source: "",
-      error: "XAU/USD price unavailable — all sources failed. Check network.",
-    };
-  }
-
-  // ── BTC / USD ──────────────────────────────────────────────────────────────
-  if (isBTC) {
-    // Source 1: Binance spot (most reliable)
-    try {
-      const res = await fetchWithTimeout(
-        "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const price = parseFloat(data.price);
-        if (!isNaN(price) && price > 1000) {
-          return { price, source: "Binance BTC/USDT" };
-        }
-      }
-    } catch (_) {}
-
-    // Source 2: CoinGecko
-    try {
-      const res = await fetchWithTimeout(
-        "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const price = data?.bitcoin?.usd;
-        if (price && !isNaN(price) && price > 1000) {
-          return { price, source: "CoinGecko BTC" };
-        }
-      }
-    } catch (_) {}
-
-    return {
-      price: 0,
-      source: "",
-      error: "BTC/USD price unavailable — check network.",
-    };
-  }
-
-  return { price: 0, source: "", error: "Unknown instrument." };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
 interface PaperTradingPanelProps {
   currentSymbol?: string;
   activeSetupTag?: string | null;
   onTradeOpened?: (trade: Trade) => void;
 }
-
-type FetchStatus = "idle" | "loading" | "success" | "error";
 
 export default function PaperTradingPanel({
   currentSymbol = "XAU/USD",
@@ -170,12 +32,13 @@ export default function PaperTradingPanel({
   onTradeOpened,
 }: PaperTradingPanelProps) {
   const { addTrade, addPendingOrder, startingCapital, trades } = useTrades();
+  const { getPrice, connectionStatus } = useMarketData();
 
-  // ── Price state (fetched on demand by LIVE PRICE button) ───────────────────
+  // ── Price state (captured on demand by LIVE PRICE button) ───────────────────
   const [livePrice, setLivePrice] = useState<number>(0);
-  const [fetchStatus, setFetchStatus] = useState<FetchStatus>("idle");
   const [priceSource, setPriceSource] = useState<string>("");
   const [fetchError, setFetchError] = useState<string>("");
+  const [lastFetchedStatus, setLastFetchedStatus] = useState<string>("");
 
   // ── Order form state ───────────────────────────────────────────────────────
   const [orderType, setOrderType] = useState<"MARKET" | "LIMIT">("MARKET");
@@ -193,9 +56,9 @@ export default function PaperTradingPanel({
     if (prevSymbolRef.current !== currentSymbol) {
       prevSymbolRef.current = currentSymbol;
       setLivePrice(0);
-      setFetchStatus("idle");
       setFetchError("");
       setPriceSource("");
+      setLastFetchedStatus("");
       setLimitPrice(0);
       setStopLoss(0);
       setTargetPrice(0);
@@ -217,25 +80,45 @@ export default function PaperTradingPanel({
     }
   };
 
-  // ── LIVE PRICE button handler ──────────────────────────────────────────────
-  const handleFetchPrice = async () => {
-    setFetchStatus("loading");
+  // ── LIVE PRICE button handler (Fetches from centralized context) ───────────
+  const handleFetchPrice = () => {
     setFetchError("");
     setPriceSource("");
 
-    const result = await fetchLivePrice(currentSymbol);
+    if (connectionStatus === "CONNECTING") {
+      setFetchError("Connecting to backend...");
+      setLivePrice(0);
+      return;
+    }
 
-    if (result.price > 0) {
-      setLivePrice(result.price);
-      setPriceSource(result.source);
-      setFetchStatus("success");
-      // Only auto-fill SL/TP if they're still at default (0) or instrument just switched
+    if (connectionStatus === "RECONNECTING") {
+      setFetchError("Reconnecting to backend...");
+      setLivePrice(0);
+      return;
+    }
+
+    if (connectionStatus !== "CONNECTED") {
+      setFetchError("Backend disconnected");
+      setLivePrice(0);
+      return;
+    }
+
+    const marketData = getPrice(currentSymbol);
+
+    if (marketData && marketData.status === "LIVE" && marketData.price > 0) {
+      setLivePrice(marketData.price);
+      setPriceSource(marketData.isProxy ? `${marketData.sourceSymbol} (PROXY)` : marketData.sourceSymbol);
+      setLastFetchedStatus(marketData.status);
+      
+      // Only auto-fill SL/TP if they're still at default (0)
       if (stopLoss === 0 && targetPrice === 0) {
-        initSlTp(result.price, currentSymbol);
+        initSlTp(marketData.price, currentSymbol);
       }
+    } else if (marketData && marketData.status === "STALE") {
+      setFetchError("Price is currently STALE");
+      setLivePrice(0);
     } else {
-      setFetchStatus("error");
-      setFetchError(result.error || "Price fetch failed.");
+      setFetchError("Price OFFLINE or unavailable");
       setLivePrice(0);
     }
   };
@@ -306,7 +189,7 @@ export default function PaperTradingPanel({
       fees: 0,
       status: "OPEN",
       orderType: "MARKET",
-      notes: `Paper ${side} @ $${execPrice.toFixed(2)} via ${priceSource || "live feed"} — ${assignedStrategy}`,
+      notes: `Paper ${side} @ $${execPrice.toFixed(2)} via Backend Stream — ${assignedStrategy}`,
     });
 
     if (onTradeOpened) onTradeOpened(newTrade);
@@ -354,29 +237,30 @@ export default function PaperTradingPanel({
       <div className="flex items-center gap-3">
         <button
           onClick={handleFetchPrice}
-          disabled={fetchStatus === "loading"}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl font-sans font-bold text-[12px] border transition-all duration-150 active:scale-[0.97] shadow-md ${
-            fetchStatus === "loading"
-              ? "bg-slate-800 border-slate-700 text-slate-400 cursor-not-allowed"
-              : fetchStatus === "success"
+            connectionStatus === "CONNECTING" || connectionStatus === "RECONNECTING"
+              ? "bg-slate-800 border-slate-700 text-slate-400 cursor-wait"
+              : priceReady
               ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
-              : fetchStatus === "error"
+              : fetchError
               ? "bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20"
               : "bg-cyan-500/10 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 shadow-cyan-950/30"
           }`}
         >
-          {fetchStatus === "loading" ? (
+          {connectionStatus === "CONNECTING" || connectionStatus === "RECONNECTING" ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : fetchStatus === "error" ? (
+          ) : fetchError ? (
             <WifiOff className="w-3.5 h-3.5" />
           ) : (
-            <RefreshCw className={`w-3.5 h-3.5 ${fetchStatus === "success" ? "text-emerald-400" : "text-cyan-400"}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${priceReady ? "text-emerald-400" : "text-cyan-400"}`} />
           )}
-          {fetchStatus === "loading"
-            ? "Fetching…"
-            : fetchStatus === "success"
+          {connectionStatus === "CONNECTING"
+            ? "Connecting…"
+            : connectionStatus === "RECONNECTING"
+            ? "Reconnecting…"
+            : priceReady
             ? "Refresh Price"
-            : fetchStatus === "error"
+            : fetchError
             ? "Retry"
             : "LIVE PRICE"}
         </button>
@@ -393,7 +277,7 @@ export default function PaperTradingPanel({
         )}
 
         {/* Error message */}
-        {fetchStatus === "error" && fetchError && (
+        {fetchError && (
           <div className="flex items-center gap-1.5 text-[10px] text-rose-400">
             <WifiOff className="w-3 h-3" />
             <span>{fetchError}</span>

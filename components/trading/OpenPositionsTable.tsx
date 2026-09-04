@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useTrades } from "../../context/TradeContext";
+import { useMarketData } from "../../context/MarketDataContext";
 import { Trade } from "../../types/trade";
 import { getOpenTrades, formatCurrency } from "../../lib/calculations";
 import {
@@ -29,6 +30,7 @@ export default function OpenPositionsTable({
   onPositionClosed,
 }: OpenPositionsTableProps) {
   const { trades, closePosition, updateTradeStopLoss, updateTradeTargetPrice } = useTrades();
+  const { getPrice } = useMarketData();
   const openPositions = getOpenTrades(trades);
 
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
@@ -68,7 +70,9 @@ export default function OpenPositionsTable({
 
   // Calculate unrealized P/L for a position
   const getUnrealizedPnL = (pos: Trade) => {
-    const mp = pos.entryPrice; // no live feed in this component
+    const marketData = getPrice(pos.symbol);
+    const mp = marketData?.price || pos.entryPrice; 
+    
     if (pos.side === "LONG") {
       return (mp - pos.entryPrice) * pos.quantity;
     }

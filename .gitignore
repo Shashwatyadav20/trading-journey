@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Backend dependencies and build output
+backend/node_modules/
+backend/dist/
+
+# All nested dependencies/build output
+**/node_modules/
+**/dist/

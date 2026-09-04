@@ -140,11 +140,15 @@ function MainContent() {
   );
 }
 
+import { MarketDataProvider } from "../../context/MarketDataContext";
+
 export default function MainLayout() {
   return (
     <AuthProvider>
       <TradeProvider>
-        <MainContent />
+        <MarketDataProvider>
+          <MainContent />
+        </MarketDataProvider>
       </TradeProvider>
     </AuthProvider>
   );
