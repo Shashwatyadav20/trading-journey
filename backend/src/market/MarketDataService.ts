@@ -1,5 +1,5 @@
 import { MarketProvider } from "./providers/MarketProvider";
-import { BinanceProvider } from "./providers/BinanceProvider";
+import { BitcoinProvider } from "./providers/BitcoinProvider";
 import { GoldProvider } from "./providers/GoldProvider";
 import { priceStore } from "./MarketPriceStore";
 import { env } from "../config/env";
@@ -19,7 +19,7 @@ export class MarketDataService {
 
     // Initialize providers
     const pollInterval = parseInt(process.env.MARKET_DATA_POLL_INTERVAL_MS || "2000", 10);
-    this.providers.push(new BinanceProvider(pollInterval));
+    this.providers.push(new BitcoinProvider(pollInterval));
     this.providers.push(new GoldProvider(pollInterval));
   }
 

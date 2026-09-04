@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MarketPriceStore } from "../../market/MarketPriceStore";
 import { MarketPrice } from "../../market/types";
-import { BinanceProvider } from "../providers/BinanceProvider";
+import { BitcoinProvider } from "../providers/BitcoinProvider";
 import { GoldProvider } from "../providers/GoldProvider";
 
 // ───────────────────────────────────────────────────────────
@@ -12,8 +12,8 @@ const mockBtcPrice = (overrides?: Partial<MarketPrice>): MarketPrice => ({
   instrument: "BTC/USD",
   price: 65000,
   timestamp: new Date().toISOString(),
-  source: "binance",
-  sourceSymbol: "BTCUSDT",
+  source: "coingecko",
+  sourceSymbol: "bitcoin",
   isProxy: false,
   status: "LIVE",
   ...overrides,
@@ -23,8 +23,8 @@ const mockXauPrice = (overrides?: Partial<MarketPrice>): MarketPrice => ({
   instrument: "XAU/USD",
   price: 2350,
   timestamp: new Date().toISOString(),
-  source: "binance",
-  sourceSymbol: "PAXGUSDT",
+  source: "coingecko",
+  sourceSymbol: "pax-gold",
   isProxy: true,
   status: "LIVE",
   ...overrides,
@@ -41,14 +41,12 @@ describe("MarketPriceStore", () => {
     store = new MarketPriceStore();
   });
 
-  // Test 8: Store set/get
   it("should set and retrieve a price by instrument", () => {
     const price = mockBtcPrice();
     store.setPrice("BTC/USD", price);
     expect(store.getPrice("BTC/USD")).toEqual(price);
   });
 
-  // Test 9: Store subscribers
   it("should notify subscriber on price update", () => {
     const cb = vi.fn();
     store.subscribe(cb);
@@ -58,7 +56,6 @@ describe("MarketPriceStore", () => {
     expect(cb).toHaveBeenCalledWith(price);
   });
 
-  // Test 10: Multiple subscribers
   it("should notify all subscribers on price update", () => {
     const cb1 = vi.fn();
     const cb2 = vi.fn();
@@ -85,35 +82,31 @@ describe("MarketPriceStore", () => {
 });
 
 describe("Provider response normalization", () => {
-  // Test 1: Valid BTC provider response
   it("should produce a valid BTC/USD normalized price structure", () => {
     const price = mockBtcPrice();
     expect(price.instrument).toBe("BTC/USD");
-    expect(price.sourceSymbol).toBe("BTCUSDT");
+    expect(price.source).toBe("coingecko");
+    expect(price.sourceSymbol).toBe("bitcoin");
     expect(price.isProxy).toBe(false);
     expect(price.price).toBeGreaterThan(0);
     expect(price.status).toBe("LIVE");
   });
 
-  // Test 2: Valid gold provider response
   it("should produce a valid XAU/USD normalized price structure with proxy metadata", () => {
     const price = mockXauPrice();
     expect(price.instrument).toBe("XAU/USD");
-    expect(price.sourceSymbol).toBe("PAXGUSDT");
+    expect(price.source).toBe("coingecko");
+    expect(price.sourceSymbol).toBe("pax-gold");
     expect(price.isProxy).toBe(true);
-    expect(price.source).toBe("binance");
     expect(price.status).toBe("LIVE");
   });
 
-  // Test 16: No hardcoded fallback price
   it("should not use a hardcoded fallback price on provider failure", () => {
-    // Any price with status OFFLINE must have price = 0 (not a fake value)
     const offlinePrice = mockBtcPrice({ price: 0, status: "OFFLINE" });
     expect(offlinePrice.status).toBe("OFFLINE");
     expect(offlinePrice.price).toBe(0);
   });
 
-  // Test 17: BTC and XAU remain separate instruments
   it("should keep BTC/USD and XAU/USD as separate instruments", () => {
     const btc = mockBtcPrice();
     const xau = mockXauPrice();
@@ -121,16 +114,13 @@ describe("Provider response normalization", () => {
     expect(btc.sourceSymbol).not.toBe(xau.sourceSymbol);
   });
 
-  // Test 18: XAU proxy metadata is correctly marked
-  it("should always mark XAU/USD as proxy when using PAXGUSDT", () => {
+  it("should always mark XAU/USD as proxy when using pax-gold", () => {
     const xau = mockXauPrice();
     expect(xau.isProxy).toBe(true);
-    expect(xau.sourceSymbol).toBe("PAXGUSDT");
-    // Must NOT claim to be exact OANDA XAU/USD
-    expect(xau.source).not.toBe("oanda");
+    expect(xau.sourceSymbol).toBe("pax-gold");
+    expect(xau.source).toBe("coingecko");
   });
 
-  // Test 3: Invalid provider response
   it("should produce OFFLINE status when price is 0 or NaN", () => {
     const offlinePrice = mockBtcPrice({ price: 0, status: "OFFLINE" });
     expect(offlinePrice.status).toBe("OFFLINE");
@@ -144,7 +134,6 @@ describe("STALE / OFFLINE detection", () => {
     store = new MarketPriceStore();
   });
 
-  // Test 6: STALE state
   it("should allow status to be explicitly set to STALE", () => {
     const stalePrice = mockBtcPrice({
       status: "STALE",
@@ -155,7 +144,6 @@ describe("STALE / OFFLINE detection", () => {
     expect(retrieved?.status).toBe("STALE");
   });
 
-  // Test 7: OFFLINE state
   it("should allow status to be explicitly set to OFFLINE", () => {
     const offlinePrice = mockBtcPrice({ status: "OFFLINE", price: 0 });
     store.setPrice("BTC/USD", offlinePrice);
@@ -166,7 +154,6 @@ describe("STALE / OFFLINE detection", () => {
   it("should retain last known price when STALE (not reset to 0)", () => {
     const livePrice = mockBtcPrice({ price: 65000, status: "LIVE" });
     store.setPrice("BTC/USD", livePrice);
-    // Simulate staleness by setting status=STALE, keeping price
     const stalePrice = { ...livePrice, status: "STALE" as const };
     store.setPrice("BTC/USD", stalePrice);
     const retrieved = store.getPrice("BTC/USD");
@@ -174,16 +161,14 @@ describe("STALE / OFFLINE detection", () => {
     expect(retrieved?.status).toBe("STALE");
   });
 
-  // Test 4: Provider timeout
   it("should reflect OFFLINE when no update received (simulated timeout)", () => {
-    const oldTimestamp = new Date(Date.now() - 60000).toISOString(); // 60s ago
+    const oldTimestamp = new Date(Date.now() - 60000).toISOString();
     const timeoutPrice = mockBtcPrice({ status: "OFFLINE", timestamp: oldTimestamp, price: 0 });
     store.setPrice("BTC/USD", timeoutPrice);
     const retrieved = store.getPrice("BTC/USD");
     expect(retrieved?.status).toBe("OFFLINE");
   });
 
-  // Test 5: Provider failure
   it("should reflect OFFLINE status on provider failure (price stays 0)", () => {
     const failedPrice = mockBtcPrice({ price: 0, status: "OFFLINE" });
     store.setPrice("BTC/USD", failedPrice);
@@ -193,7 +178,7 @@ describe("STALE / OFFLINE detection", () => {
   });
 });
 
-describe("Provider diagnostic error logging", () => {
+describe("BitcoinProvider (CoinGecko)", () => {
   let consoleErrorSpy: any;
 
   beforeEach(() => {
@@ -204,42 +189,128 @@ describe("Provider diagnostic error logging", () => {
     vi.restoreAllMocks();
   });
 
-  it("BinanceProvider logs HTTP status, response body, instrument, symbol, and URL on non-ok response", async () => {
+  it("successfully parses CoinGecko bitcoin price", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: false,
-      status: 451,
-      statusText: "Unavailable For Legal Reasons",
-      text: async () => "Service unavailable in US region",
+      ok: true,
+      json: async () => ({ bitcoin: { usd: 67450.5 } }),
     }));
 
-    const provider = new BinanceProvider(1000);
+    const provider = new BitcoinProvider(1000);
     await (provider as any).poll();
 
-    expect(consoleErrorSpy).toHaveBeenCalledOnce();
-    const logOutput = consoleErrorSpy.mock.calls[0][0];
-    expect(logOutput).toContain("[BinanceProvider]");
-    expect(logOutput).toContain("instrument=BTC/USD");
-    expect(logOutput).toContain("symbol=BTCUSDT");
-    expect(logOutput).toContain("provider=binance");
-    expect(logOutput).toContain("url=https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
-    expect(logOutput).toContain("HTTP status: 451");
-    expect(logOutput).toContain("Response body: Service unavailable in US region");
+    const price = provider.getCurrentPrice();
+    expect(price.instrument).toBe("BTC/USD");
+    expect(price.price).toBe(67450.5);
+    expect(price.status).toBe("LIVE");
+    expect(price.source).toBe("coingecko");
+    expect(price.sourceSymbol).toBe("bitcoin");
+    expect(price.isProxy).toBe(false);
   });
 
-  it("BinanceProvider logs network/timeout errors with error name and message", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Connection reset by peer")));
+  it("handles HTTP error and logs diagnostic message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      text: async () => "Server error",
+    }));
 
-    const provider = new BinanceProvider(1000);
+    const provider = new BitcoinProvider(1000);
     await (provider as any).poll();
 
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
     expect(consoleErrorSpy).toHaveBeenCalledOnce();
     const logOutput = consoleErrorSpy.mock.calls[0][0];
-    expect(logOutput).toContain("[BinanceProvider]");
+    expect(logOutput).toContain("[BitcoinProvider]");
     expect(logOutput).toContain("instrument=BTC/USD");
-    expect(logOutput).toContain("errorMessage=Connection reset by peer");
+    expect(logOutput).toContain("symbol=bitcoin");
+    expect(logOutput).toContain("HTTP status: 500");
   });
 
-  it("GoldProvider logs HTTP status, response body, instrument, symbol, and URL on non-ok response", async () => {
+  it("handles malformed JSON error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => { throw new SyntaxError("Unexpected end of JSON input"); },
+    }));
+
+    const provider = new BitcoinProvider(1000);
+    await (provider as any).poll();
+
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain("SyntaxError");
+  });
+
+  it("handles missing bitcoin.usd field in JSON response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ bitcoin: {} }),
+    }));
+
+    const provider = new BitcoinProvider(1000);
+    await (provider as any).poll();
+
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Invalid price payload");
+  });
+
+  it("handles zero or negative price in response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ bitcoin: { usd: -50 } }),
+    }));
+
+    const provider = new BitcoinProvider(1000);
+    await (provider as any).poll();
+
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Invalid price payload");
+  });
+
+  it("handles network error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network connection error")));
+
+    const provider = new BitcoinProvider(1000);
+    await (provider as any).poll();
+
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Network connection error");
+  });
+});
+
+describe("GoldProvider (CoinGecko PAXG Proxy)", () => {
+  let consoleErrorSpy: any;
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("successfully parses CoinGecko pax-gold price for XAU/USD with proxy metadata", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ "pax-gold": { usd: 2380.25 } }),
+    }));
+
+    const provider = new GoldProvider(1000);
+    await (provider as any).poll();
+
+    const price = provider.getCurrentPrice();
+    expect(price.instrument).toBe("XAU/USD");
+    expect(price.price).toBe(2380.25);
+    expect(price.status).toBe("LIVE");
+    expect(price.source).toBe("coingecko");
+    expect(price.sourceSymbol).toBe("pax-gold");
+    expect(price.isProxy).toBe(true);
+  });
+
+  it("handles HTTP error and logs diagnostic message", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,
       status: 429,
@@ -250,28 +321,64 @@ describe("Provider diagnostic error logging", () => {
     const provider = new GoldProvider(1000);
     await (provider as any).poll();
 
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
     expect(consoleErrorSpy).toHaveBeenCalledOnce();
     const logOutput = consoleErrorSpy.mock.calls[0][0];
     expect(logOutput).toContain("[GoldProvider]");
     expect(logOutput).toContain("instrument=XAU/USD");
-    expect(logOutput).toContain("symbol=PAXGUSDT");
-    expect(logOutput).toContain("provider=binance");
-    expect(logOutput).toContain("url=https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT");
+    expect(logOutput).toContain("symbol=pax-gold");
     expect(logOutput).toContain("HTTP status: 429");
-    expect(logOutput).toContain("Response body: Rate limit exceeded");
   });
 
-  it("GoldProvider logs network/timeout errors with error name and message", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Fetch timeout after 5000ms")));
+  it("handles malformed JSON error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => { throw new SyntaxError("Unexpected token < in JSON"); },
+    }));
 
     const provider = new GoldProvider(1000);
     await (provider as any).poll();
 
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
     expect(consoleErrorSpy).toHaveBeenCalledOnce();
-    const logOutput = consoleErrorSpy.mock.calls[0][0];
-    expect(logOutput).toContain("[GoldProvider]");
-    expect(logOutput).toContain("instrument=XAU/USD");
-    expect(logOutput).toContain("errorMessage=Fetch timeout after 5000ms");
+  });
+
+  it("handles missing pax-gold.usd field in response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ "pax-gold": {} }),
+    }));
+
+    const provider = new GoldProvider(1000);
+    await (provider as any).poll();
+
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Invalid price payload");
+  });
+
+  it("handles zero or negative price in response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ "pax-gold": { usd: 0 } }),
+    }));
+
+    const provider = new GoldProvider(1000);
+    await (provider as any).poll();
+
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Invalid price payload");
+  });
+
+  it("handles network error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Socket hang up")));
+
+    const provider = new GoldProvider(1000);
+    await (provider as any).poll();
+
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Socket hang up");
   });
 });
-
