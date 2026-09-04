@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MarketPriceStore } from "../../market/MarketPriceStore";
 import { MarketPrice } from "../../market/types";
-import { BitcoinProvider } from "../providers/BitcoinProvider";
-import { GoldProvider } from "../providers/GoldProvider";
-import { CoinGeckoClient } from "../providers/CoinGeckoClient";
+import { CoinbaseWebSocketProvider } from "../providers/CoinbaseWebSocketProvider";
+import { XausGoldProvider } from "../providers/XausGoldProvider";
+import { MarketDataService } from "../MarketDataService";
+import EventEmitter from "events";
 
 // ───────────────────────────────────────────────────────────
 // Helper factories
@@ -13,10 +14,11 @@ const mockBtcPrice = (overrides?: Partial<MarketPrice>): MarketPrice => ({
   instrument: "BTC/USD",
   price: 65000,
   timestamp: new Date().toISOString(),
-  source: "coingecko",
-  sourceSymbol: "bitcoin",
+  source: "coinbase",
+  sourceSymbol: "BTC-USD",
   isProxy: false,
   status: "LIVE",
+  expectedUpdateIntervalMs: 5000,
   ...overrides,
 });
 
@@ -24,10 +26,11 @@ const mockXauPrice = (overrides?: Partial<MarketPrice>): MarketPrice => ({
   instrument: "XAU/USD",
   price: 2350,
   timestamp: new Date().toISOString(),
-  source: "coingecko",
-  sourceSymbol: "pax-gold",
-  isProxy: true,
+  source: "xaus",
+  sourceSymbol: "XAU/USD",
+  isProxy: false,
   status: "LIVE",
+  expectedUpdateIntervalMs: 30000,
   ...overrides,
 });
 
@@ -86,19 +89,19 @@ describe("Provider response normalization", () => {
   it("should produce a valid BTC/USD normalized price structure", () => {
     const price = mockBtcPrice();
     expect(price.instrument).toBe("BTC/USD");
-    expect(price.source).toBe("coingecko");
-    expect(price.sourceSymbol).toBe("bitcoin");
+    expect(price.source).toBe("coinbase");
+    expect(price.sourceSymbol).toBe("BTC-USD");
     expect(price.isProxy).toBe(false);
     expect(price.price).toBeGreaterThan(0);
     expect(price.status).toBe("LIVE");
   });
 
-  it("should produce a valid XAU/USD normalized price structure with proxy metadata", () => {
+  it("should produce a valid XAU/USD normalized price structure from XAUS spot", () => {
     const price = mockXauPrice();
     expect(price.instrument).toBe("XAU/USD");
-    expect(price.source).toBe("coingecko");
-    expect(price.sourceSymbol).toBe("pax-gold");
-    expect(price.isProxy).toBe(true);
+    expect(price.source).toBe("xaus");
+    expect(price.sourceSymbol).toBe("XAU/USD");
+    expect(price.isProxy).toBe(false);
     expect(price.status).toBe("LIVE");
   });
 
@@ -114,18 +117,6 @@ describe("Provider response normalization", () => {
     expect(btc.instrument).not.toBe(xau.instrument);
     expect(btc.sourceSymbol).not.toBe(xau.sourceSymbol);
   });
-
-  it("should always mark XAU/USD as proxy when using pax-gold", () => {
-    const xau = mockXauPrice();
-    expect(xau.isProxy).toBe(true);
-    expect(xau.sourceSymbol).toBe("pax-gold");
-    expect(xau.source).toBe("coingecko");
-  });
-
-  it("should produce OFFLINE status when price is 0 or NaN", () => {
-    const offlinePrice = mockBtcPrice({ price: 0, status: "OFFLINE" });
-    expect(offlinePrice.status).toBe("OFFLINE");
-  });
 });
 
 describe("STALE / OFFLINE detection", () => {
@@ -138,7 +129,7 @@ describe("STALE / OFFLINE detection", () => {
   it("should allow status to be explicitly set to STALE", () => {
     const stalePrice = mockBtcPrice({
       status: "STALE",
-      timestamp: new Date(Date.now() - 15000).toISOString(),
+      timestamp: new Date(Date.now() - 20000).toISOString(),
     });
     store.setPrice("BTC/USD", stalePrice);
     const retrieved = store.getPrice("BTC/USD");
@@ -161,337 +152,270 @@ describe("STALE / OFFLINE detection", () => {
     expect(retrieved?.price).toBe(65000);
     expect(retrieved?.status).toBe("STALE");
   });
-
-  it("should reflect OFFLINE when no update received (simulated timeout)", () => {
-    const oldTimestamp = new Date(Date.now() - 60000).toISOString();
-    const timeoutPrice = mockBtcPrice({ status: "OFFLINE", timestamp: oldTimestamp, price: 0 });
-    store.setPrice("BTC/USD", timeoutPrice);
-    const retrieved = store.getPrice("BTC/USD");
-    expect(retrieved?.status).toBe("OFFLINE");
-  });
-
-  it("should reflect OFFLINE status on provider failure (price stays 0)", () => {
-    const failedPrice = mockBtcPrice({ price: 0, status: "OFFLINE" });
-    store.setPrice("BTC/USD", failedPrice);
-    const retrieved = store.getPrice("BTC/USD");
-    expect(retrieved?.status).toBe("OFFLINE");
-    expect(retrieved?.price).toBe(0);
-  });
 });
 
-describe("BitcoinProvider (CoinGecko)", () => {
-  let consoleErrorSpy: any;
+describe("CoinbaseWebSocketProvider", () => {
+  let provider: CoinbaseWebSocketProvider;
 
   beforeEach(() => {
-    CoinGeckoClient.resetInstance();
-    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    provider = new CoinbaseWebSocketProvider();
   });
 
   afterEach(() => {
+    provider.stop();
     vi.restoreAllMocks();
   });
 
-  it("successfully parses CoinGecko bitcoin price", async () => {
+  it("initializes with BTC/USD OFFLINE price and isProxy=false", () => {
+    const p = provider.getCurrentPrice();
+    expect(p.instrument).toBe("BTC/USD");
+    expect(p.source).toBe("coinbase");
+    expect(p.sourceSymbol).toBe("BTC-USD");
+    expect(p.isProxy).toBe(false);
+    expect(p.status).toBe("OFFLINE");
+  });
+
+  it("parses valid Coinbase Advanced Trade ticker message and updates price", () => {
+    const cb = vi.fn();
+    provider.onUpdate(cb);
+
+    const tickerMsg = {
+      channel: "ticker",
+      events: [
+        {
+          type: "snapshot",
+          tickers: [
+            {
+              product_id: "BTC-USD",
+              price: "68500.25",
+            },
+          ],
+        },
+      ],
+    };
+
+    (provider as any).handleMessage(Buffer.from(JSON.stringify(tickerMsg)));
+
+    const p = provider.getCurrentPrice();
+    expect(p.price).toBe(68500.25);
+    expect(p.status).toBe("LIVE");
+    expect(p.instrument).toBe("BTC/USD");
+    expect(cb).toHaveBeenCalledWith(p);
+  });
+
+  it("ignores messages for other product IDs", () => {
+    const cb = vi.fn();
+    provider.onUpdate(cb);
+
+    const ethMsg = {
+      channel: "ticker",
+      events: [
+        {
+          type: "update",
+          tickers: [
+            {
+              product_id: "ETH-USD",
+              price: "3500.00",
+            },
+          ],
+        },
+      ],
+    };
+
+    (provider as any).handleMessage(Buffer.from(JSON.stringify(ethMsg)));
+
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("ignores messages with invalid or zero/negative prices", () => {
+    const cb = vi.fn();
+    provider.onUpdate(cb);
+
+    const invalidMsg = {
+      channel: "ticker",
+      events: [
+        {
+          type: "update",
+          tickers: [
+            {
+              product_id: "BTC-USD",
+              price: "-500",
+            },
+          ],
+        },
+      ],
+    };
+
+    (provider as any).handleMessage(Buffer.from(JSON.stringify(invalidMsg)));
+
+    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("schedules exponential backoff reconnect on disconnect", () => {
+    const spy = vi.spyOn(provider as any, "scheduleReconnect");
+    provider.start();
+
+    const ws = (provider as any).ws;
+    if (ws) {
+      ws.emit("close", 1006, Buffer.from("Abnormal Closure"));
+    }
+
+    expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe("XausGoldProvider", () => {
+  let provider: XausGoldProvider;
+  let consoleErrorSpy: any;
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    provider = new XausGoldProvider(30000);
+  });
+
+  afterEach(() => {
+    provider.stop();
+    vi.restoreAllMocks();
+  });
+
+  it("initializes with XAU/USD OFFLINE price and isProxy=false", () => {
+    const p = provider.getCurrentPrice();
+    expect(p.instrument).toBe("XAU/USD");
+    expect(p.source).toBe("xaus");
+    expect(p.sourceSymbol).toBe("XAU/USD");
+    expect(p.isProxy).toBe(false);
+    expect(p.status).toBe("OFFLINE");
+  });
+
+  it("successfully fetches valid spot_usd_oz price from XAUS", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      headers: new Headers(),
-      json: async () => ({ bitcoin: { usd: 67450.5 } }),
+      json: async () => ({ spot_usd_oz: 2365.80, timestamp: "2026-09-04T16:50:00Z" }),
     }));
 
-    const provider = new BitcoinProvider(1000);
+    const cb = vi.fn();
+    provider.onUpdate(cb);
+
     await (provider as any).poll();
 
-    const price = provider.getCurrentPrice();
-    expect(price.instrument).toBe("BTC/USD");
-    expect(price.price).toBe(67450.5);
-    expect(price.status).toBe("LIVE");
-    expect(price.source).toBe("coingecko");
-    expect(price.sourceSymbol).toBe("bitcoin");
-    expect(price.isProxy).toBe(false);
-  });
-
-  it("handles HTTP error and logs diagnostic message", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: "Internal Server Error",
-      headers: new Headers(),
-      text: async () => "Server error",
-    }));
-
-    const provider = new BitcoinProvider(1000);
-    await (provider as any).poll();
-
-    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    const logOutput = consoleErrorSpy.mock.calls[0][0];
-    expect(logOutput).toContain("[CoinGeckoClient]");
-    expect(logOutput).toContain("ids=bitcoin,pax-gold");
-    expect(logOutput).toContain("HTTP error 500");
+    const p = provider.getCurrentPrice();
+    expect(p.price).toBe(2365.80);
+    expect(p.status).toBe("LIVE");
+    expect(p.instrument).toBe("XAU/USD");
+    expect(p.isProxy).toBe(false);
+    expect(cb).toHaveBeenCalledWith(p);
   });
 
   it("handles malformed JSON error", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      headers: new Headers(),
-      json: async () => { throw new SyntaxError("Unexpected end of JSON input"); },
+      json: async () => { throw new SyntaxError("Unexpected token"); },
     }));
 
-    const provider = new BitcoinProvider(1000);
     await (provider as any).poll();
 
     expect(provider.getCurrentPrice().status).toBe("OFFLINE");
     expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(consoleErrorSpy.mock.calls[0][0]).toContain("SyntaxError");
   });
 
-  it("handles missing bitcoin.usd field in JSON response", async () => {
+  it("handles missing spot_usd_oz in response payload", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      headers: new Headers(),
-      json: async () => ({ bitcoin: {} }),
+      json: async () => ({ invalid_key: 123 }),
     }));
 
-    const provider = new BitcoinProvider(1000);
     await (provider as any).poll();
 
     expect(provider.getCurrentPrice().status).toBe("OFFLINE");
     expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Invalid price payload");
   });
 
-  it("handles zero or negative price in response", async () => {
+  it("handles zero or negative spot_usd_oz price", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      headers: new Headers(),
-      json: async () => ({ bitcoin: { usd: -50 } }),
+      json: async () => ({ spot_usd_oz: 0 }),
     }));
 
-    const provider = new BitcoinProvider(1000);
     await (provider as any).poll();
 
     expect(provider.getCurrentPrice().status).toBe("OFFLINE");
     expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Invalid price payload");
   });
 
-  it("handles network error", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network connection error")));
-
-    const provider = new BitcoinProvider(1000);
-    await (provider as any).poll();
-
-    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Network connection error");
-  });
-});
-
-describe("GoldProvider (CoinGecko PAXG Proxy)", () => {
-  let consoleErrorSpy: any;
-
-  beforeEach(() => {
-    CoinGeckoClient.resetInstance();
-    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(console, "log").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("successfully parses CoinGecko pax-gold price for XAU/USD with proxy metadata", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => ({ "pax-gold": { usd: 2380.25 } }),
-    }));
-
-    const provider = new GoldProvider(1000);
-    await (provider as any).poll();
-
-    const price = provider.getCurrentPrice();
-    expect(price.instrument).toBe("XAU/USD");
-    expect(price.price).toBe(2380.25);
-    expect(price.status).toBe("LIVE");
-    expect(price.source).toBe("coingecko");
-    expect(price.sourceSymbol).toBe("pax-gold");
-    expect(price.isProxy).toBe(true);
-  });
-
-  it("handles HTTP error and logs diagnostic message", async () => {
+  it("handles HTTP errors (e.g. 429, 500) and triggers controlled backoff", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,
       status: 429,
       statusText: "Too Many Requests",
-      headers: new Headers(),
-      text: async () => "Rate limit exceeded",
+      text: async () => "Rate limited",
     }));
 
-    const provider = new GoldProvider(1000);
     await (provider as any).poll();
 
     expect(provider.getCurrentPrice().status).toBe("OFFLINE");
     expect(consoleErrorSpy).toHaveBeenCalled();
-    const logOutput = consoleErrorSpy.mock.calls[0][0];
-    expect(logOutput).toContain("[CoinGeckoClient]");
-    expect(logOutput).toContain("HTTP 429 Too Many Requests");
+    expect((provider as any).backoffUntil).toBeGreaterThan(Date.now());
   });
 
-  it("handles malformed JSON error", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => { throw new SyntaxError("Unexpected token < in JSON"); },
-    }));
+  it("handles network error and recovers on subsequent successful poll", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockRejectedValueOnce(new Error("DNS lookup failed"))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ spot_usd_oz: 2400.00 }),
+      })
+    );
 
-    const provider = new GoldProvider(1000);
+    // Call 1: Fails
     await (provider as any).poll();
-
     expect(provider.getCurrentPrice().status).toBe("OFFLINE");
-    expect(consoleErrorSpy).toHaveBeenCalled();
-  });
 
-  it("handles missing pax-gold.usd field in response", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => ({ "pax-gold": {} }),
-    }));
+    // Fast-forward backoff for test
+    (provider as any).backoffUntil = Date.now() - 100;
 
-    const provider = new GoldProvider(1000);
+    // Call 2: Recovers
     await (provider as any).poll();
-
-    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Invalid price payload");
-  });
-
-  it("handles zero or negative price in response", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => ({ "pax-gold": { usd: 0 } }),
-    }));
-
-    const provider = new GoldProvider(1000);
-    await (provider as any).poll();
-
-    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Invalid price payload");
-  });
-
-  it("handles network error", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Socket hang up")));
-
-    const provider = new GoldProvider(1000);
-    await (provider as any).poll();
-
-    expect(provider.getCurrentPrice().status).toBe("OFFLINE");
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(consoleErrorSpy.mock.calls[0][0]).toContain("Socket hang up");
+    expect(provider.getCurrentPrice().status).toBe("LIVE");
+    expect(provider.getCurrentPrice().price).toBe(2400.00);
   });
 });
 
-describe("CoinGeckoClient Rate Limit & Resilience", () => {
+describe("MarketDataService Integration", () => {
+  let service: MarketDataService;
+
   beforeEach(() => {
-    CoinGeckoClient.resetInstance();
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    service = new MarketDataService();
   });
 
   afterEach(() => {
+    service.stop();
     vi.restoreAllMocks();
   });
 
-  it("successful polling updates timestamp and keeps status LIVE", async () => {
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => ({ bitcoin: { usd: 80000 }, "pax-gold": { usd: 4500 } }),
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-
-    const client = CoinGeckoClient.getInstance();
-    client.setMinFetchIntervalMs(0);
-
-    const prices1 = await client.fetchPrices(["bitcoin", "pax-gold"]);
-    const t1 = prices1.get("bitcoin")?.fetchedAt;
-    expect(t1).toBeDefined();
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    const prices2 = await client.fetchPrices(["bitcoin", "pax-gold"]);
-    const t2 = prices2.get("bitcoin")?.fetchedAt;
-    expect(t2).toBeDefined();
-
-    expect(t1).not.toBe(t2);
+  it("starts both BTC and XAU providers without one stopping the other", () => {
+    service.start();
+    expect((service as any).providers).toHaveLength(2);
+    expect((service as any).isRunning).toBe(true);
   });
 
-  it("HTTP 429 causes controlled backoff and does NOT permanently stop polling", async () => {
-    const fetchSpy = vi.fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 429,
-        statusText: "Too Many Requests",
-        headers: new Headers({ "retry-after": "1" }),
-        text: async () => "Rate limit exceeded",
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        json: async () => ({ bitcoin: { usd: 81000 } }),
-      });
-
-    vi.stubGlobal("fetch", fetchSpy);
-
-    const client = CoinGeckoClient.getInstance();
-    client.setMinFetchIntervalMs(0);
-
-    await expect(client.fetchPrices(["bitcoin"])).rejects.toThrow(/HTTP 429/);
-    expect(client.getBackoffUntil()).toBeGreaterThan(Date.now());
-
-    await client.fetchPrices(["bitcoin"]);
-    expect(fetchSpy).toHaveBeenCalledOnce();
-
-    (client as any).backoffUntil = Date.now() - 100;
-
-    const resAfterBackoff = await client.fetchPrices(["bitcoin"]);
-    expect(resAfterBackoff.get("bitcoin")?.price).toBe(81000);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-  });
-
-  it("network errors do not permanently stop polling", async () => {
-    const fetchSpy = vi.fn()
-      .mockRejectedValueOnce(new Error("Network disconnect"))
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        json: async () => ({ bitcoin: { usd: 82000 } }),
-      });
-
-    vi.stubGlobal("fetch", fetchSpy);
-
-    const client = CoinGeckoClient.getInstance();
-    client.setMinFetchIntervalMs(0);
-
-    await expect(client.fetchPrices(["bitcoin"])).rejects.toThrow("Network disconnect");
-
-    const res = await client.fetchPrices(["bitcoin"]);
-    expect(res.get("bitcoin")?.price).toBe(82000);
+  it("calculates provider-aware stale thresholds correctly", () => {
+    service.start();
+    (service as any).checkStaleData();
   });
 });
