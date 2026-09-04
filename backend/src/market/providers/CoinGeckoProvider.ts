@@ -1,5 +1,6 @@
 import { MarketPrice } from "../types";
 import { MarketProvider } from "./MarketProvider";
+import { CoinGeckoClient } from "./CoinGeckoClient";
 
 export interface CoinGeckoConfig {
   instrument: string;
@@ -18,8 +19,6 @@ export class CoinGeckoProvider implements MarketProvider {
   private readonly coinId: string;
   private readonly isProxy: boolean;
   private readonly logTag: string;
-  private backoffMs: number = 0;
-  private backoffUntil: number = 0;
 
   constructor(config: CoinGeckoConfig) {
     this.pollIntervalMs = config.pollIntervalMs ?? 2000;
@@ -61,70 +60,27 @@ export class CoinGeckoProvider implements MarketProvider {
   }
 
   private async poll() {
-    const now = Date.now();
-    if (now < this.backoffUntil) {
-      return;
-    }
-
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${this.coinId}&vs_currencies=usd`;
     try {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(url, {
-        signal: controller.signal,
-        cache: "no-store",
-        headers: {
-          "Accept": "application/json",
-        },
-      });
-      clearTimeout(id);
+      const client = CoinGeckoClient.getInstance();
+      const pricesMap = await client.fetchPrices([this.coinId]);
+      const priceObj = pricesMap.get(this.coinId);
 
-      if (res.status === 429) {
-        this.backoffMs = Math.min(this.backoffMs ? this.backoffMs * 2 : 10000, 60000);
-        this.backoffUntil = Date.now() + this.backoffMs;
-      }
-
-      if (!res.ok) {
-        let body = "";
-        try {
-          body = await res.text();
-        } catch {
-          body = "<failed to read response body>";
-        }
-        const errorMsg = `HTTP error ${res.status} ${res.statusText}. Response body: ${body}`;
-        const err = new Error(errorMsg);
-        (err as any).status = res.status;
-        (err as any).responseBody = body;
-        throw err;
-      }
-
-      const data = await res.json();
-      const rawPrice = data?.[this.coinId]?.usd;
-      const price = typeof rawPrice === "number" ? rawPrice : parseFloat(rawPrice);
-
-      if (typeof price === "number" && Number.isFinite(price) && price > 0) {
-        this.backoffMs = 0;
-        this.backoffUntil = 0;
+      if (priceObj && typeof priceObj.price === "number" && Number.isFinite(priceObj.price) && priceObj.price > 0) {
         this.currentPrice = {
           ...this.currentPrice,
-          price,
-          timestamp: new Date().toISOString(),
+          price: priceObj.price,
+          timestamp: priceObj.fetchedAt,
           status: "LIVE",
         };
-        if (this.onUpdateCallback) this.onUpdateCallback(this.currentPrice);
+        if (this.onUpdateCallback) {
+          this.onUpdateCallback(this.currentPrice);
+        }
         return;
       }
 
-      const invalidErr = new Error(`Invalid price payload for ${this.coinId}: ${JSON.stringify(data)}`);
-      throw invalidErr;
-    } catch (e: any) {
-      const statusInfo = e?.status ? ` HTTP status: ${e.status}.` : "";
-      const bodyInfo = e?.responseBody ? ` Response body: ${e.responseBody}.` : "";
-      console.error(
-        `[${this.logTag}] Error fetching ${this.coinId} (${this.instrument}) from ${url}:` +
-        ` provider=coingecko instrument=${this.instrument} symbol=${this.coinId} url=${url}.` +
-        `${statusInfo}${bodyInfo} errorName=${e?.name || "Error"} errorMessage=${e?.message || String(e)}`
-      );
+      console.error(`[${this.logTag}] Invalid price payload for ${this.coinId}`);
+    } catch {
+      // Diagnostic error logging is handled by CoinGeckoClient
     }
   }
 }
