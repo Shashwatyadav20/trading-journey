@@ -42,33 +42,53 @@ export class BinanceProvider implements MarketProvider {
   }
 
   private async poll() {
+    const url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT";
     try {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", {
+      const res = await fetch(url, {
         signal: controller.signal,
         cache: "no-store",
       });
       clearTimeout(id);
 
-      if (res.ok) {
-        const data = await res.json();
-        const price = parseFloat(data.price);
-        if (!isNaN(price) && price > 0) {
-          this.currentPrice = {
-            ...this.currentPrice,
-            price,
-            timestamp: new Date().toISOString(),
-            status: "LIVE",
-          };
-          if (this.onUpdateCallback) this.onUpdateCallback(this.currentPrice);
-          return;
+      if (!res.ok) {
+        let body = "";
+        try {
+          body = await res.text();
+        } catch {
+          body = "<failed to read response body>";
         }
+        const errorMsg = `HTTP error ${res.status} ${res.statusText}. Response body: ${body}`;
+        const err = new Error(errorMsg);
+        (err as any).status = res.status;
+        (err as any).responseBody = body;
+        throw err;
       }
-      throw new Error("Invalid response or non-ok status");
-    } catch (e) {
-      // Leave status unchanged or handled by MarketDataService
-      // For now just skip updating timestamp so MarketDataService detects it as STALE/OFFLINE
+
+      const data = await res.json();
+      const price = parseFloat(data?.price);
+      if (!isNaN(price) && price > 0) {
+        this.currentPrice = {
+          ...this.currentPrice,
+          price,
+          timestamp: new Date().toISOString(),
+          status: "LIVE",
+        };
+        if (this.onUpdateCallback) this.onUpdateCallback(this.currentPrice);
+        return;
+      }
+
+      const invalidErr = new Error(`Invalid price payload: ${JSON.stringify(data)}`);
+      throw invalidErr;
+    } catch (e: any) {
+      const statusInfo = e?.status ? ` HTTP status: ${e.status}.` : "";
+      const bodyInfo = e?.responseBody ? ` Response body: ${e.responseBody}.` : "";
+      console.error(
+        `[BinanceProvider] Error fetching ${this.currentPrice.sourceSymbol} (${this.currentPrice.instrument}) from ${url}:` +
+        ` provider=binance instrument=${this.currentPrice.instrument} symbol=${this.currentPrice.sourceSymbol} url=${url}.` +
+        `${statusInfo}${bodyInfo} errorName=${e?.name || "Error"} errorMessage=${e?.message || String(e)}`
+      );
     }
   }
 }

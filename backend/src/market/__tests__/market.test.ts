@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MarketPriceStore } from "../../market/MarketPriceStore";
 import { MarketPrice } from "../../market/types";
+import { BinanceProvider } from "../providers/BinanceProvider";
+import { GoldProvider } from "../providers/GoldProvider";
 
 // ───────────────────────────────────────────────────────────
 // Helper factories
@@ -190,3 +192,86 @@ describe("STALE / OFFLINE detection", () => {
     expect(retrieved?.price).toBe(0);
   });
 });
+
+describe("Provider diagnostic error logging", () => {
+  let consoleErrorSpy: any;
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("BinanceProvider logs HTTP status, response body, instrument, symbol, and URL on non-ok response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 451,
+      statusText: "Unavailable For Legal Reasons",
+      text: async () => "Service unavailable in US region",
+    }));
+
+    const provider = new BinanceProvider(1000);
+    await (provider as any).poll();
+
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    const logOutput = consoleErrorSpy.mock.calls[0][0];
+    expect(logOutput).toContain("[BinanceProvider]");
+    expect(logOutput).toContain("instrument=BTC/USD");
+    expect(logOutput).toContain("symbol=BTCUSDT");
+    expect(logOutput).toContain("provider=binance");
+    expect(logOutput).toContain("url=https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
+    expect(logOutput).toContain("HTTP status: 451");
+    expect(logOutput).toContain("Response body: Service unavailable in US region");
+  });
+
+  it("BinanceProvider logs network/timeout errors with error name and message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Connection reset by peer")));
+
+    const provider = new BinanceProvider(1000);
+    await (provider as any).poll();
+
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    const logOutput = consoleErrorSpy.mock.calls[0][0];
+    expect(logOutput).toContain("[BinanceProvider]");
+    expect(logOutput).toContain("instrument=BTC/USD");
+    expect(logOutput).toContain("errorMessage=Connection reset by peer");
+  });
+
+  it("GoldProvider logs HTTP status, response body, instrument, symbol, and URL on non-ok response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      text: async () => "Rate limit exceeded",
+    }));
+
+    const provider = new GoldProvider(1000);
+    await (provider as any).poll();
+
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    const logOutput = consoleErrorSpy.mock.calls[0][0];
+    expect(logOutput).toContain("[GoldProvider]");
+    expect(logOutput).toContain("instrument=XAU/USD");
+    expect(logOutput).toContain("symbol=PAXGUSDT");
+    expect(logOutput).toContain("provider=binance");
+    expect(logOutput).toContain("url=https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT");
+    expect(logOutput).toContain("HTTP status: 429");
+    expect(logOutput).toContain("Response body: Rate limit exceeded");
+  });
+
+  it("GoldProvider logs network/timeout errors with error name and message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Fetch timeout after 5000ms")));
+
+    const provider = new GoldProvider(1000);
+    await (provider as any).poll();
+
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    const logOutput = consoleErrorSpy.mock.calls[0][0];
+    expect(logOutput).toContain("[GoldProvider]");
+    expect(logOutput).toContain("instrument=XAU/USD");
+    expect(logOutput).toContain("errorMessage=Fetch timeout after 5000ms");
+  });
+});
+
