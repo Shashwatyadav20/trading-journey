@@ -30,14 +30,27 @@ const server = Fastify({
 server.register(cors, {
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
+
+    const allowedOrigins = (env.FRONTEND_URL || '')
+      .split(',')
+      .map((o) => o.trim().replace(/\/$/, ''))
+      .filter(Boolean);
+
+    const cleanOrigin = origin.replace(/\/$/, '');
+
     if (
       env.NODE_ENV === 'development' ||
-      origin === env.FRONTEND_URL ||
-      origin.startsWith('http://localhost:') ||
-      origin.startsWith('http://127.0.0.1:')
+      allowedOrigins.includes(cleanOrigin) ||
+      cleanOrigin.endsWith('.vercel.app') ||
+      cleanOrigin.startsWith('http://localhost:') ||
+      cleanOrigin.startsWith('http://127.0.0.1:')
     ) {
       return cb(null, true);
     }
+
+    server.log.warn(
+      `[CORS] Rejected origin: ${origin} (FRONTEND_URL: ${env.FRONTEND_URL})`
+    );
     return cb(new Error('Not allowed by CORS'), false);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
