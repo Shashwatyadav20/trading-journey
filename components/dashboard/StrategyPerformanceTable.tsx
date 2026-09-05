@@ -2,7 +2,7 @@
 
 import React from "react";
 import { StrategyMetrics } from "../../types/trade";
-import { formatCurrency, formatPercent, formatRatio } from "../../lib/calculations";
+import { formatCurrency, formatPercent, formatRatio, formatStrategyName } from "../../lib/calculations";
 import { Zap, ShieldCheck, Trophy, Layers } from "lucide-react";
 
 interface StrategyPerformanceTableProps {
@@ -12,7 +12,10 @@ interface StrategyPerformanceTableProps {
 export default function StrategyPerformanceTable({
   strategies,
 }: StrategyPerformanceTableProps) {
-  const hasStrategies = strategies.length > 0;
+  const filteredStrategies = strategies.filter(
+    (s) => s.strategy !== "ORDER_BLOCK"
+  );
+  const hasStrategies = filteredStrategies.length > 0;
 
   return (
     <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-4 shadow-xl">
@@ -33,7 +36,7 @@ export default function StrategyPerformanceTable({
         </div>
 
         <div className="text-xs text-slate-400 font-mono">
-          {hasStrategies ? `${strategies.length} active strategies` : "0 strategies logged"}
+          {hasStrategies ? `${filteredStrategies.length} active strategies` : "0 strategies logged"}
         </div>
       </div>
 
@@ -52,7 +55,7 @@ export default function StrategyPerformanceTable({
           </thead>
           <tbody className="divide-y divide-slate-800/40 text-slate-200">
             {hasStrategies ? (
-              strategies.map((row, idx) => {
+              filteredStrategies.map((row, idx) => {
                 const isBest = idx === 0 && row.netPnL > 0;
                 return (
                   <tr
@@ -62,7 +65,7 @@ export default function StrategyPerformanceTable({
                     <td className="p-3.5">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-slate-100 group-hover:text-cyan-400 transition-colors">
-                          {row.strategy}
+                          {formatStrategyName(row.strategy)}
                         </span>
                         {isBest && (
                           <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">

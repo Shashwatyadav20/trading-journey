@@ -97,7 +97,7 @@ export class TradeRepository {
       holding_time,
       symbol: position.instrument,
       side: position.side,
-      strategy: position.strategy || "Paper Trade",
+      strategy: position.strategy || "Manual Trade",
       entry_price: position.entryPrice,
       stop_loss: position.stopLoss ?? null,
       target_price: position.takeProfit ?? null,
@@ -142,6 +142,21 @@ export class TradeRepository {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  /**
+   * Find ALL trade records (open and closed) for a specific verified user.
+   */
+  async findAllTrades(userId: string): Promise<TradeRow[]> {
+    const supabase = getAdminSupabaseClient();
+    const { data, error } = await supabase
+      .from("trades")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
+
+    if (error) throw new Error(`Failed to find trades for user: ${error.message}`);
+    return (data as TradeRow[]) || [];
   }
 
   /**

@@ -23,6 +23,7 @@ export interface Position {
   realizedPnl?: number;
   unrealizedPnl: number;
   strategy?: string;
+  signalId?: string;
   orderType?: "Market" | "LIMIT";
   createdAt: string; // ISO String
   updatedAt: string; // ISO String
@@ -35,6 +36,8 @@ export interface MarketOrderRequest {
   stopLoss?: number | null;
   takeProfit?: number | null;
   strategy?: string;
+  signalId?: string;
+  idempotencyKey?: string;
 }
 
 export interface LimitOrderRequest {
@@ -45,6 +48,8 @@ export interface LimitOrderRequest {
   stopLoss?: number | null;
   takeProfit?: number | null;
   strategy?: string;
+  signalId?: string;
+  idempotencyKey?: string;
 }
 
 export interface PendingOrder {
@@ -58,6 +63,7 @@ export interface PendingOrder {
   takeProfit?: number | null;
   status: PendingOrderStatus;
   strategy?: string;
+  signalId?: string;
   createdAt: string; // ISO String
   updatedAt: string; // ISO String
   filledAt?: string; // ISO String

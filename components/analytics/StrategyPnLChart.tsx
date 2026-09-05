@@ -13,7 +13,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import { StrategyPnLPoint } from "../../lib/analyticsAggregations";
-import { formatCurrency } from "../../lib/calculations";
+import { formatCurrency, formatStrategyName } from "../../lib/calculations";
 import { Zap, BarChart2 } from "lucide-react";
 
 interface StrategyPnLChartProps {
@@ -21,14 +21,21 @@ interface StrategyPnLChartProps {
 }
 
 export default function StrategyPnLChart({ data }: StrategyPnLChartProps) {
-  const hasData = data.length > 0;
+  const filteredData = data
+    .filter((d) => d.strategy !== "ORDER_BLOCK")
+    .map((d) => ({
+      ...d,
+      formattedStrategy: formatStrategyName(d.strategy),
+    }));
+
+  const hasData = filteredData.length > 0;
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
-      const item: StrategyPnLPoint = payload[0].payload;
+      const item: StrategyPnLPoint & { formattedStrategy?: string } = payload[0].payload;
       return (
         <div className="p-3 rounded-xl bg-slate-950/95 border border-slate-800 shadow-xl font-mono text-xs space-y-1">
-          <p className="font-bold text-slate-200">{item.strategy}</p>
+          <p className="font-bold text-slate-200">{item.formattedStrategy || formatStrategyName(item.strategy)}</p>
           <div className="flex items-center justify-between gap-4">
             <span className="text-slate-400">Net PnL:</span>
             <span
@@ -70,7 +77,7 @@ export default function StrategyPnLChart({ data }: StrategyPnLChartProps) {
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
-              data={data}
+              data={filteredData}
               layout="vertical"
               margin={{ top: 10, right: 30, left: 40, bottom: 0 }}
             >
@@ -83,7 +90,7 @@ export default function StrategyPnLChart({ data }: StrategyPnLChartProps) {
               />
               <YAxis
                 type="category"
-                dataKey="strategy"
+                dataKey="formattedStrategy"
                 stroke="#64748b"
                 tick={{ fontSize: 10, fontFamily: "monospace" }}
                 width={120}
@@ -91,7 +98,7 @@ export default function StrategyPnLChart({ data }: StrategyPnLChartProps) {
               <Tooltip content={<CustomTooltip />} />
               <ReferenceLine x={0} stroke="#475569" strokeWidth={1.5} />
               <Bar dataKey="pnl" radius={[0, 4, 4, 0]}>
-                {data.map((entry, index) => (
+                {filteredData.map((entry, index) => (
                   <Cell
                     key={`cell-${index}`}
                     fill={entry.pnl >= 0 ? "#06b6d4" : "#f43f5e"}

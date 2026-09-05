@@ -2,6 +2,7 @@
 
 import React from "react";
 import { AnalyticsFilterState } from "../../lib/analyticsAggregations";
+import { formatStrategyName } from "../../lib/calculations";
 import { Filter, Calendar, Zap, DollarSign, RefreshCw, X } from "lucide-react";
 
 interface AnalyticsFilterBarProps {
@@ -117,11 +118,13 @@ export default function AnalyticsFilterBar({
             className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 outline-none focus:border-cyan-500"
           >
             <option value="ALL">All Strategies</option>
-            {availableStrategies.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
+            {availableStrategies
+              .filter((s) => s !== "ORDER_BLOCK")
+              .map((s) => (
+                <option key={s} value={s}>
+                  {formatStrategyName(s)}
+                </option>
+              ))}
           </select>
         </div>
 

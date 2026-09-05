@@ -1,16 +1,18 @@
 "use client";
 
 import React, { useState } from "react";
-import { Activity, Bitcoin, Zap } from "lucide-react";
+import { Activity, Bitcoin, Zap, Layers } from "lucide-react";
 import { TradingViewChart } from "../charts/TradingViewChart";
 import { StrategyChart } from "../charts/StrategyChart";
+import { PineLiquidityChart } from "../charts/PineLiquidityChart";
+import { PineLiquidityProvider } from "../../context/PineLiquidityContext";
 
 import PaperTradingPanel from "../trading/PaperTradingPanel";
 import OpenPositionsTable from "../trading/OpenPositionsTable";
 import PendingOrdersPanel from "../trading/PendingOrdersPanel";
 
 type MarketSymbol = "OANDA:XAUUSD" | "BINANCE:BTCUSD";
-type ViewMode = "LIVE" | "STRATEGY";
+type ViewMode = "LIVE" | "STRATEGY" | "PINE";
 
 export default function LiveChartsView() {
   const [activeSymbol, setActiveSymbol] = useState<MarketSymbol>("OANDA:XAUUSD");
@@ -26,15 +28,23 @@ export default function LiveChartsView() {
           <h2 className="text-2xl font-bold text-slate-100 font-sans tracking-tight flex items-center gap-2">
             {viewMode === "LIVE" ? (
               <Activity className="w-6 h-6 text-cyan-400" />
-            ) : (
+            ) : viewMode === "STRATEGY" ? (
               <Zap className="w-6 h-6 text-emerald-400" />
+            ) : (
+              <Layers className="w-6 h-6 text-violet-400" />
             )}
-            {viewMode === "LIVE" ? "Live Market Data" : "Strategy Detection Engine"}
+            {viewMode === "LIVE"
+              ? "Live Market Data"
+              : viewMode === "STRATEGY"
+              ? "Strategy Detection Engine"
+              : "Pine Liquidity Engine (1:1 TV Port)"}
           </h2>
           <p className="text-sm text-slate-400">
             {viewMode === "LIVE"
               ? "Real-time frontend market feed. Zero backend dependencies."
-              : "Frontend algorithm detecting Liquidity Sweeps on BTC/USD."}
+              : viewMode === "STRATEGY"
+              ? "Frontend algorithm detecting Liquidity Sweeps on BTC/USD."
+              : "Backend 1:1 Pine Script Liquidity Engine displaying HTF EQH/EQL, PWH/PWL, Swings & P/D Zone."}
           </p>
         </div>
 
@@ -63,10 +73,21 @@ export default function LiveChartsView() {
               <Zap className="w-4 h-4" />
               Strategy Engine
             </button>
+            <button
+              onClick={() => setViewMode("PINE")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                viewMode === "PINE"
+                  ? "bg-violet-500/10 text-violet-400 shadow-sm border border-violet-500/20"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              Pine Liquidity
+            </button>
           </div>
 
-          {/* Instrument Switcher (Only in Live Mode) */}
-          {viewMode === "LIVE" && (
+          {/* Instrument Switcher (Live & Pine Modes) */}
+          {(viewMode === "LIVE" || viewMode === "PINE") && (
             <div className="flex bg-slate-900/80 p-1 rounded-xl border border-slate-800/80 shadow-inner">
               <button
                 onClick={() => setActiveSymbol("OANDA:XAUUSD")}
@@ -96,11 +117,15 @@ export default function LiveChartsView() {
       </div>
 
       {/* Chart Area */}
-      <div className="w-full relative h-[500px]">
+      <div className="w-full relative h-[520px]">
         {viewMode === "LIVE" ? (
           <TradingViewChart symbol={activeSymbol} />
-        ) : (
+        ) : viewMode === "STRATEGY" ? (
           <StrategyChart />
+        ) : (
+          <PineLiquidityProvider instrument={currentDisplaySymbol}>
+            <PineLiquidityChart instrument={currentDisplaySymbol} />
+          </PineLiquidityProvider>
         )}
       </div>
 

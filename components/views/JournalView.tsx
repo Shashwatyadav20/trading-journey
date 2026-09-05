@@ -4,6 +4,7 @@ import React, { useState, useRef } from "react";
 import { Trade } from "../../types/trade";
 import { useTrades, CreateTradeInput } from "../../context/TradeContext";
 import { validateTradesJson } from "../../lib/storage";
+import { formatStrategyName } from "../../lib/calculations";
 import TradeTable from "../journal/TradeTable";
 import TradeFormModal from "../journal/TradeFormModal";
 import TradeDetailModal from "../journal/TradeDetailModal";
@@ -253,7 +254,7 @@ export default function JournalView() {
               <option value="ALL">All Strategies</option>
               {uniqueStrategies.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {formatStrategyName(s)}
                 </option>
               ))}
             </select>

@@ -241,7 +241,10 @@ export function calculateStrategyPerformance(trades: Trade[]): StrategyMetrics[]
 
   // Populate from trades
   closed.forEach((t) => {
-    const stratName = t.strategy?.trim() || "Uncategorized";
+    let stratName = t.strategy?.trim() || "Manual Trade";
+    if (stratName.toUpperCase().includes("ORDER_BLOCK") || stratName.toUpperCase().includes("OB CREATE")) {
+      stratName = "Manual Trade";
+    }
     if (!strategyMap[stratName]) {
       strategyMap[stratName] = [];
     }
@@ -414,9 +417,28 @@ export function calculateDashboardMetrics(
   };
 }
 
-/**
- * Formatting utilities.
- */
+export function formatStrategyName(strategy: string | undefined | null): string {
+  if (!strategy) return "Manual Trade";
+  switch (strategy) {
+    case "LIQUIDITY_SWEEP":
+      return "Liquidity Sweep";
+    case "SWEEP_ENGULFING":
+      return "Sweep + Engulfing";
+    case "EQH_EQL":
+      return "EQH / EQL";
+    case "PWH_PWL":
+      return "PWH / PWL";
+    case "SWING":
+      return "Swing High / Low";
+    case "Manual Trade":
+    case "MANUAL_TRADE":
+    case "MANUAL":
+      return "Manual Trade";
+    default:
+      return strategy;
+  }
+}
+
 export function formatCurrency(val: number, showSign = false): string {
   const absFormatted = new Intl.NumberFormat("en-US", {
     style: "currency",

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Trade, TradeSide, MistakeTag, MISTAKE_OPTIONS } from "../../types/trade";
+import { Trade, TradeSide, MistakeTag, MISTAKE_OPTIONS, PRESET_STRATEGIES } from "../../types/trade";
 import { CreateTradeInput, computeTradeMetrics } from "../../context/TradeContext";
 import { formatCurrency } from "../../lib/calculations";
 import {
@@ -25,14 +25,6 @@ interface TradeFormModalProps {
   initialData?: Trade | null;
 }
 
-const PRESET_STRATEGIES = [
-  "Liquidity Sweep",
-  "swing high and swing low",
-  "EQH AND EQL",
-  "PWL AND PWH",
-  "OB CREATE AND RETEST THEN ENTRY",
-];
-
 export default function TradeFormModal({
   isOpen,
   onClose,
@@ -45,7 +37,7 @@ export default function TradeFormModal({
   const [time, setTime] = useState<string>("09:30");
   const [symbol, setSymbol] = useState<string>("");
   const [side, setSide] = useState<TradeSide>("LONG");
-  const [strategy, setStrategy] = useState<string>("Liquidity Sweep");
+  const [strategy, setStrategy] = useState<string>("LIQUIDITY_SWEEP");
   const [entryPrice, setEntryPrice] = useState<string>("");
   const [stopLoss, setStopLoss] = useState<string>("");
   const [targetPrice, setTargetPrice] = useState<string>("");
@@ -64,7 +56,7 @@ export default function TradeFormModal({
       setTime(initialData.time || "09:30");
       setSymbol(initialData.symbol || "");
       setSide(initialData.side || "LONG");
-      setStrategy(initialData.strategy || "Liquidity Sweep");
+      setStrategy(initialData.strategy || "LIQUIDITY_SWEEP");
       setEntryPrice(initialData.entryPrice ? initialData.entryPrice.toString() : "");
       setStopLoss(initialData.stopLoss ? initialData.stopLoss.toString() : "");
       setTargetPrice(initialData.targetPrice ? initialData.targetPrice.toString() : "");
@@ -80,7 +72,7 @@ export default function TradeFormModal({
       setTime("09:30");
       setSymbol("");
       setSide("LONG");
-      setStrategy("Liquidity Sweep");
+      setStrategy("LIQUIDITY_SWEEP");
       setEntryPrice("");
       setStopLoss("");
       setTargetPrice("");

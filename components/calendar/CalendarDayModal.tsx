@@ -2,8 +2,7 @@
 
 import React from "react";
 import { Trade } from "../../types/trade";
-import { formatCurrency } from "../../lib/calculations";
-import { getTradeNetPnL } from "../../lib/calculations";
+import { formatCurrency, getTradeNetPnL, formatStrategyName } from "../../lib/calculations";
 import {
   X,
   Calendar,
@@ -106,7 +105,7 @@ export default function CalendarDayModal({
                       <span className="font-bold text-slate-100 text-sm">
                         {t.symbol}
                       </span>
-                      <span className="text-cyan-400 text-xs">({t.strategy})</span>
+                      <span className="text-cyan-400 text-xs">({formatStrategyName(t.strategy)})</span>
                     </div>
 
                     <div className="text-right">

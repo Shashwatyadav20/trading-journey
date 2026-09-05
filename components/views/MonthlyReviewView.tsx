@@ -10,6 +10,7 @@ import {
   formatCurrency,
   formatPercent,
   formatRatio,
+  formatStrategyName,
   DEFAULT_STARTING_CAPITAL,
 } from "../../lib/calculations";
 import KPICard from "../dashboard/KPICard";
@@ -249,9 +250,9 @@ export default function MonthlyReviewView() {
           {/* 8. Win Rate */}
           <KPICard
             title="8. Monthly Win Rate"
-            value={formatPercent(metrics.winRate)}
-            subtext={metrics.winRate >= 50 ? "Positive Monthly Edge" : "Below 50% target"}
-            trend={metrics.winRate >= 50 ? "positive" : "negative"}
+            value={hasMonthTrades ? formatPercent(metrics.winRate) : "—"}
+            subtext={hasMonthTrades ? (metrics.winRate >= 50 ? "Positive Monthly Edge" : "Below 50% target") : "Baseline Edge"}
+            trend={hasMonthTrades ? (metrics.winRate >= 50 ? "positive" : "negative") : "neutral"}
             icon={Award}
             accentColor={metrics.winRate >= 50 ? "emerald" : "amber"}
           />
@@ -259,7 +260,7 @@ export default function MonthlyReviewView() {
           {/* 9. Profit Factor */}
           <KPICard
             title="9. Profit Factor"
-            value={formatRatio(metrics.profitFactor, metrics.hasLosses && hasMonthTrades)}
+            value={hasMonthTrades ? formatRatio(metrics.profitFactor, metrics.hasLosses) : "—"}
             subtext="Monthly Gross Profit / Gross Loss"
             trend={metrics.profitFactor >= 2 ? "positive" : metrics.profitFactor >= 1 ? "neutral" : "negative"}
             icon={Activity}
@@ -269,7 +270,7 @@ export default function MonthlyReviewView() {
           {/* 10. Average R */}
           <KPICard
             title="10. Average R"
-            value={metrics.averageR > 0 ? `+${metrics.averageR.toFixed(2)}R` : `${metrics.averageR.toFixed(2)}R`}
+            value={hasMonthTrades ? (metrics.averageR > 0 ? `+${metrics.averageR.toFixed(2)}R` : `${metrics.averageR.toFixed(2)}R`) : "—"}
             subtext="Monthly Avg R-Multiple / trade"
             trend={metrics.averageR > 0 ? "positive" : "negative"}
             icon={Layers}
@@ -289,7 +290,7 @@ export default function MonthlyReviewView() {
           {/* 12. Best Strategy */}
           <KPICard
             title="12. Best Strategy"
-            value={metrics.bestStrategy}
+            value={hasMonthTrades && metrics.bestStrategy !== "None" ? formatStrategyName(metrics.bestStrategy) : "—"}
             subtext="Top Net PnL Model"
             icon={Trophy}
             accentColor="amber"
@@ -298,7 +299,7 @@ export default function MonthlyReviewView() {
           {/* 13. Worst Strategy */}
           <KPICard
             title="13. Worst Strategy"
-            value={metrics.worstStrategy}
+            value={hasMonthTrades && metrics.worstStrategy !== "None" ? formatStrategyName(metrics.worstStrategy) : "—"}
             subtext="Lowest Net PnL Model"
             icon={Skull}
             accentColor="rose"
@@ -333,7 +334,7 @@ export default function MonthlyReviewView() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  <span>{metrics.bestTrade.side} ({metrics.bestTrade.strategy})</span>
+                  <span>{metrics.bestTrade.side} ({formatStrategyName(metrics.bestTrade.strategy)})</span>
                   <span className="text-cyan-400 font-bold">
                     +{metrics.bestTrade.rMultiple.toFixed(2)}R
                   </span>
@@ -363,7 +364,7 @@ export default function MonthlyReviewView() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  <span>{metrics.worstTrade.side} ({metrics.worstTrade.strategy})</span>
+                  <span>{metrics.worstTrade.side} ({formatStrategyName(metrics.worstTrade.strategy)})</span>
                   <span className="text-amber-400 font-bold">
                     {metrics.worstTrade.mistakeTag || "No Mistake"}
                   </span>

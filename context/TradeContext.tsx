@@ -73,6 +73,7 @@ export interface CreateTradeInput {
   symbol: string;
   side: TradeSide;
   strategy: string;
+  signalId?: string;
   entryPrice: number;
   stopLoss?: number;
   targetPrice?: number;
@@ -252,6 +253,26 @@ export function TradeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshCloudData();
+  }, [refreshCloudData]);
+
+  // Reconciliation on tab focus, network reconnect, or visibility change
+  useEffect(() => {
+    const handleReconcile = () => {
+      if (document.visibilityState === "visible") {
+        console.log("[RECONCILIATION] Tab active or network online — refreshing authoritative cloud data...");
+        refreshCloudData();
+      }
+    };
+
+    window.addEventListener("focus", handleReconcile);
+    window.addEventListener("online", handleReconcile);
+    document.addEventListener("visibilitychange", handleReconcile);
+
+    return () => {
+      window.removeEventListener("focus", handleReconcile);
+      window.removeEventListener("online", handleReconcile);
+      document.removeEventListener("visibilitychange", handleReconcile);
+    };
   }, [refreshCloudData]);
 
   // Set up Supabase Realtime subscription for logged-in user

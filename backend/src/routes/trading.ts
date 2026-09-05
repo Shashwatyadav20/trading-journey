@@ -6,6 +6,8 @@ import { priceStore } from "../market/MarketPriceStore";
 import { validateMarketOrder, validateLimitOrder, ValidationError } from "../trading/validation";
 import { AuthenticationError, AuthorizationError } from "../trading/userContext";
 import { authenticateRequest, getVerifiedUser } from "../auth/middleware";
+import { tradeRepository } from "../db/TradeRepository";
+import { AnalyticsService } from "../trading/AnalyticsService";
 
 const tradingRoutes: FastifyPluginAsync = async (fastify) => {
 
@@ -39,6 +41,46 @@ const tradingRoutes: FastifyPluginAsync = async (fastify) => {
 
     fastify.log.error(error);
     reply.status(500).send({ error: "Internal Server Error" });
+  });
+
+  // ─── Analytics Endpoint ───────────────────────────────────────────────
+
+  fastify.get('/trading/analytics', {
+    preHandler: authenticateRequest
+  }, async (request, reply) => {
+    const { userId } = getVerifiedUser(request);
+    const rows = await tradeRepository.findAllTrades(userId);
+    const records = rows.map((r) => AnalyticsService.normalizeRow(r));
+
+    const query = request.query as { year?: string; month?: string; startingCapital?: string } || {};
+    const startingCapital = query.startingCapital ? parseFloat(query.startingCapital) : 500;
+
+    const dashboard = AnalyticsService.calculateDashboard(records, startingCapital);
+    const strategies = AnalyticsService.calculateStrategies(records);
+    const calendar = AnalyticsService.calculateCalendar(records);
+    const equityCurve = AnalyticsService.calculateEquityCurve(
+      AnalyticsService.getClosedTrades(records),
+      startingCapital
+    );
+
+    let monthlyReview = null;
+    if (query.year && query.month) {
+      monthlyReview = AnalyticsService.calculateMonthlyReview(
+        records,
+        parseInt(query.year, 10),
+        parseInt(query.month, 10),
+        startingCapital
+      );
+    }
+
+    reply.status(200).send({
+      userId,
+      dashboard,
+      strategies,
+      calendar,
+      equityCurve,
+      monthlyReview,
+    });
   });
 
   // ─── Market Orders ───────────────────────────────────────────────────────

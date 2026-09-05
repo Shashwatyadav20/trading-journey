@@ -4,6 +4,7 @@ import { pendingOrderStore } from "./PendingOrderStore";
 import { priceStore } from "../market/MarketPriceStore";
 import { tradeRepository } from "../db/TradeRepository";
 import { pendingOrderRepository } from "../db/PendingOrderRepository";
+import { pineLevelService } from "../alerts/PineLevelService";
 import { randomUUID } from "crypto";
 
 export class TradingError extends Error {
@@ -52,6 +53,7 @@ export class TradingEngine {
             takeProfit: order.takeProfit,
             unrealizedPnl: 0,
             strategy: order.strategy,
+            signalId: order.signalId,
             orderType: "LIMIT",
             createdAt: now,
             updatedAt: now,
@@ -158,9 +160,55 @@ export class TradingEngine {
     return position;
   }
 
+  private executedKeys: Map<string, number> = new Map();
+
+  public validateAndResolveSignal(req: MarketOrderRequest | LimitOrderRequest): { strategy: string; signalId?: string } {
+    // 1. Idempotency check
+    if (req.idempotencyKey) {
+      if (this.executedKeys.has(req.idempotencyKey)) {
+        throw new TradingError("Duplicate order execution request.");
+      }
+      this.executedKeys.set(req.idempotencyKey, Date.now());
+      if (this.executedKeys.size > 500) {
+        const now = Date.now();
+        for (const [k, v] of this.executedKeys.entries()) {
+          if (now - v > 60000) this.executedKeys.delete(k);
+        }
+      }
+    }
+
+    if (!req.signalId) {
+      return { strategy: req.strategy || "Manual Trade" };
+    }
+
+    // 2. Validate signal via PineLevelService
+    const signal = pineLevelService.getSignalById(req.instrument, req.signalId);
+    if (!signal || signal.status !== "ACTIVE") {
+      throw new TradingError("Signal has expired or is invalid.");
+    }
+
+    if (signal.instrument !== req.instrument) {
+      throw new TradingError("Signal instrument mismatch.");
+    }
+
+    if (signal.strategy === "ORDER_BLOCK") {
+      throw new TradingError("Order Block strategy is not supported.");
+    }
+
+    // 3. Direction safety check
+    const expectedSide = signal.direction === "BUY" ? "BUY" : "SELL";
+    if (req.side !== expectedSide) {
+      // User manually altered direction away from signal -> do not attribute signal to trade
+      return { strategy: req.strategy && req.strategy !== signal.strategy ? req.strategy : "Manual Trade" };
+    }
+
+    return {
+      strategy: signal.strategy,
+      signalId: signal.signalId,
+    };
+  }
+
   async openPosition(userId: string, req: MarketOrderRequest): Promise<Position> {
-    // Note: Validation of SL/TP is done in the route handler because we need current price
-    
     const marketPrice = priceStore.getPrice(req.instrument);
     if (!marketPrice) {
       throw new TradingError(`No market data available for ${req.instrument}.`);
@@ -170,6 +218,7 @@ export class TradingEngine {
       throw new TradingError(`Market data for ${req.instrument} is ${marketPrice.status}. Cannot execute order.`);
     }
 
+    const { strategy, signalId } = this.validateAndResolveSignal(req);
     const now = new Date().toISOString();
     
     const position: Position = {
@@ -184,7 +233,8 @@ export class TradingEngine {
       stopLoss: req.stopLoss,
       takeProfit: req.takeProfit,
       unrealizedPnl: 0,
-      strategy: req.strategy,
+      strategy,
+      signalId,
       orderType: "Market",
       createdAt: now,
       updatedAt: now,
@@ -236,6 +286,7 @@ export class TradingEngine {
       throw new TradingError(`Market data for ${req.instrument} is ${marketPrice.status}. Cannot execute order.`);
     }
 
+    const { strategy, signalId } = this.validateAndResolveSignal(req);
     const now = new Date().toISOString();
     
     const order: PendingOrder = {
@@ -248,7 +299,8 @@ export class TradingEngine {
       stopLoss: req.stopLoss,
       takeProfit: req.takeProfit,
       status: "PENDING",
-      strategy: req.strategy,
+      strategy,
+      signalId,
       createdAt: now,
       updatedAt: now,
     };

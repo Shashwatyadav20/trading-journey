@@ -13,6 +13,8 @@ import { tradingStateRecovery } from './trading/TradingStateRecovery';
 // This subscribes TradingEngine to priceStore BEFORE market data starts.
 // (Market data only starts after recovery completes in the start() function.)
 import './trading/TradingEngine';
+import pineRoutes from './routes/pine';
+import { pineLevelService } from './alerts/PineLevelService';
 
 const server = Fastify({
   logger: {
@@ -27,8 +29,18 @@ const server = Fastify({
 });
 
 // Configure CORS
+//
+// Production policy (NODE_ENV !== 'development'):
+//   - Only explicitly configured origins in FRONTEND_URL (comma-separated) are allowed.
+//   - Arbitrary *.vercel.app preview deployments are NOT permitted.
+//   - localhost / 127.0.0.1 are NOT permitted.
+//
+// Development policy (NODE_ENV === 'development'):
+//   - All requests are allowed to ease local iteration.
+//
 server.register(cors, {
   origin: (origin, cb) => {
+    // No origin header (same-origin, curl, server-to-server) → always allow
     if (!origin) return cb(null, true);
 
     const allowedOrigins = (env.FRONTEND_URL || '')
@@ -38,13 +50,13 @@ server.register(cors, {
 
     const cleanOrigin = origin.replace(/\/$/, '');
 
-    if (
-      env.NODE_ENV === 'development' ||
-      allowedOrigins.includes(cleanOrigin) ||
-      cleanOrigin.endsWith('.vercel.app') ||
-      cleanOrigin.startsWith('http://localhost:') ||
-      cleanOrigin.startsWith('http://127.0.0.1:')
-    ) {
+    // Development: allow everything (localhost, preview deploys, etc.)
+    if (env.NODE_ENV === 'development') {
+      return cb(null, true);
+    }
+
+    // Production: only explicitly configured origins
+    if (allowedOrigins.includes(cleanOrigin)) {
       return cb(null, true);
     }
 
@@ -64,6 +76,7 @@ server.register(healthRoutes);
 server.register(marketRoutes);
 server.register(tradingRoutes);
 server.register(websocketRoutes);
+server.register(pineRoutes);
 
 // Graceful shutdown
 const closeListeners = ['SIGINT', 'SIGTERM'];
@@ -110,6 +123,9 @@ const start = async () => {
 
     // ─── Step 2: Start market data (ticks now have full state in memory) ──────
     marketDataService.start();
+
+    // ─── Step 2b: Start Pine Level Service (subscribes to priceStore) ─────────
+    pineLevelService.start();
 
     // ─── Step 3: Start HTTP server ────────────────────────────────────────────
     await server.listen({ port: env.PORT, host: '0.0.0.0' });

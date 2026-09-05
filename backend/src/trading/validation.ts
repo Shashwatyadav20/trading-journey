@@ -48,6 +48,8 @@ export function validateMarketOrder(req: any, currentPrice: number): MarketOrder
   const stopLoss = req.stopLoss != null ? Number(req.stopLoss) : null;
   const takeProfit = req.takeProfit != null ? Number(req.takeProfit) : null;
   const strategy = typeof req.strategy === "string" ? req.strategy : undefined;
+  const signalId = typeof req.signalId === "string" ? req.signalId : undefined;
+  const idempotencyKey = typeof req.idempotencyKey === "string" ? req.idempotencyKey : undefined;
 
   if (side === "BUY") {
     validateSlTpForLong(currentPrice, stopLoss, takeProfit);
@@ -61,7 +63,9 @@ export function validateMarketOrder(req: any, currentPrice: number): MarketOrder
     quantity,
     stopLoss,
     takeProfit,
-    strategy
+    strategy,
+    signalId,
+    idempotencyKey,
   };
 }
 
@@ -100,6 +104,8 @@ export function validateLimitOrder(req: any, currentPrice: number): LimitOrderRe
   const stopLoss = req.stopLoss != null ? Number(req.stopLoss) : null;
   const takeProfit = req.takeProfit != null ? Number(req.takeProfit) : null;
   const strategy = typeof req.strategy === "string" ? req.strategy : undefined;
+  const signalId = typeof req.signalId === "string" ? req.signalId : undefined;
+  const idempotencyKey = typeof req.idempotencyKey === "string" ? req.idempotencyKey : undefined;
 
   if (side === "BUY") {
     validateSlTpForLong(limitPrice, stopLoss, takeProfit);
@@ -114,6 +120,8 @@ export function validateLimitOrder(req: any, currentPrice: number): LimitOrderRe
     limitPrice,
     stopLoss,
     takeProfit,
-    strategy
+    strategy,
+    signalId,
+    idempotencyKey,
   };
 }

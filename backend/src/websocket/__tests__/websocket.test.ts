@@ -14,23 +14,24 @@ describe("WebSocket Market Data Route (/ws/market)", () => {
   beforeEach(async () => {
     server = Fastify({ logger: false });
 
-    // CORS configuration mirroring server.ts
+    // CORS configuration mirroring server.ts (Ticket 11.2 locked-down policy)
     server.register(cors, {
       origin: (origin, cb) => {
         if (!origin) return cb(null, true);
         const allowedOrigins = (env.FRONTEND_URL || "")
           .split(",")
-          .map((o) => o.trim().replace(/\/$/, ""));
+          .map((o) => o.trim().replace(/\/$/, ""))
+          .filter(Boolean);
 
         const cleanOrigin = origin.replace(/\/$/, "");
 
-        if (
-          env.NODE_ENV === "development" ||
-          allowedOrigins.includes(cleanOrigin) ||
-          cleanOrigin.endsWith(".vercel.app") ||
-          cleanOrigin.startsWith("http://localhost:") ||
-          cleanOrigin.startsWith("http://127.0.0.1:")
-        ) {
+        // Development: allow everything
+        if (env.NODE_ENV === "development") {
+          return cb(null, true);
+        }
+
+        // Production: only explicitly configured origins
+        if (allowedOrigins.includes(cleanOrigin)) {
           return cb(null, true);
         }
         return cb(new Error("Not allowed by CORS"), false);
@@ -84,10 +85,13 @@ describe("WebSocket Market Data Route (/ws/market)", () => {
     expect(receivedMessages[0].data.price).toBe(65000);
   });
 
-  it("allows connection from Vercel origins (.vercel.app)", async () => {
-    const client = new WebSocket(serverUrl, {
-      headers: { Origin: "https://trading-journey-three.vercel.app" },
-    });
+  // Ticket 11.2: Verify that only the explicitly configured FRONTEND_URL origin
+  // is accepted in production, and arbitrary *.vercel.app previews are rejected.
+  // (Tests run in development mode so the CORS gate is open; the strict production
+  //  path is tested exhaustively in corsPolicy.test.ts.)
+  it("accepts connection with no Origin header (server-to-server / same-origin)", async () => {
+    // No Origin header → CORS guard passes → connection succeeds
+    const client = new WebSocket(serverUrl);
 
     await new Promise<void>((resolve, reject) => {
       client.on("open", () => {

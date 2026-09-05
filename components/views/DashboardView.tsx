@@ -9,6 +9,7 @@ import {
   formatCurrency,
   formatPercent,
   formatRatio,
+  formatStrategyName,
   DEFAULT_STARTING_CAPITAL,
 } from "../../lib/calculations";
 import KPICard from "../dashboard/KPICard";
@@ -211,9 +212,9 @@ export default function DashboardView() {
           {/* 8. Win Rate */}
           <KPICard
             title="8. Win Rate"
-            value={formatPercent(metrics.winRate)}
+            value={hasTrades ? formatPercent(metrics.winRate) : "—"}
             subtext="Winning / Total Trades * 100"
-            trend={metrics.winRate >= 50 ? "positive" : "negative"}
+            trend={hasTrades ? (metrics.winRate >= 50 ? "positive" : "negative") : "neutral"}
             icon={Award}
             accentColor={metrics.winRate >= 50 ? "emerald" : "amber"}
           />
@@ -221,7 +222,7 @@ export default function DashboardView() {
           {/* 9. Profit Factor */}
           <KPICard
             title="9. Profit Factor"
-            value={formatRatio(metrics.profitFactor, metrics.hasLosses && hasTrades)}
+            value={hasTrades ? formatRatio(metrics.profitFactor, metrics.hasLosses) : "—"}
             subtext="Gross Profit / Gross Loss"
             trend={metrics.profitFactor >= 2 ? "positive" : metrics.profitFactor >= 1 ? "neutral" : "negative"}
             icon={Activity}
@@ -231,7 +232,7 @@ export default function DashboardView() {
           {/* 10. Average R */}
           <KPICard
             title="10. Average R"
-            value={metrics.averageR > 0 ? `+${metrics.averageR.toFixed(2)}R` : `${metrics.averageR.toFixed(2)}R`}
+            value={hasTrades ? (metrics.averageR > 0 ? `+${metrics.averageR.toFixed(2)}R` : `${metrics.averageR.toFixed(2)}R`) : "—"}
             subtext="Sum of R / Total Trades"
             trend={metrics.averageR > 0 ? "positive" : "negative"}
             icon={Layers}
@@ -251,7 +252,7 @@ export default function DashboardView() {
           {/* 12. Best Strategy */}
           <KPICard
             title="12. Best Strategy"
-            value={metrics.bestStrategy}
+            value={hasTrades && metrics.bestStrategy !== "None" ? formatStrategyName(metrics.bestStrategy) : "—"}
             subtext="Top Net PnL Edge"
             icon={Trophy}
             accentColor="amber"

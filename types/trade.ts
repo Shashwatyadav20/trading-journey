@@ -28,11 +28,12 @@ export const MISTAKE_OPTIONS: MistakeTag[] = [
 ];
 
 export const PRESET_STRATEGIES: string[] = [
-  "Liquidity Sweep",
-  "swing high and swing low",
-  "EQH AND EQL",
-  "PWL AND PWH",
-  "OB CREATE AND RETEST THEN ENTRY",
+  "LIQUIDITY_SWEEP",
+  "SWING",
+  "EQH_EQL",
+  "PWH_PWL",
+  "SWEEP_ENGULFING",
+  "Manual Trade",
 ];
 
 export interface Trade {

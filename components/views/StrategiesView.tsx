@@ -7,6 +7,7 @@ import {
   formatCurrency,
   formatPercent,
   formatRatio,
+  formatStrategyName,
 } from "../../lib/calculations";
 import StrategyRankingCard from "../strategies/StrategyRankingCard";
 import StrategyComparisonTable from "../strategies/StrategyComparisonTable";
@@ -103,34 +104,40 @@ export default function StrategiesView() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
             {
-              name: "Liquidity Sweep",
+              name: "LIQUIDITY_SWEEP",
               timeframe: "15M / 5M",
-              description: "Identifies Asian or session high/low liquidity sweeps into key HTF levels.",
+              description: "Identifies session high/low liquidity sweeps into key HTF levels.",
               rules: ["Session High/Low swept", "Displacement candle formed", "Entry on FVG or market structure shift"],
             },
             {
-              name: "swing high and swing low",
+              name: "SWING",
               timeframe: "1H / 15M",
               description: "Trades continuation or reversal from major swing high and swing low structure points.",
               rules: ["Identify 4H/1H Swing High/Low", "Wait for lower timeframe breaker", "Stop placed beyond swing point"],
             },
             {
-              name: "EQH AND EQL",
+              name: "EQH_EQL",
               timeframe: "15M",
               description: "Target equal highs (EQH) and equal lows (EQL) liquidity pools.",
               rules: ["Mark double tops (EQH) or bottoms (EQL)", "Wait for stop hunt expansion", "Target opposite side liquidity"],
             },
             {
-              name: "PWL AND PWH",
+              name: "PWH_PWL",
               timeframe: "Daily / 1H",
               description: "Prior Week Low (PWL) and Prior Week High (PWH) key level trading model.",
               rules: ["Mark Sunday open PWL & PWH levels", "Monitor weekly expansion phase", "Trade rejections off PWL/PWH"],
             },
             {
-              name: "OB CREATE AND RETEST THEN ENTRY",
+              name: "SWEEP_ENGULFING",
               timeframe: "15M / 5M",
-              description: "Order Block (OB) creation after structure break followed by precise retest.",
-              rules: ["Strong displacement creating Order Block", "Wait for price to return to OB zone", "Confirmation entry on 1M/5M"],
+              description: "Liquidity sweep followed by immediate strong engulfing candle confirmation.",
+              rules: ["Liquidity level swept", "Immediate engulfing candle close", "Confirmation entry on body close"],
+            },
+            {
+              name: "Manual Trade",
+              timeframe: "Flexible",
+              description: "Trades executed manually without explicit Pine signal attribution.",
+              rules: ["User manual entry", "Discretionary setup", "Standard risk management"],
             },
           ].map((strat, idx) => {
             const metricsObj = strategyMetrics.find((s) => s.strategy === strat.name);
@@ -146,7 +153,7 @@ export default function StrategiesView() {
                 <div className="space-y-3 font-mono text-xs">
                   <div className="flex items-start justify-between gap-2">
                     <h4 className="font-bold text-slate-100 text-sm tracking-tight font-sans">
-                      {strat.name}
+                      {formatStrategyName(strat.name)}
                     </h4>
                     <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-cyan-400 border border-slate-700 font-mono">
                       {strat.timeframe}

@@ -4,6 +4,7 @@ import {
   formatCurrency,
   formatPercent,
   formatRatio,
+  formatStrategyName,
   getMostProfitableStrategy,
   getBestRiskAdjustedStrategy,
 } from "../../lib/calculations";
@@ -16,11 +17,12 @@ interface StrategyRankingCardProps {
 export default function StrategyRankingCard({
   strategies,
 }: StrategyRankingCardProps) {
-  const activeStrategies = strategies.filter((s) => s.totalTrades > 0);
+  const filteredInputStrategies = strategies.filter((s) => s.strategy !== "ORDER_BLOCK");
+  const activeStrategies = filteredInputStrategies.filter((s) => s.totalTrades > 0);
   const hasActive = activeStrategies.length > 0;
 
-  const mostProfitable = getMostProfitableStrategy(strategies);
-  const bestRiskAdjusted = getBestRiskAdjustedStrategy(strategies);
+  const mostProfitable = getMostProfitableStrategy(filteredInputStrategies);
+  const bestRiskAdjusted = getBestRiskAdjustedStrategy(filteredInputStrategies);
 
   return (
     <div className="p-6 rounded-2xl bg-slate-900/70 border border-slate-800/80 space-y-6 shadow-xl">
@@ -66,7 +68,7 @@ export default function StrategyRankingCard({
               </div>
               <div className="flex items-baseline justify-between pt-1">
                 <h4 className="text-base font-bold text-slate-100 font-sans tracking-tight">
-                  {mostProfitable.strategy}
+                  {formatStrategyName(mostProfitable.strategy)}
                 </h4>
                 <span className="text-lg font-bold text-emerald-400">
                   {formatCurrency(mostProfitable.netPnL, true)}
@@ -93,7 +95,7 @@ export default function StrategyRankingCard({
               </div>
               <div className="flex items-baseline justify-between pt-1">
                 <h4 className="text-base font-bold text-slate-100 font-sans tracking-tight">
-                  {bestRiskAdjusted.strategy}
+                  {formatStrategyName(bestRiskAdjusted.strategy)}
                 </h4>
                 <span className="text-lg font-bold text-cyan-300">
                   {formatRatio(bestRiskAdjusted.profitFactor, bestRiskAdjusted.hasLosses)} PF
@@ -146,7 +148,7 @@ export default function StrategyRankingCard({
                 {/* Strategy Title */}
                 <div className="space-y-1">
                   <h4 className="text-base font-bold text-slate-100 tracking-tight truncate">
-                    {strat.strategy}
+                    {formatStrategyName(strat.strategy)}
                   </h4>
                   <p className="text-[11px] text-slate-400 font-mono">
                     {strat.rankReason}

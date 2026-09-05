@@ -2,7 +2,7 @@
 
 import React from "react";
 import { StrategyMetrics } from "../../types/trade";
-import { formatCurrency, formatPercent, formatRatio } from "../../lib/calculations";
+import { formatCurrency, formatPercent, formatRatio, formatStrategyName } from "../../lib/calculations";
 import { Zap, Trophy, TrendingUp, TrendingDown, Layers } from "lucide-react";
 
 interface StrategyComparisonTableProps {
@@ -12,7 +12,8 @@ interface StrategyComparisonTableProps {
 export default function StrategyComparisonTable({
   strategies,
 }: StrategyComparisonTableProps) {
-  const hasData = strategies.some((s) => s.totalTrades > 0);
+  const filteredStrategies = strategies.filter((s) => s.strategy !== "ORDER_BLOCK");
+  const hasData = filteredStrategies.some((s) => s.totalTrades > 0);
 
   return (
     <div className="p-5 rounded-2xl bg-slate-900/70 border border-slate-800/80 space-y-4 shadow-xl">
@@ -33,7 +34,7 @@ export default function StrategyComparisonTable({
         </div>
 
         <span className="text-xs text-slate-500 font-mono">
-          {strategies.length} strategies evaluated
+          {filteredStrategies.length} strategies evaluated
         </span>
       </div>
 
@@ -56,7 +57,7 @@ export default function StrategyComparisonTable({
 
           <tbody className="divide-y divide-slate-800/40 text-slate-200">
             {hasData ? (
-              strategies.map((row, idx) => {
+              filteredStrategies.map((row, idx) => {
                 const isTop = idx === 0 && row.totalTrades > 0;
                 const isWin = row.netPnL > 0;
                 const isLoss = row.netPnL < 0;
@@ -73,7 +74,7 @@ export default function StrategyComparisonTable({
                           #{idx + 1}
                         </span>
                         <span className="font-bold text-slate-100 group-hover:text-cyan-400 transition-colors">
-                          {row.strategy}
+                          {formatStrategyName(row.strategy)}
                         </span>
                         {isTop && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">

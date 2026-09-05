@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { Trade } from "../../types/trade";
-import { formatCurrency } from "../../lib/calculations";
+import { formatCurrency, formatStrategyName } from "../../lib/calculations";
 import {
   Eye,
   Edit2,
@@ -12,6 +12,8 @@ import {
   TrendingDown,
   AlertTriangle,
   FolderOpen,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 interface TradeTableProps {
@@ -28,8 +30,18 @@ export default function TradeTable({
   onDelete,
 }: TradeTableProps) {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 20;
 
-  const hasTrades = trades.length > 0;
+  const totalTradesCount = trades.length;
+  const totalPages = Math.max(1, Math.ceil(totalTradesCount / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalTradesCount);
+  const paginatedTrades = trades.slice(startIndex, endIndex);
+
+  const hasTrades = totalTradesCount > 0;
 
   return (
     <div className="rounded-2xl bg-slate-900/60 border border-slate-800/80 overflow-hidden shadow-xl">
@@ -37,9 +49,15 @@ export default function TradeTable({
         <div className="flex items-center gap-2">
           <span className="font-bold text-slate-200">Trade Entries Log</span>
           <span className="px-2 py-0.5 rounded-full bg-slate-800 text-cyan-400 font-semibold">
-            {trades.length} {trades.length === 1 ? "record" : "records"}
+            {totalTradesCount} {totalTradesCount === 1 ? "record" : "records"}
           </span>
         </div>
+
+        {totalPages > 1 && (
+          <div className="text-[11px] text-slate-400">
+            Showing {startIndex + 1}-{endIndex} of {totalTradesCount}
+          </div>
+        )}
       </div>
 
       {/* Responsive Table Container */}
@@ -62,7 +80,7 @@ export default function TradeTable({
 
           <tbody className="divide-y divide-slate-800/40 text-slate-200">
             {hasTrades ? (
-              trades.map((t) => {
+              paginatedTrades.map((t) => {
                 const isWin = t.pnl > 0;
                 const isLoss = t.pnl < 0;
 
@@ -106,7 +124,7 @@ export default function TradeTable({
 
                     {/* Strategy */}
                     <td className="p-3.5 text-slate-300 whitespace-nowrap">
-                      <span className="text-cyan-400">{t.strategy}</span>
+                      <span className="text-cyan-400 font-semibold">{formatStrategyName(t.strategy)}</span>
                       {t.mistakeTag && t.mistakeTag !== "No Mistake" && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 ml-2 font-semibold">
                           {t.mistakeTag}
@@ -243,6 +261,34 @@ export default function TradeTable({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Footer Controls */}
+      {totalPages > 1 && (
+        <div className="p-4 border-t border-slate-800/80 flex items-center justify-between font-mono text-xs bg-slate-950/40">
+          <span className="text-slate-400">
+            Page <strong className="text-slate-200">{safePage}</strong> of{" "}
+            <strong className="text-slate-200">{totalPages}</strong>
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={safePage === 1}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 border border-slate-700 transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Previous</span>
+            </button>
+            <button
+              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={safePage === totalPages}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 border border-slate-700 transition-colors"
+            >
+              <span>Next</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
