@@ -22,11 +22,18 @@
  * GET /pine/metadata/:instrument
  *   Returns historical/live data source metadata and parity status.
  *
- * These endpoints are unauthenticated (analytical data only, no user PII).
+ * POST /pine/telegram/test  (PROTECTED — requires approved Supabase JWT)
+ *   Sends a single connectivity test message to the configured Telegram chat.
+ *   Returns { sent: boolean, configured: boolean }.
+ *   Never returns TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in the response.
+ *
+ * Analytical endpoints are unauthenticated (no user PII).
  * CORS is already configured globally in server.ts.
  */
 import { FastifyPluginAsync } from 'fastify';
 import { pineLevelService } from '../alerts/PineLevelService';
+import { authenticateRequest } from '../auth/middleware';
+import { sendTelegramMessage, isTelegramConfigured } from '../alerts/telegram/TelegramClient';
 
 const pineRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/pine/instruments', async (_request, _reply) => {
@@ -86,6 +93,35 @@ const pineRoutes: FastifyPluginAsync = async (fastify) => {
       metadata,
       timestamp: new Date().toISOString(),
     };
+  });
+
+  /**
+   * POST /pine/telegram/test
+   * ========================
+   * Sends a single connectivity test message to the configured Telegram chat.
+   *
+   * Security:
+   *   - Protected by authenticateRequest (Supabase JWT + approved user check).
+   *   - Never returns TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in the response.
+   *   - Response contains only { sent: boolean, configured: boolean }.
+   *
+   * Rate limiting:
+   *   - Guarded by approved-user authentication — not publicly accessible.
+   *
+   * Use this to verify Telegram connectivity after configuring credentials.
+   */
+  fastify.post('/pine/telegram/test', {
+    preHandler: authenticateRequest,
+  }, async (_request, reply) => {
+    const configured = isTelegramConfigured();
+    const result = await sendTelegramMessage(
+      '🟢 *Trading Journey Telegram Test*\n\nTelegram alert delivery is connected successfully.'
+    );
+    // Never return token, chat_id, or any credential in the response.
+    reply.status(200).send({
+      sent: result.sent,
+      configured,
+    });
   });
 };
 

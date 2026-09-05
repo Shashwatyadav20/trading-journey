@@ -390,7 +390,8 @@ describe('Ticket 5: Pine Signal Detection & Alert Pipeline Tests (18/18)', () =>
     expect(alertEvent.message).toContain('Trading Journey Alert');
     expect(alertEvent.message).toContain('BUY');
     expect(alertEvent.message).toContain('XAU/USD');
-    expect(alertEvent.message.toUpperCase()).toContain('SWEEP ENGULFING');
+    // New format: 'Sweep + Engulfing' → uppercased is 'SWEEP + ENGULFING'
+    expect(alertEvent.message.toUpperCase()).toContain('SWEEP + ENGULFING');
   });
 
   it('TEST I2: Telegram & WhatsApp adapters run safely in dry-run mode', async () => {
@@ -414,11 +415,14 @@ describe('Ticket 5: Pine Signal Detection & Alert Pipeline Tests (18/18)', () =>
       message: 'Test Alert Message',
     };
 
-    // Safely executes dry-run logging without errors
+    // TelegramAdapter dry-run: credentials not configured → sent=false (correct behaviour)
+    // The adapter delegates to TelegramClient which logs and returns sent=false when unconfigured.
     const tgResult = await telegramAdapter.sendAlert(event);
     const waResult = await whatsappAdapter.sendAlert(event);
 
-    expect(tgResult).toBe(true);
+    // Telegram: false in dry-run (not sent — credentials not configured)
+    expect(tgResult).toBe(false);
+    // WhatsApp: true in dry-run (simulated send succeeds by design)
     expect(waResult).toBe(true);
   });
 });
