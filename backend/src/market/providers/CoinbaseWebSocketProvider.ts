@@ -13,6 +13,8 @@ export class CoinbaseWebSocketProvider implements MarketProvider {
   private readonly baseBackoffMs: number = 1000;
   private readonly wsUrl: string = "wss://advanced-trade-ws.coinbase.com";
 
+  private pingIntervalId: NodeJS.Timeout | null = null;
+
   constructor() {
     this.currentPrice = {
       instrument: "BTC/USD",
@@ -44,6 +46,7 @@ export class CoinbaseWebSocketProvider implements MarketProvider {
   stop(): void {
     this.isRunning = false;
     this.clearReconnectTimeout();
+    this.stopPingInterval();
     if (this.ws) {
       const socket = this.ws;
       this.ws = null;
@@ -64,6 +67,26 @@ export class CoinbaseWebSocketProvider implements MarketProvider {
     }
   }
 
+  private startPingInterval(): void {
+    this.stopPingInterval();
+    this.pingIntervalId = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.ping();
+        } catch {
+          // Ignore ping errors
+        }
+      }
+    }, 15000);
+  }
+
+  private stopPingInterval(): void {
+    if (this.pingIntervalId) {
+      clearInterval(this.pingIntervalId);
+      this.pingIntervalId = null;
+    }
+  }
+
   private connect(): void {
     if (!this.isRunning) return;
 
@@ -73,7 +96,8 @@ export class CoinbaseWebSocketProvider implements MarketProvider {
       this.ws = new WebSocket(this.wsUrl);
 
       this.ws.on("open", () => {
-        console.log("[CoinbaseWebSocketProvider] WebSocket connection opened. Sending subscription...");
+        console.log("[CoinbaseWebSocketProvider] Coinbase WebSocket connected. Sending subscriptions for ticker & ticker_batch...");
+        this.startPingInterval();
         this.subscribe();
       });
 
@@ -87,6 +111,7 @@ export class CoinbaseWebSocketProvider implements MarketProvider {
 
       this.ws.on("close", (code: number, reason: Buffer) => {
         console.warn(`[CoinbaseWebSocketProvider] Connection closed (code: ${code}, reason: ${reason.toString() || "none"}).`);
+        this.stopPingInterval();
         this.ws = null;
         this.scheduleReconnect();
       });
@@ -99,14 +124,21 @@ export class CoinbaseWebSocketProvider implements MarketProvider {
   private subscribe(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    const subMsg = {
+    const subMsgTicker = {
       type: "subscribe",
       channel: "ticker",
       product_ids: ["BTC-USD"],
     };
 
-    this.ws.send(JSON.stringify(subMsg));
-    console.log("[CoinbaseWebSocketProvider] Subscription message sent for product_ids=['BTC-USD'] on channel='ticker'");
+    const subMsgTickerBatch = {
+      type: "subscribe",
+      channel: "ticker_batch",
+      product_ids: ["BTC-USD"],
+    };
+
+    this.ws.send(JSON.stringify(subMsgTicker));
+    this.ws.send(JSON.stringify(subMsgTickerBatch));
+    console.log("[CoinbaseWebSocketProvider] Coinbase subscription sent for product_ids=['BTC-USD'] on channels=['ticker', 'ticker_batch']");
   }
 
   private scheduleReconnect(): void {
@@ -135,6 +167,7 @@ export class CoinbaseWebSocketProvider implements MarketProvider {
 
       let price: number | null = null;
       let productId: string | null = null;
+      const channelType = msg?.channel || msg?.type || (msg?.events ? msg.events[0]?.type : "unknown");
 
       if (Array.isArray(msg?.events)) {
         for (const evt of msg.events) {
@@ -153,7 +186,7 @@ export class CoinbaseWebSocketProvider implements MarketProvider {
         }
       }
 
-      if (price === null && (msg?.type === "ticker" || msg?.channel === "ticker")) {
+      if (price === null && (msg?.type === "ticker" || msg?.channel === "ticker" || msg?.channel === "ticker_batch")) {
         const rawProd = msg?.product_id || msg?.product_ids?.[0];
         if (rawProd === "BTC-USD" && msg?.price) {
           const parsed = parseFloat(msg.price);
@@ -174,11 +207,16 @@ export class CoinbaseWebSocketProvider implements MarketProvider {
 
       if (price !== null && (productId === "BTC-USD" || productId === "BTC/USD")) {
         this.reconnectAttempts = 0;
+        const nowIso = new Date().toISOString();
+
+        console.log(
+          `[CoinbaseWebSocketProvider] Coinbase ticker received | instrument=BTC/USD price=${price} timestamp=${nowIso} channel=${channelType}`
+        );
 
         this.currentPrice = {
           instrument: "BTC/USD",
           price,
-          timestamp: new Date().toISOString(),
+          timestamp: nowIso,
           source: "coinbase",
           sourceSymbol: "BTC-USD",
           isProxy: false,

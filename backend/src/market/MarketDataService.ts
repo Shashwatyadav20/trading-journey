@@ -1,6 +1,6 @@
 import { MarketProvider } from "./providers/MarketProvider";
 import { CoinbaseWebSocketProvider } from "./providers/CoinbaseWebSocketProvider";
-import { XausGoldProvider } from "./providers/XausGoldProvider";
+import { XausGoldProvider, isGoldMarketOpen } from "./providers/XausGoldProvider";
 import { priceStore } from "./MarketPriceStore";
 
 export class MarketDataService {
@@ -55,7 +55,16 @@ export class MarketDataService {
     const prices = priceStore.getAllPrices();
 
     for (const p of prices) {
-      if (p.status === "OFFLINE") continue;
+      if (p.instrument === "XAU/USD") {
+        if (!isGoldMarketOpen()) {
+          if (p.status !== "MARKET_CLOSED") {
+            priceStore.setPrice(p.instrument, { ...p, status: "MARKET_CLOSED" });
+          }
+          continue;
+        }
+      }
+
+      if (p.status === "OFFLINE" || p.status === "MARKET_CLOSED") continue;
 
       const timeSinceUpdate = now - new Date(p.timestamp).getTime();
 

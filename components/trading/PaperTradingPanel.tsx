@@ -114,6 +114,14 @@ export default function PaperTradingPanel({
       if (stopLoss === 0 && targetPrice === 0) {
         initSlTp(marketData.price, currentSymbol);
       }
+    } else if (marketData && marketData.status === "MARKET_CLOSED" && marketData.price > 0) {
+      setLivePrice(marketData.price);
+      setPriceSource(`${marketData.sourceSymbol} (MARKET CLOSED)`);
+      setLastFetchedStatus("MARKET_CLOSED");
+      setFetchError("");
+      if (stopLoss === 0 && targetPrice === 0) {
+        initSlTp(marketData.price, currentSymbol);
+      }
     } else if (marketData && marketData.status === "STALE") {
       setFetchError("Price is currently STALE");
       setLivePrice(0);

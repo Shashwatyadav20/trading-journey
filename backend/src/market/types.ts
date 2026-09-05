@@ -1,4 +1,4 @@
-export type PriceStatus = "LIVE" | "STALE" | "OFFLINE";
+export type PriceStatus = "LIVE" | "STALE" | "OFFLINE" | "MARKET_CLOSED";
 
 export interface MarketPrice {
   instrument: string; // e.g. "BTC/USD"

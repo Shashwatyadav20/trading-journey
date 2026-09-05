@@ -1,6 +1,15 @@
 import { MarketPrice } from "../types";
 import { MarketProvider } from "./MarketProvider";
 
+export function isGoldMarketOpen(date: Date = new Date()): boolean {
+  const day = date.getUTCDay(); // 0 = Sun, 5 = Fri, 6 = Sat
+  const hour = date.getUTCHours();
+  if (day === 6) return false; // Saturday (all day)
+  if (day === 0 && hour < 22) return false; // Sunday before 22:00 UTC
+  if (day === 5 && hour >= 22) return false; // Friday after 22:00 UTC
+  return true;
+}
+
 /**
  * XausGoldProvider fetches actual spot gold (XAU/USD) prices from the XAUS spot API.
  * 
@@ -23,6 +32,7 @@ export class XausGoldProvider implements MarketProvider {
 
   constructor(pollIntervalMs: number = 30000) {
     this.pollIntervalMs = pollIntervalMs;
+    const initialStatus = isGoldMarketOpen() ? "OFFLINE" : "MARKET_CLOSED";
     this.currentPrice = {
       instrument: "XAU/USD",
       price: 0,
@@ -30,7 +40,7 @@ export class XausGoldProvider implements MarketProvider {
       source: "xaus",
       sourceSymbol: "XAU/USD",
       isProxy: false, // Actual XAU/USD spot data
-      status: "OFFLINE",
+      status: initialStatus,
       expectedUpdateIntervalMs: 30000,
     };
   }
@@ -68,7 +78,9 @@ export class XausGoldProvider implements MarketProvider {
       return;
     }
 
-    console.log(`[XausGoldProvider] Request started for ${this.apiUrl} at ${new Date().toISOString()}`);
+    const marketOpen = isGoldMarketOpen();
+
+    console.log(`[XausGoldProvider] Request started for ${this.apiUrl} at ${new Date().toISOString()} | marketOpen=${marketOpen}`);
 
     try {
       const controller = new AbortController();
@@ -97,6 +109,11 @@ export class XausGoldProvider implements MarketProvider {
           `[XausGoldProvider] Request failed: HTTP error ${res.status} ${res.statusText}. ` +
           `Response body: ${body}. Backing off for ${this.backoffMs}ms.`
         );
+
+        if (!marketOpen && this.currentPrice.price > 0) {
+          this.currentPrice = { ...this.currentPrice, status: "MARKET_CLOSED" };
+          if (this.onUpdateCallback) this.onUpdateCallback(this.currentPrice);
+        }
         return;
       }
 
@@ -109,8 +126,10 @@ export class XausGoldProvider implements MarketProvider {
         this.backoffUntil = 0;
 
         const sourceTimestamp = data?.timestamp || data?.updated_at;
+        const status = marketOpen ? "LIVE" : "MARKET_CLOSED";
+
         console.log(
-          `[XausGoldProvider] Request succeeded. Valid XAU/USD spot price received: ${price}` +
+          `[XausGoldProvider] Request succeeded. Valid XAU/USD spot price received: ${price} (Status: ${status})` +
           (sourceTimestamp ? ` (Source timestamp: ${sourceTimestamp})` : "")
         );
 
@@ -121,7 +140,7 @@ export class XausGoldProvider implements MarketProvider {
           source: "xaus",
           sourceSymbol: "XAU/USD",
           isProxy: false,
-          status: "LIVE",
+          status,
           expectedUpdateIntervalMs: 30000,
         };
 

@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 
-export type PriceStatus = "LIVE" | "STALE" | "OFFLINE";
+export type PriceStatus = "LIVE" | "STALE" | "OFFLINE" | "MARKET_CLOSED";
 export type ConnectionStatus = "CONNECTING" | "CONNECTED" | "RECONNECTING" | "DISCONNECTED";
 
 export interface MarketPrice {
@@ -83,6 +83,7 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
         }
         reconnectAttemptsRef.current = 0; // Reset attempts on successful connection
         setConnectionStatus("CONNECTED");
+        console.log("[MarketDataContext] WS OPEN");
       };
 
       ws.onmessage = (event) => {
@@ -91,11 +92,15 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
           const message = JSON.parse(event.data);
           if (message.type === "priceUpdate" && message.data) {
             const priceData: MarketPrice = message.data;
+            console.log(`[MarketDataContext] MESSAGE ${priceData.instrument} ${priceData.price}`);
 
-            setCurrentPrices((prev) => ({
-              ...prev,
-              [priceData.instrument]: priceData,
-            }));
+            setCurrentPrices((prev) => {
+              console.log(`[MarketDataContext] PRICE STATE UPDATED ${priceData.instrument} ${priceData.price}`);
+              return {
+                ...prev,
+                [priceData.instrument]: priceData,
+              };
+            });
 
             setLastUpdated(new Date());
           }
@@ -108,9 +113,10 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
         // Silently handled; onclose will manage reconnection
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event: CloseEvent) => {
         if (isUnmountingRef.current) return;
 
+        console.log(`[MarketDataContext] WS CLOSE ${event.code} ${event.reason || "none"}`);
         wsRef.current = null;
         reconnectAttemptsRef.current += 1;
         
