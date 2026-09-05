@@ -5,8 +5,11 @@ export class PositionStore {
   private positions: Map<string, Position> = new Map();
 
   add(position: Position): void {
+    const isNew = !this.positions.has(position.id);
     this.positions.set(position.id, position);
-    tradingEventBus.emit("positionCreated", position);
+    if (isNew) {
+      tradingEventBus.emit("positionCreated", position);
+    }
   }
 
   get(id: string): Position | undefined {

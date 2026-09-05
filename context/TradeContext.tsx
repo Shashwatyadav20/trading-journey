@@ -25,6 +25,7 @@ import {
   mapDbToPendingOrder,
 } from "../lib/cloudSync";
 import { supabase } from "../lib/supabase";
+import { tradingApi } from "../lib/tradingApi";
 
 export const SAMPLE_TRADES: Trade[] = [
   {
@@ -99,6 +100,7 @@ interface TradeContextType {
   updateTrade: (id: string, input: CreateTradeInput) => void;
   deleteTrade: (id: string) => void;
   closePosition: (id: string, exitPrice: number) => void;
+  modifyPosition: (id: string, updates: { stopLoss?: number | null; targetPrice?: number | null }) => void;
   updateTradeStopLoss: (id: string, newSL: number) => void;
   updateTradeTargetPrice: (id: string, newTP: number) => void;
   addPendingOrder: (order: Omit<PendingOrder, "id" | "status">) => PendingOrder;
@@ -403,19 +405,66 @@ export function TradeProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (user) {
-      console.log(`[CLOUD] calling upsertTradeCloud for trade ${newTrade.id} and user ${user.id}`);
-      setSyncStatus("syncing");
-      upsertTradeCloud(newTrade, user.id).then((res) => {
-        if (res.success) {
-          console.log(`[CLOUD] Trade ${newTrade.id} successfully synced to Supabase!`);
-          setSyncStatus("synced");
-          setSyncError(null);
-        } else {
-          console.error(`[CLOUD] Trade ${newTrade.id} FAILED to sync to Supabase: ${res.error}`);
-          setSyncStatus("error");
-          setSyncError(res.error || "Cloud Save Failed");
-        }
-      });
+      const isOpenMarket = (input.status === "OPEN" || !input.status) && (input.orderType === "MARKET" || !input.orderType);
+
+      if (isOpenMarket) {
+        console.log(`[TRADE] Routing OPEN paper position through backend trading API to ensure engine positionStore registration...`);
+        setSyncStatus("syncing");
+        tradingApi
+          .openMarketOrder({
+            instrument: input.symbol,
+            side: input.side === "LONG" ? "BUY" : "SELL",
+            quantity: input.quantity,
+            stopLoss: input.stopLoss,
+            takeProfit: input.targetPrice,
+            strategy: input.strategy,
+            signalId: input.signalId,
+          })
+          .then((backendPosition) => {
+            console.log(`[TRADE] Backend registered position id=${backendPosition.id} in positionStore.`);
+            // Update client trade ID with authoritative backend position ID if different
+            setTrades((prev) => {
+              const registeredTrade: Trade = {
+                ...newTrade,
+                id: backendPosition.id,
+                entryPrice: backendPosition.entryPrice,
+                stopLoss: backendPosition.stopLoss ?? undefined,
+                targetPrice: backendPosition.takeProfit ?? undefined,
+              };
+              const nextTrades = prev.map((t) => (t.id === newTrade.id ? registeredTrade : t));
+              saveTradesToStorage(nextTrades);
+              return nextTrades;
+            });
+            setSyncStatus("synced");
+            setSyncError(null);
+          })
+          .catch((err) => {
+            console.warn(`[TRADE] tradingApi.openMarketOrder failed (${err?.message}), falling back to direct cloud upsert:`, err);
+            upsertTradeCloud(newTrade, user.id).then((res) => {
+              if (res.success) {
+                setSyncStatus("synced");
+                setSyncError(null);
+              } else {
+                setSyncStatus("error");
+                setSyncError(res.error || "Cloud Save Failed");
+              }
+            });
+          });
+      } else {
+        console.log(`[CLOUD] calling upsertTradeCloud for trade ${newTrade.id} and user ${user.id}`);
+        setSyncStatus("syncing");
+        upsertTradeCloud(newTrade, user.id).then((res) => {
+          if (res.success) {
+            console.log(`[CLOUD] Trade ${newTrade.id} successfully synced to Supabase!`);
+            setSyncStatus("synced");
+            setSyncError(null);
+          } else {
+            console.error(`[CLOUD] Trade ${newTrade.id} FAILED to sync to Supabase: ${res.error}`);
+            setSyncStatus("error");
+            setSyncError(res.error || "Cloud Save Failed");
+          }
+        });
+      }
     }
 
     return newTrade;
@@ -528,12 +577,21 @@ export function TradeProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const updateTradeStopLoss = (id: string, newSL: number) => {
+  const modifyPosition = (
+    id: string,
+    updates: { stopLoss?: number | null; targetPrice?: number | null }
+  ) => {
     let updatedTrade: Trade | null = null;
     setTrades((prev) => {
       const nextTrades = prev.map((t) => {
         if (t.id === id) {
-          updatedTrade = { ...t, stopLoss: newSL };
+          const nextSL = updates.stopLoss !== undefined ? (updates.stopLoss ?? undefined) : t.stopLoss;
+          const nextTP = updates.targetPrice !== undefined ? (updates.targetPrice ?? undefined) : t.targetPrice;
+          updatedTrade = {
+            ...t,
+            stopLoss: nextSL,
+            targetPrice: nextTP,
+          };
           return updatedTrade;
         }
         return t;
@@ -543,27 +601,25 @@ export function TradeProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (user && updatedTrade) {
-      upsertTradeCloud(updatedTrade, user.id);
+      const target: Trade = updatedTrade;
+      // Asynchronously sync modification to backend engine if logged in
+      tradingApi.modifyPosition(id, {
+        stopLoss: updates.stopLoss,
+        takeProfit: updates.targetPrice,
+      }).catch((err) => {
+        console.warn("[TRADE] tradingApi.modifyPosition failed, syncing directly via Supabase:", err);
+      });
+
+      upsertTradeCloud(target, user.id);
     }
   };
 
-  const updateTradeTargetPrice = (id: string, newTP: number) => {
-    let updatedTrade: Trade | null = null;
-    setTrades((prev) => {
-      const nextTrades = prev.map((t) => {
-        if (t.id === id) {
-          updatedTrade = { ...t, targetPrice: newTP };
-          return updatedTrade;
-        }
-        return t;
-      });
-      saveTradesToStorage(nextTrades);
-      return nextTrades;
-    });
+  const updateTradeStopLoss = (id: string, newSL: number) => {
+    modifyPosition(id, { stopLoss: newSL });
+  };
 
-    if (user && updatedTrade) {
-      upsertTradeCloud(updatedTrade, user.id);
-    }
+  const updateTradeTargetPrice = (id: string, newTP: number) => {
+    modifyPosition(id, { targetPrice: newTP });
   };
 
   const deleteTrade = (id: string) => {
@@ -680,6 +736,7 @@ export function TradeProvider({ children }: { children: React.ReactNode }) {
         updateTrade,
         deleteTrade,
         closePosition,
+        modifyPosition,
         updateTradeStopLoss,
         updateTradeTargetPrice,
         addPendingOrder,

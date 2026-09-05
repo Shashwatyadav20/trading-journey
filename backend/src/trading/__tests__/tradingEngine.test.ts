@@ -18,6 +18,7 @@ vi.spyOn(pendingOrderRepository, "insert").mockResolvedValue(undefined);
 vi.spyOn(pendingOrderRepository, "update").mockResolvedValue(undefined);
 vi.spyOn(pendingOrderRepository, "cancel").mockResolvedValue(undefined);
 vi.spyOn(pendingOrderRepository, "fill").mockResolvedValue(undefined);
+vi.spyOn(pendingOrderRepository, "atomicFillAndCreateTrade").mockResolvedValue(true);
 
 // Helper to mock the current price
 function setMockPrice(instrument: string, price: number, status: "LIVE" | "STALE" | "OFFLINE" = "LIVE") {
@@ -420,6 +421,7 @@ describe("Trading Engine Core (Step 3A & 3B)", () => {
       expect(posCreated).toBe(1);
       
       setMockPrice("BTC/USD", 47000); // SL -> emits positionClosed
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(posClosed).toBe(1);
 
       tradingEventBus.removeAllListeners();

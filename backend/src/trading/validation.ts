@@ -25,6 +25,34 @@ export function validateSlTpForShort(entryPrice: number, sl?: number | null, tp?
   }
 }
 
+export function validatePositionModification(
+  side: "LONG" | "SHORT" | "BUY" | "SELL",
+  entryPrice: number,
+  currentPrice: number,
+  stopLoss?: number | null,
+  takeProfit?: number | null
+) {
+  const isLong = side === "LONG" || side === "BUY";
+  const sl = stopLoss != null && stopLoss > 0 ? stopLoss : null;
+  const tp = takeProfit != null && takeProfit > 0 ? takeProfit : null;
+
+  if (isLong) {
+    if (sl != null && sl >= currentPrice) {
+      throw new ValidationError("For BUY positions, Stop Loss must be below the current price.");
+    }
+    if (tp != null && tp <= currentPrice) {
+      throw new ValidationError("For BUY positions, Take Profit must be above the current price.");
+    }
+  } else {
+    if (sl != null && sl <= currentPrice) {
+      throw new ValidationError("For SELL positions, Stop Loss must be above the current price.");
+    }
+    if (tp != null && tp >= currentPrice) {
+      throw new ValidationError("For SELL positions, Take Profit must be below the current price.");
+    }
+  }
+}
+
 export function validateMarketOrder(req: any, currentPrice: number): MarketOrderRequest {
   if (!req || typeof req !== "object") {
     throw new ValidationError("Invalid order request payload.");

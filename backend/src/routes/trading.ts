@@ -201,6 +201,27 @@ const tradingRoutes: FastifyPluginAsync = async (fastify) => {
     const position = await tradingEngine.closePosition(userId, id);
     reply.status(200).send(position);
   });
+
+  fastify.patch('/trading/positions/:id', {
+    preHandler: authenticateRequest
+  }, async (request, reply) => {
+    const { userId } = getVerifiedUser(request);
+    const { id } = request.params as { id: string };
+    const body = (request.body as any) || {};
+
+    const existing = positionStore.get(id);
+    if (!existing || existing.userId !== userId) {
+      reply.status(404).send({ error: "Not found." });
+      return;
+    }
+
+    const position = await tradingEngine.modifyPosition(userId, id, {
+      stopLoss: body.stopLoss !== undefined ? (body.stopLoss !== null ? Number(body.stopLoss) : null) : undefined,
+      takeProfit: body.takeProfit !== undefined ? (body.takeProfit !== null ? Number(body.takeProfit) : null) : undefined,
+    });
+
+    reply.status(200).send(position);
+  });
 };
 
 export default tradingRoutes;

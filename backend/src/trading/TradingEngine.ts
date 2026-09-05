@@ -7,6 +7,8 @@ import { pendingOrderRepository } from "../db/PendingOrderRepository";
 import { pineLevelService } from "../alerts/PineLevelService";
 import { randomUUID } from "crypto";
 
+import { validatePositionModification } from "./validation";
+
 export class TradingError extends Error {
   constructor(message: string) {
     super(message);
@@ -140,8 +142,7 @@ export class TradingEngine {
     position.unrealizedPnl = 0;
     position.updatedAt = now;
 
-    positionStore.finishClose(position);
-
+    // Persist close to DB BEFORE final in-memory state transition & WS broadcast
     try {
       await tradeRepository.closeTrade(position.userId, position);
     } catch (err: any) {
@@ -156,6 +157,9 @@ export class TradingEngine {
       console.error(`[TradingEngine] Failed to persist trade close for position ${position.id}:`, err.message);
       throw err;
     }
+
+    // Persist succeeded -> finish in-memory close and emit WS positionClosed event
+    positionStore.finishClose(position);
 
     return position;
   }
@@ -273,6 +277,54 @@ export class TradingEngine {
     }
 
     await this.executeClose(position, marketPrice.price, "MANUAL");
+    return position;
+  }
+
+  async modifyPosition(
+    userId: string,
+    positionId: string,
+    updates: { stopLoss?: number | null; takeProfit?: number | null }
+  ): Promise<Position> {
+    const position = positionStore.get(positionId);
+
+    if (!position) {
+      throw new TradingError("Position not found.");
+    }
+
+    if (position.userId !== userId) {
+      throw new TradingError("Position does not belong to the authenticated user.");
+    }
+
+    if (position.status !== "OPEN") {
+      throw new TradingError(`Cannot modify position in status: ${position.status}`);
+    }
+
+    const marketPrice = priceStore.getPrice(position.instrument);
+    const currentPrice = marketPrice ? marketPrice.price : position.entryPrice;
+
+    const newStopLoss = updates.stopLoss !== undefined ? updates.stopLoss : position.stopLoss;
+    const newTakeProfit = updates.takeProfit !== undefined ? updates.takeProfit : position.takeProfit;
+
+    validatePositionModification(
+      position.side,
+      position.entryPrice,
+      currentPrice,
+      newStopLoss,
+      newTakeProfit
+    );
+
+    position.stopLoss = newStopLoss;
+    position.takeProfit = newTakeProfit;
+    position.updatedAt = new Date().toISOString();
+
+    try {
+      await tradeRepository.update(userId, position);
+    } catch (err: any) {
+      console.error(`[TradingEngine] Failed to persist position modification for ${positionId}:`, err.message);
+      throw new TradingError(`Failed to persist position modification to database: ${err.message}`);
+    }
+
+    positionStore.update(position);
     return position;
   }
 

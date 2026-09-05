@@ -6,6 +6,8 @@ export interface CreateOrderRequest {
   quantity: number;
   stopLoss?: number | null;
   takeProfit?: number | null;
+  strategy?: string;
+  signalId?: string;
 }
 
 export interface CreateLimitOrderRequest extends CreateOrderRequest {
@@ -102,6 +104,22 @@ export class TradingApiClient {
     if (!res.ok) {
       const error = await res.json();
       throw new Error(error.error || "Failed to close position");
+    }
+
+    return res.json();
+  }
+
+  async modifyPosition(positionId: string, updates: { stopLoss?: number | null; takeProfit?: number | null }) {
+    const headers = await this.getAuthHeaders();
+    const res = await fetch(`${this.getBaseUrl()}/trading/positions/${positionId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(updates),
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to modify position");
     }
 
     return res.json();

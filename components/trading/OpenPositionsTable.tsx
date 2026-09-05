@@ -29,7 +29,7 @@ interface OpenPositionsTableProps {
 export default function OpenPositionsTable({
   onPositionClosed,
 }: OpenPositionsTableProps) {
-  const { trades, closePosition, updateTradeStopLoss, updateTradeTargetPrice } = useTrades();
+  const { trades, closePosition, modifyPosition } = useTrades();
   const { getPrice } = useMarketData();
   const openPositions = getOpenTrades(trades);
 
@@ -62,8 +62,10 @@ export default function OpenPositionsTable({
 
   const handleConfirmModify = () => {
     if (modifyTrade) {
-      updateTradeStopLoss(modifyTrade.id, modifySL);
-      updateTradeTargetPrice(modifyTrade.id, modifyTP);
+      modifyPosition(modifyTrade.id, {
+        stopLoss: modifySL > 0 ? modifySL : null,
+        targetPrice: modifyTP > 0 ? modifyTP : null,
+      });
       setModifyTrade(null);
     }
   };
