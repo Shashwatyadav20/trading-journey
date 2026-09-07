@@ -18,6 +18,7 @@
  */
 import { PineLiquidityEngine } from './pine/PineLiquidityEngine';
 import { PineSignalEngine } from './pine/PineSignalEngine';
+import { PineAlertBridge } from './pine/PineAlertBridge';
 import { pineAlertPipeline } from './pine/PineAlertPipeline';
 import { ActiveLevel, PremiumDiscountZoneState, Candle, PineSignal } from './pine/PineTypes';
 import { priceStore } from '../market/MarketPriceStore';
@@ -35,6 +36,7 @@ export interface MarketSourceMetadata {
 export class PineLevelService {
   private engines: Map<string, PineLiquidityEngine> = new Map();
   private signalEngines: Map<string, PineSignalEngine> = new Map();
+  private alertBridge: PineAlertBridge = new PineAlertBridge();
   private openCandles: Map<string, Candle & { bucketStartMs: number }> = new Map();
   private historicalCandles: Map<string, Candle[]> = new Map();
   private isBootstrapped: Map<string, boolean> = new Map();
@@ -46,8 +48,10 @@ export class PineLevelService {
   }
 
   private initEngine(instrument: string): void {
-    this.engines.set(instrument, new PineLiquidityEngine({}, DEFAULT_CHART_TF));
+    const engine = new PineLiquidityEngine({}, DEFAULT_CHART_TF);
+    this.engines.set(instrument, engine);
     this.signalEngines.set(instrument, new PineSignalEngine());
+    this.alertBridge.registerEngine(instrument, engine);
     this.openCandles.delete(instrument);
     this.isBootstrapped.set(instrument, false);
   }
@@ -202,6 +206,9 @@ export class PineLevelService {
       const signalEngine = this.signalEngines.get(price.instrument);
       if (!engine || !signalEngine) return;
 
+      // Realtime level touch evaluation on every incoming market tick
+      this.alertBridge.checkLivePrice(price.instrument, price.price, price.timestamp);
+
       const tickMs = new Date(price.timestamp).getTime();
       const bucketMs = Math.floor(tickMs / (60 * 1000)) * 60 * 1000; // 1-minute bucket
 
@@ -268,6 +275,10 @@ export class PineLevelService {
       this.unsubscribe();
       this.unsubscribe = null;
     }
+  }
+
+  public getAlertBridge(): PineAlertBridge {
+    return this.alertBridge;
   }
 
   getLevels(instrument: string, chartTF: number = 15): ActiveLevel[] {

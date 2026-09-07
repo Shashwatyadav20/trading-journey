@@ -255,7 +255,53 @@ export class TradingEngine {
     return position;
   }
 
-  async closePosition(userId: string, positionId: string): Promise<Position> {
+  private async executePartialClose(position: Position, exitPrice: number, quantityToClose: number): Promise<Position> {
+    const now = new Date().toISOString();
+
+    const realizedPnl = position.side === "LONG"
+      ? (exitPrice - position.entryPrice) * quantityToClose
+      : (position.entryPrice - exitPrice) * quantityToClose;
+
+    const closedRecord: Position = {
+      ...position,
+      id: randomUUID(),
+      quantity: quantityToClose,
+      exitPrice,
+      exitTime: now,
+      exitReason: "MANUAL",
+      status: "CLOSED",
+      realizedPnl,
+      unrealizedPnl: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    position.quantity = position.quantity - quantityToClose;
+    position.unrealizedPnl = position.side === "LONG"
+      ? (exitPrice - position.entryPrice) * position.quantity
+      : (position.entryPrice - exitPrice) * position.quantity;
+    position.updatedAt = now;
+
+    try {
+      await tradeRepository.insert(position.userId, closedRecord);
+      await tradeRepository.update(position.userId, position);
+    } catch (err: any) {
+      position.quantity = position.quantity + quantityToClose;
+      position.unrealizedPnl = position.side === "LONG"
+        ? (exitPrice - position.entryPrice) * position.quantity
+        : (position.entryPrice - exitPrice) * position.quantity;
+      position.updatedAt = new Date().toISOString();
+      console.error(`[TradingEngine] Failed to persist partial close for position ${position.id}:`, err.message);
+      throw new TradingError(`Failed to persist partial close to database: ${err.message}`);
+    }
+
+    positionStore.add(closedRecord);
+    positionStore.update(position);
+
+    return position;
+  }
+
+  async closePosition(userId: string, positionId: string, quantityToClose?: number): Promise<Position> {
     const position = positionStore.get(positionId);
 
     if (!position) {
@@ -266,9 +312,26 @@ export class TradingEngine {
       throw new TradingError("Position does not belong to the authenticated user.");
     }
 
+    if (position.status !== "OPEN") {
+      throw new TradingError("Position is already closed or closing.");
+    }
+
     const marketPrice = priceStore.getPrice(position.instrument);
     if (!marketPrice) {
       throw new TradingError(`No market data available for ${position.instrument}.`);
+    }
+
+    if (quantityToClose !== undefined && quantityToClose !== null) {
+      if (typeof quantityToClose !== "number" || isNaN(quantityToClose) || quantityToClose <= 0) {
+        throw new TradingError("Partial close quantity must be greater than 0.");
+      }
+      if (quantityToClose > position.quantity) {
+        throw new TradingError(`Partial close quantity (${quantityToClose}) cannot exceed open position quantity (${position.quantity}).`);
+      }
+
+      if (quantityToClose < position.quantity) {
+        return this.executePartialClose(position, marketPrice.price, quantityToClose);
+      }
     }
 
     // Atomically transition to CLOSING to prevent double close

@@ -190,6 +190,7 @@ const tradingRoutes: FastifyPluginAsync = async (fastify) => {
   }, async (request, reply) => {
     const { userId } = getVerifiedUser(request);
     const { id } = request.params as { id: string };
+    const body = (request.body as any) || {};
 
     // Check ownership before calling engine so we return 404 vs 400/error
     const existing = positionStore.get(id);
@@ -198,7 +199,8 @@ const tradingRoutes: FastifyPluginAsync = async (fastify) => {
       return;
     }
 
-    const position = await tradingEngine.closePosition(userId, id);
+    const quantityToClose = body.quantity !== undefined && body.quantity !== null ? Number(body.quantity) : undefined;
+    const position = await tradingEngine.closePosition(userId, id, quantityToClose);
     reply.status(200).send(position);
   });
 

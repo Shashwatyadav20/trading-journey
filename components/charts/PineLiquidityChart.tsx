@@ -266,6 +266,8 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
     };
   }, []);
 
+  const currentBarRef = useRef<{ time: number; open: number; high: number; low: number; close: number } | null>(null);
+
   // ─── Fetch historical candles (Coinbase for BTC / Binance PAXG for XAU) ──────
   useEffect(() => {
     if (!seriesRef.current) return;
@@ -294,11 +296,19 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
           }
         } catch { /* ignore fallback */ }
 
-        // 2. Fallback to public endpoints if backend candles empty
+        // 2. Fallback to public endpoints if backend candles empty or for specific TF
         if (chartData.length === 0) {
           if (instrument === "BTC/USD") {
+            const granularityMap: Record<number, number> = {
+              15: 900,
+              30: 1800,
+              60: 3600,
+              240: 21600,
+              1440: 86400,
+            };
+            const gran = granularityMap[chartTF] || 900;
             const resp = await fetch(
-              "https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=900",
+              `https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=${gran}`,
               { headers: { "User-Agent": "TradingApp/1.0" } }
             );
             if (resp.ok) {
@@ -312,8 +322,16 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
               }));
             }
           } else {
+            const binanceIntervalMap: Record<number, string> = {
+              15: "15m",
+              30: "30m",
+              60: "1h",
+              240: "4h",
+              1440: "1d",
+            };
+            const interval = binanceIntervalMap[chartTF] || "15m";
             const resp = await fetch(
-              "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=15m&limit=500"
+              `https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=${interval}&limit=500`
             );
             if (resp.ok) {
               const raw = await resp.json();
@@ -335,6 +353,15 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
         if (seriesRef.current && chartData.length > 0) {
           seriesRef.current.setData(chartData);
           chartRef.current?.timeScale().fitContent();
+
+          const last = chartData[chartData.length - 1];
+          currentBarRef.current = {
+            time: last.time as number,
+            open: last.open,
+            high: last.high,
+            low: last.low,
+            close: last.close,
+          };
         }
       } catch (err) {
         console.error("[PineLiquidityChart] Failed to load candles:", err);
@@ -346,7 +373,7 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
     loadCandles();
   }, [instrument, chartTF]);
 
-  // ─── Update current price line on live tick ────────────────────────────────
+  // ─── Update current price line & candle on live tick ───────────────────────
   useEffect(() => {
     const livePrice = getPrice(instrument);
     if (!livePrice || !seriesRef.current) return;
@@ -368,17 +395,42 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
       });
     } catch { /* ignore */ }
 
-    const now = Math.floor(Date.now() / 1000) as Time;
-    try {
-      seriesRef.current.update({
-        time: now,
+    // Aggregate live tick into timeframe bucketed candle
+    const tfMs = (chartTF || 15) * 60 * 1000;
+    const bucketSec = Math.floor(Date.now() / tfMs) * (tfMs / 1000);
+
+    if (currentBarRef.current && currentBarRef.current.time === bucketSec) {
+      currentBarRef.current.high = Math.max(currentBarRef.current.high, livePrice.price);
+      currentBarRef.current.low = Math.min(currentBarRef.current.low, livePrice.price);
+      currentBarRef.current.close = livePrice.price;
+    } else if (currentBarRef.current && bucketSec > currentBarRef.current.time) {
+      currentBarRef.current = {
+        time: bucketSec,
         open: livePrice.price,
         high: livePrice.price,
         low: livePrice.price,
         close: livePrice.price,
+      };
+    } else if (!currentBarRef.current) {
+      currentBarRef.current = {
+        time: bucketSec,
+        open: livePrice.price,
+        high: livePrice.price,
+        low: livePrice.price,
+        close: livePrice.price,
+      };
+    }
+
+    try {
+      seriesRef.current.update({
+        time: currentBarRef.current.time as Time,
+        open: currentBarRef.current.open,
+        high: currentBarRef.current.high,
+        low: currentBarRef.current.low,
+        close: currentBarRef.current.close,
       });
     } catch { /* ignore */ }
-  }, [getPrice, instrument]);
+  }, [getPrice, instrument, chartTF]);
 
   const horizontalLevels = useMemo(
     () => levels.filter((l) => !["PREMIUM", "DISCOUNT", "EQUILIBRIUM"].includes(l.type)),
