@@ -123,21 +123,71 @@ export class PineLevelService {
           return candles;
         }
       } else if (instrument === 'XAU/USD') {
-        const url = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=15m&limit=1000';
-        const res = await fetch(url);
-        if (res.ok) {
-          const raw = await res.json();
-          const candles: Candle[] = raw.map((d: any) => ({
-            timestamp: new Date(d[0]).toISOString(),
-            open: parseFloat(d[1]),
-            high: parseFloat(d[2]),
-            low: parseFloat(d[3]),
-            close: parseFloat(d[4]),
-            volume: parseFloat(d[5]),
-          }));
-          candles.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-          return candles;
-        }
+        try {
+          const url = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=15m&limit=1000';
+          const res = await fetch(url, { headers: { 'User-Agent': 'TradingApp/1.0' } });
+          if (res.ok) {
+            const raw = await res.json();
+            if (Array.isArray(raw) && raw.length > 0) {
+              const candles: Candle[] = raw.map((d: any) => ({
+                timestamp: new Date(d[0]).toISOString(),
+                open: parseFloat(d[1]),
+                high: parseFloat(d[2]),
+                low: parseFloat(d[3]),
+                close: parseFloat(d[4]),
+                volume: parseFloat(d[5]),
+              }));
+              candles.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+              if (candles.length > 0) return candles;
+            }
+          }
+        } catch { /* ignore fallback */ }
+
+        console.warn('[PineLevelService] Binance PAXGUSDT unavailable, falling back to Kraken PAXGUSD...');
+        try {
+          const krakenUrl = 'https://api.kraken.com/0/public/OHLC?pair=PAXGUSD&interval=15';
+          const krakenRes = await fetch(krakenUrl, { headers: { 'User-Agent': 'TradingApp/1.0' } });
+          if (krakenRes.ok) {
+            const data = await krakenRes.json();
+            if (data?.result) {
+              const pairKey = Object.keys(data.result).find((k) => k !== 'last');
+              if (pairKey && Array.isArray(data.result[pairKey])) {
+                const raw = data.result[pairKey];
+                const candles: Candle[] = raw.map((c: any) => ({
+                  timestamp: new Date(c[0] * 1000).toISOString(),
+                  open: parseFloat(c[1]),
+                  high: parseFloat(c[2]),
+                  low: parseFloat(c[3]),
+                  close: parseFloat(c[4]),
+                  volume: parseFloat(c[6]),
+                }));
+                candles.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                if (candles.length > 0) return candles;
+              }
+            }
+          }
+        } catch { /* ignore fallback */ }
+
+        console.warn('[PineLevelService] Kraken PAXGUSD unavailable, falling back to KuCoin PAXG-USDT...');
+        try {
+          const kucoinUrl = 'https://api.kucoin.com/api/v1/market/candles?symbol=PAXG-USDT&type=15min';
+          const kucoinRes = await fetch(kucoinUrl);
+          if (kucoinRes.ok) {
+            const data = await kucoinRes.json();
+            if (Array.isArray(data?.data)) {
+              const candles: Candle[] = data.data.map((c: any) => ({
+                timestamp: new Date(parseInt(c[0], 10) * 1000).toISOString(),
+                open: parseFloat(c[1]),
+                close: parseFloat(c[2]),
+                high: parseFloat(c[3]),
+                low: parseFloat(c[4]),
+                volume: parseFloat(c[5]),
+              }));
+              candles.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+              if (candles.length > 0) return candles;
+            }
+          }
+        } catch { /* ignore fallback */ }
       }
 
       return [];

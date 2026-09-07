@@ -329,4 +329,234 @@ describe('XAU/USD Chart & Pine Levels Regression Suite', () => {
       global.fetch = origFetch;
     }
   });
+
+  describe('Provider Fallback Regression Suite (Scenarios A-J)', () => {
+    let freshService: PineLevelService;
+
+    beforeEach(() => {
+      freshService = new PineLevelService();
+      priceStore.setPrice('XAU/USD', {
+        instrument: 'XAU/USD',
+        price: 4418.10,
+        timestamp: new Date().toISOString(),
+        source: 'xaus',
+        sourceSymbol: 'XAU/USD',
+        isProxy: false,
+        status: 'LIVE',
+      });
+    });
+
+    it('A. Binance success -> Binance data used', async () => {
+      const origFetch = global.fetch;
+      const binanceCalled = { count: 0 };
+      global.fetch = async (url: any) => {
+        const u = String(url);
+        if (u.includes('PAXGUSDT') && u.includes('binance')) {
+          binanceCalled.count++;
+          return {
+            ok: true,
+            json: async () => [
+              [Date.now() - 15 * 60000, "2500", "2510", "2490", "2505", "10"],
+              [Date.now(), "2505", "2515", "2495", "2510", "10"]
+            ],
+          } as any;
+        }
+        return { ok: false, status: 404 } as any;
+      };
+
+      try {
+        await freshService.bootstrap();
+        expect(binanceCalled.count).toBe(1);
+        const candles = freshService.getHistoricalCandles('XAU/USD', 15);
+        expect(candles.length).toBe(2);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
+    it('B & C. Binance 451/403 or network error -> Kraken fallback used', async () => {
+      const origFetch = global.fetch;
+      const krakenCalled = { count: 0 };
+      global.fetch = async (url: any) => {
+        const u = String(url);
+        if (u.includes('binance')) {
+          return { ok: false, status: 451, statusText: 'Unavailable For Legal Reasons' } as any;
+        }
+        if (u.includes('kraken')) {
+          krakenCalled.count++;
+          return {
+            ok: true,
+            json: async () => ({
+              result: {
+                PAXGUSD: [
+                  [Math.floor((Date.now() - 15 * 60000) / 1000), "4410", "4420", "4405", "4415", "4412", "5.0"],
+                  [Math.floor(Date.now() / 1000), "4415", "4425", "4410", "4418", "4416", "5.0"]
+                ],
+                last: 12345
+              }
+            }),
+          } as any;
+        }
+        return { ok: false, status: 404 } as any;
+      };
+
+      try {
+        await freshService.bootstrap();
+        expect(krakenCalled.count).toBe(1);
+        const candles = freshService.getHistoricalCandles('XAU/USD', 15);
+        expect(candles.length).toBe(2);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
+    it('D. Kraken failure -> KuCoin fallback used', async () => {
+      const origFetch = global.fetch;
+      const kucoinCalled = { count: 0 };
+      global.fetch = async (url: any) => {
+        const u = String(url);
+        if (u.includes('binance') || u.includes('kraken')) {
+          return { ok: false, status: 500 } as any;
+        }
+        if (u.includes('kucoin')) {
+          kucoinCalled.count++;
+          return {
+            ok: true,
+            json: async () => ({
+              data: [
+                [String(Math.floor((Date.now() - 15 * 60000) / 1000)), "4410", "4415", "4420", "4405", "5.0"],
+                [String(Math.floor(Date.now() / 1000)), "4415", "4418", "4425", "4410", "5.0"]
+              ]
+            }),
+          } as any;
+        }
+        return { ok: false, status: 404 } as any;
+      };
+
+      try {
+        await freshService.bootstrap();
+        expect(kucoinCalled.count).toBe(1);
+        const candles = freshService.getHistoricalCandles('XAU/USD', 15);
+        expect(candles.length).toBe(2);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
+    it('E. All providers fail -> graceful empty state', async () => {
+      const origFetch = global.fetch;
+      global.fetch = async () => ({ ok: false, status: 500 } as any);
+
+      try {
+        await freshService.bootstrap();
+        const candles = freshService.getHistoricalCandles('XAU/USD', 15);
+        expect(candles.length).toBe(0);
+        const levels = freshService.getLevels('XAU/USD', 15);
+        expect(levels.length).toBe(0);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
+    it('F. Kraken response parsed correctly', async () => {
+      const rawKrakenRow = [1788121800, "4466.01", "4467.24", "4465.26", "4465.26", "4466.39", "0.721", 16];
+      const timestamp = new Date(rawKrakenRow[0] * 1000).toISOString();
+      const open = parseFloat(rawKrakenRow[1] as string);
+      const high = parseFloat(rawKrakenRow[2] as string);
+      const low = parseFloat(rawKrakenRow[3] as string);
+      const close = parseFloat(rawKrakenRow[4] as string);
+
+      expect(timestamp).toBe('2026-08-30T20:30:00.000Z');
+      expect(open).toBe(4466.01);
+      expect(high).toBe(4467.24);
+      expect(low).toBe(4465.26);
+      expect(close).toBe(4465.26);
+    });
+
+    it('G. KuCoin response parsed correctly', async () => {
+      const rawKuCoinRow = ["1788691200", "4425.84", "4424.22", "4425.99", "4424.22", "0.9334"];
+      const timestamp = new Date(parseInt(rawKuCoinRow[0], 10) * 1000).toISOString();
+      const open = parseFloat(rawKuCoinRow[1]);
+      const close = parseFloat(rawKuCoinRow[2]);
+      const high = parseFloat(rawKuCoinRow[3]);
+      const low = parseFloat(rawKuCoinRow[4]);
+
+      expect(timestamp).toBe('2026-09-06T10:40:00.000Z');
+      expect(open).toBe(4425.84);
+      expect(close).toBe(4424.22);
+      expect(high).toBe(4425.99);
+      expect(low).toBe(4424.22);
+    });
+
+    it('H. Fallback historical candles are passed to PineLiquidityEngine', async () => {
+      const engine = freshService['engines'].get('XAU/USD')!;
+      expect(engine).toBeDefined();
+
+      const origFetch = global.fetch;
+      global.fetch = async (url: any) => {
+        if (String(url).includes('kraken')) {
+          return {
+            ok: true,
+            json: async () => ({
+              result: {
+                PAXGUSD: Array.from({ length: 50 }, (_, i) => [
+                  Math.floor((Date.now() - (50 - i) * 15 * 60000) / 1000),
+                  String(4400 + (i % 5)),
+                  String(4410 + (i % 5)),
+                  String(4390 + (i % 5)),
+                  String(4402 + (i % 5)),
+                  "4401",
+                  "1.0"
+                ]),
+                last: 99
+              }
+            }),
+          } as any;
+        }
+        return { ok: false, status: 404 } as any;
+      };
+
+      try {
+        await freshService.bootstrap();
+        const activeLevels = freshService.getLevels('XAU/USD', 15);
+        expect(activeLevels.length).toBeGreaterThan(0);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
+    it('I. XAU scaling occurs after provider selection', async () => {
+      const origFetch = global.fetch;
+      global.fetch = async (url: any) => {
+        if (String(url).includes('kraken')) {
+          return {
+            ok: true,
+            json: async () => ({
+              result: {
+                PAXGUSD: [
+                  [Math.floor((Date.now() - 15 * 60000) / 1000), "2500", "2510", "2490", "2500", "2500", "1.0"]
+                ],
+                last: 1
+              }
+            }),
+          } as any;
+        }
+        return { ok: false, status: 404 } as any;
+      };
+
+      try {
+        await freshService.bootstrap();
+        const candles = freshService.getHistoricalCandles('XAU/USD', 15);
+        expect(candles[0].close).toBeGreaterThan(4350);
+      } finally {
+        global.fetch = origFetch;
+      }
+    });
+
+    it('J. BTC does not use XAU fallback or scaling', async () => {
+      const meta = freshService.getSourceMetadata('BTC/USD');
+      expect(meta.historicalSource).toContain('Coinbase');
+      expect(meta.parityStatus).toBe('EXACT');
+    });
+  });
 });

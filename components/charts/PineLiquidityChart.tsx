@@ -292,12 +292,17 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
                 low: c.low,
                 close: c.close,
               }));
+              if (instrument === "XAU/USD") {
+                console.log(`[PINE-XAU-DEBUG] historical response count = ${chartData.length}`);
+                console.log(`[PINE-XAU-DEBUG] first candle =`, chartData[0]);
+                console.log(`[PINE-XAU-DEBUG] last candle =`, chartData[chartData.length - 1]);
+              }
             }
           }
         } catch { /* ignore fallback */ }
 
-        // 2. Fallback to public endpoints if backend candles empty or for specific TF
-        if (chartData.length === 0) {
+        // 2. Fallback to public endpoints if backend candles empty (< 5) or for specific TF
+        if (chartData.length < 5) {
           if (instrument === "BTC/USD") {
             const granularityMap: Record<number, number> = {
               15: 900,
@@ -322,41 +327,68 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
               }));
             }
           } else {
-            const binanceIntervalMap: Record<number, string> = {
-              15: "15m",
-              30: "30m",
-              60: "1h",
-              240: "4h",
-              1440: "1d",
-            };
-            const interval = binanceIntervalMap[chartTF] || "15m";
-            const resp = await fetch(
-              `https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=${interval}&limit=500`
-            );
-            if (resp.ok) {
-              const raw = await resp.json();
-              chartData = raw.map((d: any) => ({
-                time: Math.floor(d[0] / 1000) as Time,
-                open: parseFloat(d[1]),
-                high: parseFloat(d[2]),
-                low: parseFloat(d[3]),
-                close: parseFloat(d[4]),
-              }));
+            let fetchedFallback = false;
+            try {
+              const binanceIntervalMap: Record<number, string> = {
+                15: "15m",
+                30: "30m",
+                60: "1h",
+                240: "4h",
+                1440: "1d",
+              };
+              const interval = binanceIntervalMap[chartTF] || "15m";
+              const resp = await fetch(
+                `https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=${interval}&limit=500`
+              );
+              if (resp.ok) {
+                const raw = await resp.json();
+                if (Array.isArray(raw) && raw.length > 0) {
+                  chartData = raw.map((d: any) => ({
+                    time: Math.floor(d[0] / 1000) as Time,
+                    open: parseFloat(d[1]),
+                    high: parseFloat(d[2]),
+                    low: parseFloat(d[3]),
+                    close: parseFloat(d[4]),
+                  }));
+                  fetchedFallback = true;
+                }
+              }
+            } catch { /* fallback next */ }
 
-              const liveP = getPrice(instrument);
-              if (liveP && liveP.price > 0 && chartData.length > 0) {
-                const lastClose = chartData[chartData.length - 1].close;
-                if (lastClose > 0) {
-                  const scaleRatio = liveP.price / lastClose;
-                  if (Math.abs(scaleRatio - 1.0) > 0.001) {
-                    chartData = chartData.map((c) => ({
-                      ...c,
-                      open: parseFloat((c.open * scaleRatio).toFixed(2)),
-                      high: parseFloat((c.high * scaleRatio).toFixed(2)),
-                      low: parseFloat((c.low * scaleRatio).toFixed(2)),
-                      close: parseFloat((c.close * scaleRatio).toFixed(2)),
-                    }));
+            if (!fetchedFallback) {
+              try {
+                const resp = await fetch('https://api.kraken.com/0/public/OHLC?pair=PAXGUSD&interval=15');
+                if (resp.ok) {
+                  const data = await resp.json();
+                  if (data?.result) {
+                    const pairKey = Object.keys(data.result).find((k) => k !== 'last');
+                    if (pairKey && Array.isArray(data.result[pairKey])) {
+                      chartData = data.result[pairKey].map((c: any) => ({
+                        time: c[0] as Time,
+                        open: parseFloat(c[1]),
+                        high: parseFloat(c[2]),
+                        low: parseFloat(c[3]),
+                        close: parseFloat(c[4]),
+                      }));
+                    }
                   }
+                }
+              } catch { /* ignore fallback */ }
+            }
+
+            const liveP = getPrice(instrument);
+            if (liveP && liveP.price > 0 && chartData.length > 0) {
+              const lastClose = chartData[chartData.length - 1].close;
+              if (lastClose > 0) {
+                const scaleRatio = liveP.price / lastClose;
+                if (Math.abs(scaleRatio - 1.0) > 0.001) {
+                  chartData = chartData.map((c) => ({
+                    ...c,
+                    open: parseFloat((c.open * scaleRatio).toFixed(2)),
+                    high: parseFloat((c.high * scaleRatio).toFixed(2)),
+                    low: parseFloat((c.low * scaleRatio).toFixed(2)),
+                    close: parseFloat((c.close * scaleRatio).toFixed(2)),
+                  }));
                 }
               }
             }
@@ -367,7 +399,14 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
         chartData.forEach((cd) => timeMap.set(cd.time as number, cd));
         chartData = Array.from(timeMap.values()).sort((a, b) => (a.time as number) - (b.time as number));
 
+        if (instrument === "XAU/USD") {
+          console.log(`[PINE-XAU-DEBUG] historical state count = ${chartData.length}`);
+        }
+
         if (seriesRef.current && chartData.length > 0) {
+          if (instrument === "XAU/USD") {
+            console.log(`[PINE-XAU-DEBUG] chart setData count = ${chartData.length}`);
+          }
           seriesRef.current.setData(chartData);
           chartRef.current?.timeScale().fitContent();
 
@@ -436,6 +475,11 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
         low: livePrice.price,
         close: livePrice.price,
       };
+    }
+
+    if (instrument === "XAU/USD") {
+      console.log(`[PINE-XAU-DEBUG] live update timestamp = ${new Date().toISOString()}`);
+      console.log(`[PINE-XAU-DEBUG] currentBar =`, currentBarRef.current);
     }
 
     try {
