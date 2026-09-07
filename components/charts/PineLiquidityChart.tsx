@@ -281,7 +281,7 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
 
         // 1. Fetch backend historical bootstrap candles
         try {
-          const backendRes = await fetch(`${getBackendUrl()}/pine/candles/${encoded}`);
+          const backendRes = await fetch(`${getBackendUrl()}/pine/candles/${encoded}?tf=${chartTF}`);
           if (backendRes.ok) {
             const data = await backendRes.json();
             if (Array.isArray(data.candles) && data.candles.length > 0) {
@@ -342,6 +342,23 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
                 low: parseFloat(d[3]),
                 close: parseFloat(d[4]),
               }));
+
+              const liveP = getPrice(instrument);
+              if (liveP && liveP.price > 0 && chartData.length > 0) {
+                const lastClose = chartData[chartData.length - 1].close;
+                if (lastClose > 0) {
+                  const scaleRatio = liveP.price / lastClose;
+                  if (Math.abs(scaleRatio - 1.0) > 0.001) {
+                    chartData = chartData.map((c) => ({
+                      ...c,
+                      open: parseFloat((c.open * scaleRatio).toFixed(2)),
+                      high: parseFloat((c.high * scaleRatio).toFixed(2)),
+                      low: parseFloat((c.low * scaleRatio).toFixed(2)),
+                      close: parseFloat((c.close * scaleRatio).toFixed(2)),
+                    }));
+                  }
+                }
+              }
             }
           }
         }

@@ -76,9 +76,12 @@ const pineRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/pine/candles/:instrument', async (request: any, _reply) => {
     const instrument = decodeURIComponent(request.params.instrument);
-    const candles = pineLevelService.getHistoricalCandles(instrument);
+    const tfParam = parseInt(request.query?.tf as string, 10);
+    const chartTF = !isNaN(tfParam) && tfParam > 0 ? tfParam : 15;
+    const candles = pineLevelService.getHistoricalCandles(instrument, chartTF);
     return {
       instrument,
+      chartTF,
       count: candles.length,
       candles,
       timestamp: new Date().toISOString(),

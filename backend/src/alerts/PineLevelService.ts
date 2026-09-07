@@ -165,9 +165,42 @@ export class PineLevelService {
         `[Historical Source: ${meta.historicalSource} | Live Source: ${meta.liveSource} | Parity: ${meta.parityStatus}]...`
       );
 
-      const history = await this.fetchHistoricalCandles(instrument);
+      let history = await this.fetchHistoricalCandles(instrument);
 
       if (history.length > 0) {
+        if (instrument === 'XAU/USD') {
+          const liveStorePrice = priceStore.getPrice('XAU/USD');
+          let livePrice = liveStorePrice && liveStorePrice.price > 0 ? liveStorePrice.price : 0;
+
+          if (livePrice === 0) {
+            try {
+              const res = await fetch('https://xaus.com/api/v1/spot');
+              if (res.ok) {
+                const data = await res.json();
+                const rawPrice = data?.spot_usd_oz;
+                const parsed = typeof rawPrice === 'number' ? rawPrice : parseFloat(rawPrice);
+                if (typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0) {
+                  livePrice = parsed;
+                }
+              }
+            } catch { /* ignore fallback */ }
+          }
+
+          const lastClose = history[history.length - 1].close;
+          if (livePrice > 0 && lastClose > 0) {
+            const scaleRatio = livePrice / lastClose;
+            if (Math.abs(scaleRatio - 1.0) > 0.001) {
+              history = history.map((c) => ({
+                ...c,
+                open: parseFloat((c.open * scaleRatio).toFixed(2)),
+                high: parseFloat((c.high * scaleRatio).toFixed(2)),
+                low: parseFloat((c.low * scaleRatio).toFixed(2)),
+                close: parseFloat((c.close * scaleRatio).toFixed(2)),
+              }));
+            }
+          }
+        }
+
         this.historicalCandles.set(instrument, history);
 
         let prev: Candle | null = null;
@@ -308,8 +341,58 @@ export class PineLevelService {
     return engine.getPDZoneState();
   }
 
-  getHistoricalCandles(instrument: string): Candle[] {
-    return this.historicalCandles.get(instrument) || [];
+  getHistoricalCandles(instrument: string, tf: number = 15): Candle[] {
+    const candles = this.historicalCandles.get(instrument) || [];
+    if (tf <= 15 || candles.length === 0) return candles;
+
+    const tfMs = tf * 60 * 1000;
+    const aggregated: Candle[] = [];
+    let currentBucket: (Candle & { bucketStartMs: number }) | null = null;
+
+    for (const c of candles) {
+      const cMs = new Date(c.timestamp).getTime();
+      const bucketStartMs = Math.floor(cMs / tfMs) * tfMs;
+
+      if (!currentBucket || currentBucket.bucketStartMs !== bucketStartMs) {
+        if (currentBucket) {
+          aggregated.push({
+            timestamp: currentBucket.timestamp,
+            open: currentBucket.open,
+            high: currentBucket.high,
+            low: currentBucket.low,
+            close: currentBucket.close,
+            volume: currentBucket.volume,
+          });
+        }
+        currentBucket = {
+          bucketStartMs,
+          timestamp: new Date(bucketStartMs).toISOString(),
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume,
+        };
+      } else {
+        currentBucket.high = Math.max(currentBucket.high, c.high);
+        currentBucket.low = Math.min(currentBucket.low, c.low);
+        currentBucket.close = c.close;
+        currentBucket.volume += c.volume;
+      }
+    }
+
+    if (currentBucket) {
+      aggregated.push({
+        timestamp: currentBucket.timestamp,
+        open: currentBucket.open,
+        high: currentBucket.high,
+        low: currentBucket.low,
+        close: currentBucket.close,
+        volume: currentBucket.volume,
+      });
+    }
+
+    return aggregated;
   }
 
   getSupportedInstruments(): string[] {
