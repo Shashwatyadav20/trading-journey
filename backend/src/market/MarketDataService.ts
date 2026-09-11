@@ -43,6 +43,9 @@ export class MarketDataService {
 
     this.providers.forEach((provider) => {
       provider.onUpdate((price) => {
+        if (price.instrument === "XAU/USD") {
+          console.log(`[MarketDataService] onUpdate received: instrument=${price.instrument} price=${price.price} status=${price.status}`);
+        }
         priceStore.setPrice(price.instrument, price);
       });
       provider.start();
@@ -79,7 +82,25 @@ export class MarketDataService {
         }
       }
 
-      if (p.status === "OFFLINE" || p.status === "MARKET_CLOSED") continue;
+      if (p.status === "OFFLINE" || p.status === "MARKET_CLOSED") {
+        // Safety net: if the XAU/USD provider has fetched a valid live price that
+        // never reached priceStore (e.g. onUpdateCallback was null), push it now.
+        if (p.instrument === "XAU/USD" && p.status === "OFFLINE" && isGoldMarketOpen()) {
+          const providerPrice = this.twelveDataProvider.getCurrentPrice();
+          if (
+            providerPrice.price > 0 &&
+            providerPrice.status === "LIVE" &&
+            providerPrice.timestamp !== p.timestamp
+          ) {
+            console.log(
+              `[MarketDataService] XAU/USD safety-net push: ` +
+              `stored=${p.price}@${p.timestamp} provider=${providerPrice.price}@${providerPrice.timestamp}`
+            );
+            priceStore.setPrice(providerPrice.instrument, providerPrice);
+          }
+        }
+        continue;
+      }
 
       const timeSinceUpdate = now - new Date(p.timestamp).getTime();
 

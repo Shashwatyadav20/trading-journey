@@ -168,10 +168,16 @@ export class TwelveDataMarketProvider implements MarketProvider {
             expectedUpdateIntervalMs: this.pollIntervalMs,
           };
 
-          console.log(`[TwelveDataMarketProvider] price request succeeded: price=${midPrice}`);
+          console.log(
+            `[TwelveDataMarketProvider] price request succeeded: price=${midPrice} callbackRegistered=${this.onUpdateCallback !== null}`
+          );
 
           if (this.onUpdateCallback) {
             this.onUpdateCallback(this.currentPrice);
+          } else {
+            console.warn(
+              `[TwelveDataMarketProvider] price fetched (${midPrice}) but onUpdateCallback is null — priceStore NOT updated`
+            );
           }
 
           return this.currentPrice;
