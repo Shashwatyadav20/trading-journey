@@ -44,9 +44,13 @@ export class MarketDataService {
     this.providers.forEach((provider) => {
       provider.onUpdate((price) => {
         if (price.instrument === "XAU/USD") {
-          console.log(`[MarketDataService] onUpdate received: instrument=${price.instrument} price=${price.price} status=${price.status}`);
+          console.log(`[MarketDataService] onUpdate callback fired for ${price.instrument}: price=${price.price} ts=${price.timestamp}`);
         }
         priceStore.setPrice(price.instrument, price);
+        if (price.instrument === "XAU/USD") {
+          const stored = priceStore.getPrice(price.instrument);
+          console.log(`[MarketDataService] priceStore updated for ${price.instrument}: storedPrice=${stored?.price} storedTs=${stored?.timestamp}`);
+        }
       });
       provider.start();
 
