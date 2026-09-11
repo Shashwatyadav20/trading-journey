@@ -6,12 +6,12 @@
  * Historical/Live Consistency Tests (1-8):
  *   1. Historical candle source metadata is explicit.
  *   2. Live source metadata is explicit.
- *   3. Source mismatch is never silently presented as exact parity.
+ *   3. Source parity — Twelve Data provides EXACT parity for XAU/USD.
  *   4. Historical → live candle transition does not duplicate candles.
  *   5. Pine state continues after live updates.
  *   6. BTC source mapping is correct (Coinbase Exchange REST → Coinbase WS).
- *   7. XAU source mapping is correct (Binance PAXG → Xaus Spot).
- *   8. If exact parity is unavailable, limitation is explicitly documented.
+ *   7. XAU source mapping is correct (Twelve Data REST for both historical and live).
+ *   8. Twelve Data parity is explicitly documented.
  *
  * P/D Visual & Integration Tests (9-16):
  *   9.  Frontend receives pdZoneTop, pdZoneBot, equilibrium from backend.
@@ -65,7 +65,7 @@ describe('Ticket 4: Market Data Consistency & P/D Visual Tests (16/16)', () => {
     expect(btcMeta.historicalSource).toBeDefined();
     expect(btcMeta.historicalSource).toContain('Coinbase');
     expect(xauMeta.historicalSource).toBeDefined();
-    expect(xauMeta.historicalSource).toContain('Binance PAXGUSDT');
+    expect(xauMeta.historicalSource).toContain('Twelve Data');
   });
 
   // TEST 2
@@ -74,17 +74,19 @@ describe('Ticket 4: Market Data Consistency & P/D Visual Tests (16/16)', () => {
     const xauMeta = service.getSourceMetadata('XAU/USD');
 
     expect(btcMeta.liveSource).toContain('Coinbase WebSocket Feed');
-    expect(xauMeta.liveSource).toContain('Xaus Gold Spot API');
+    expect(xauMeta.liveSource).toContain('Twelve Data');
   });
 
   // TEST 3
-  it('TEST 3: Source mismatch is never silently presented as exact parity', () => {
+  it('TEST 3: Source parity — Twelve Data provides EXACT parity for XAU/USD', () => {
     const btcMeta = service.getSourceMetadata('BTC/USD');
     const xauMeta = service.getSourceMetadata('XAU/USD');
 
     expect(btcMeta.parityStatus).toBe('EXACT');
-    expect(xauMeta.parityStatus).toBe('PARTIAL');
-    expect(xauMeta.parityStatus).not.toBe('EXACT');
+    // After Twelve Data migration, XAU/USD has EXACT parity
+    expect(xauMeta.parityStatus).toBe('EXACT');
+    expect(xauMeta.historicalSource).toContain('Twelve Data');
+    expect(xauMeta.liveSource).toContain('Twelve Data');
   });
 
   // TEST 4
@@ -145,22 +147,28 @@ describe('Ticket 4: Market Data Consistency & P/D Visual Tests (16/16)', () => {
   });
 
   // TEST 7
-  it('TEST 7: XAU source mapping is correct', () => {
+  it('TEST 7: XAU source mapping is correct (Twelve Data)', () => {
     const xauMeta = service.getSourceMetadata('XAU/USD');
 
     expect(xauMeta.instrument).toBe('XAU/USD');
-    expect(xauMeta.historicalSource).toContain('Binance PAXGUSDT');
-    expect(xauMeta.liveSource).toContain('Xaus Gold Spot API');
-    expect(xauMeta.parityStatus).toBe('PARTIAL');
+    expect(xauMeta.historicalSource).toContain('Twelve Data');
+    expect(xauMeta.liveSource).toContain('Twelve Data');
+    expect(xauMeta.parityStatus).toBe('EXACT');
+    // PAXG and OANDA must not appear
+    expect(xauMeta.historicalSource).not.toContain('PAXG');
+    expect(xauMeta.historicalSource).not.toContain('OANDA');
   });
 
   // TEST 8
-  it('TEST 8: If exact parity is unavailable, limitation is explicitly documented', () => {
+  it('TEST 8: Twelve Data parity is explicitly documented', () => {
     const xauMeta = service.getSourceMetadata('XAU/USD');
 
     expect(xauMeta.parityNotes).toBeDefined();
-    expect(xauMeta.parityNotes).toContain('Xaus Gold API is a spot-only ticker feed');
-    expect(xauMeta.parityNotes).toContain('PAXGUSDT');
+    // Twelve Data provides the same source for both historical and live
+    expect(xauMeta.parityNotes).toContain('Twelve Data');
+    // Must NOT contain PAXG references
+    expect(xauMeta.parityNotes).not.toContain('PAXGUSDT');
+    expect(xauMeta.parityNotes).not.toContain('Xaus Gold API');
   });
 
   // TEST 9

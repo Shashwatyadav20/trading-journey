@@ -26,11 +26,11 @@ const mockXauPrice = (overrides?: Partial<MarketPrice>): MarketPrice => ({
   instrument: "XAU/USD",
   price: 2350,
   timestamp: new Date().toISOString(),
-  source: "xaus",
+  source: "twelvedata",
   sourceSymbol: "XAU/USD",
   isProxy: false,
   status: "LIVE",
-  expectedUpdateIntervalMs: 30000,
+  expectedUpdateIntervalMs: 15000,
   ...overrides,
 });
 
@@ -96,10 +96,10 @@ describe("Provider response normalization", () => {
     expect(price.status).toBe("LIVE");
   });
 
-  it("should produce a valid XAU/USD normalized price structure from XAUS spot", () => {
+  it("should produce a valid XAU/USD normalized price structure from Twelve Data", () => {
     const price = mockXauPrice();
     expect(price.instrument).toBe("XAU/USD");
-    expect(price.source).toBe("xaus");
+    expect(price.source).toBe("twelvedata");
     expect(price.sourceSymbol).toBe("XAU/USD");
     expect(price.isProxy).toBe(false);
     expect(price.status).toBe("LIVE");
@@ -487,16 +487,16 @@ describe("MarketDataService Integration", () => {
     const store = new MarketPriceStore();
     const saturday = new Date("2026-09-05T12:00:00Z"); // Saturday
     
-    // Set initial XAU price on store
+    // Set initial XAU price on store (source: twelvedata after migration)
     store.setPrice("XAU/USD", {
       instrument: "XAU/USD",
       price: 2431.10,
       timestamp: saturday.toISOString(),
-      source: "xaus",
+      source: "twelvedata",
       sourceSymbol: "XAU/USD",
       isProxy: false,
       status: "MARKET_CLOSED",
-      expectedUpdateIntervalMs: 30000,
+      expectedUpdateIntervalMs: 15000,
     });
 
     const currentXau = store.getPrice("XAU/USD");
@@ -507,18 +507,18 @@ describe("MarketDataService Integration", () => {
   it("5. BTC remains LIVE independently of XAU market status", () => {
     const store = new MarketPriceStore();
 
-    // XAU is closed on weekend
+    // XAU is closed on weekend — now sourced from Twelve Data
     store.setPrice("XAU/USD", {
       instrument: "XAU/USD",
       price: 2431.10,
       timestamp: new Date().toISOString(),
-      source: "xaus",
+      source: "twelvedata",
       sourceSymbol: "XAU/USD",
       isProxy: false,
       status: "MARKET_CLOSED",
     });
 
-    // BTC continues streaming live updates
+    // BTC continues streaming live updates via Coinbase WebSocket
     store.setPrice("BTC/USD", {
       instrument: "BTC/USD",
       price: 95500.00,
@@ -530,6 +530,8 @@ describe("MarketDataService Integration", () => {
     });
 
     expect(store.getPrice("XAU/USD")?.status).toBe("MARKET_CLOSED");
+    expect(store.getPrice("XAU/USD")?.source).toBe("twelvedata");
     expect(store.getPrice("BTC/USD")?.status).toBe("LIVE");
+    expect(store.getPrice("BTC/USD")?.source).toBe("coinbase");
   });
 });

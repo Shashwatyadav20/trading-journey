@@ -181,6 +181,7 @@ function PinePDZoneCanvasOverlay({
 
 function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
   const { getPrice } = useMarketData();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { addTrade } = useTrades();
   const {
     levels,
@@ -268,7 +269,7 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
 
   const currentBarRef = useRef<{ time: number; open: number; high: number; low: number; close: number } | null>(null);
 
-  // ─── Fetch historical candles (Coinbase for BTC / Binance PAXG for XAU) ──────
+  // ─── Fetch historical candles (backend bootstrap — Coinbase for BTC, Twelve Data for XAU) ──────
   useEffect(() => {
     if (!seriesRef.current) return;
 
@@ -292,106 +293,33 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
                 low: c.low,
                 close: c.close,
               }));
-              if (instrument === "XAU/USD") {
-                console.log(`[PINE-XAU-DEBUG] historical response count = ${chartData.length}`);
-                console.log(`[PINE-XAU-DEBUG] first candle =`, chartData[0]);
-                console.log(`[PINE-XAU-DEBUG] last candle =`, chartData[chartData.length - 1]);
-              }
             }
           }
         } catch { /* ignore fallback */ }
 
-        // 2. Fallback to public endpoints if backend candles empty (< 5) or for specific TF
-        if (chartData.length < 5) {
-          if (instrument === "BTC/USD") {
-            const granularityMap: Record<number, number> = {
-              15: 900,
-              30: 1800,
-              60: 3600,
-              240: 21600,
-              1440: 86400,
-            };
-            const gran = granularityMap[chartTF] || 900;
-            const resp = await fetch(
-              `https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=${gran}`,
-              { headers: { "User-Agent": "TradingApp/1.0" } }
-            );
-            if (resp.ok) {
-              const raw = await resp.json();
-              chartData = raw.map((d: any) => ({
-                time: d[0] as Time,
-                open: parseFloat(d[3]),
-                high: parseFloat(d[2]),
-                low: parseFloat(d[1]),
-                close: parseFloat(d[4]),
-              }));
-            }
-          } else {
-            let fetchedFallback = false;
-            try {
-              const binanceIntervalMap: Record<number, string> = {
-                15: "15m",
-                30: "30m",
-                60: "1h",
-                240: "4h",
-                1440: "1d",
-              };
-              const interval = binanceIntervalMap[chartTF] || "15m";
-              const resp = await fetch(
-                `https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=${interval}&limit=500`
-              );
-              if (resp.ok) {
-                const raw = await resp.json();
-                if (Array.isArray(raw) && raw.length > 0) {
-                  chartData = raw.map((d: any) => ({
-                    time: Math.floor(d[0] / 1000) as Time,
-                    open: parseFloat(d[1]),
-                    high: parseFloat(d[2]),
-                    low: parseFloat(d[3]),
-                    close: parseFloat(d[4]),
-                  }));
-                  fetchedFallback = true;
-                }
-              }
-            } catch { /* fallback next */ }
-
-            if (!fetchedFallback) {
-              try {
-                const resp = await fetch('https://api.kraken.com/0/public/OHLC?pair=PAXGUSD&interval=15');
-                if (resp.ok) {
-                  const data = await resp.json();
-                  if (data?.result) {
-                    const pairKey = Object.keys(data.result).find((k) => k !== 'last');
-                    if (pairKey && Array.isArray(data.result[pairKey])) {
-                      chartData = data.result[pairKey].map((c: any) => ({
-                        time: c[0] as Time,
-                        open: parseFloat(c[1]),
-                        high: parseFloat(c[2]),
-                        low: parseFloat(c[3]),
-                        close: parseFloat(c[4]),
-                      }));
-                    }
-                  }
-                }
-              } catch { /* ignore fallback */ }
-            }
-
-            const liveP = getPrice(instrument);
-            if (liveP && liveP.price > 0 && chartData.length > 0) {
-              const lastClose = chartData[chartData.length - 1].close;
-              if (lastClose > 0) {
-                const scaleRatio = liveP.price / lastClose;
-                if (Math.abs(scaleRatio - 1.0) > 0.001) {
-                  chartData = chartData.map((c) => ({
-                    ...c,
-                    open: parseFloat((c.open * scaleRatio).toFixed(2)),
-                    high: parseFloat((c.high * scaleRatio).toFixed(2)),
-                    low: parseFloat((c.low * scaleRatio).toFixed(2)),
-                    close: parseFloat((c.close * scaleRatio).toFixed(2)),
-                  }));
-                }
-              }
-            }
+        // 2. Fallback to Coinbase public endpoint if backend candles are empty for BTC/USD
+        if (chartData.length < 5 && instrument === "BTC/USD") {
+          const granularityMap: Record<number, number> = {
+            15: 900,
+            30: 1800,
+            60: 3600,
+            240: 21600,
+            1440: 86400,
+          };
+          const gran = granularityMap[chartTF] || 900;
+          const resp = await fetch(
+            `https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=${gran}`,
+            { headers: { "User-Agent": "TradingApp/1.0" } }
+          );
+          if (resp.ok) {
+            const raw = await resp.json();
+            chartData = raw.map((d: any) => ({
+              time: d[0] as Time,
+              open: parseFloat(d[3]),
+              high: parseFloat(d[2]),
+              low: parseFloat(d[1]),
+              close: parseFloat(d[4]),
+            }));
           }
         }
 
@@ -399,14 +327,7 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
         chartData.forEach((cd) => timeMap.set(cd.time as number, cd));
         chartData = Array.from(timeMap.values()).sort((a, b) => (a.time as number) - (b.time as number));
 
-        if (instrument === "XAU/USD") {
-          console.log(`[PINE-XAU-DEBUG] historical state count = ${chartData.length}`);
-        }
-
         if (seriesRef.current && chartData.length > 0) {
-          if (instrument === "XAU/USD") {
-            console.log(`[PINE-XAU-DEBUG] chart setData count = ${chartData.length}`);
-          }
           seriesRef.current.setData(chartData);
           chartRef.current?.timeScale().fitContent();
 
@@ -477,11 +398,6 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
       };
     }
 
-    if (instrument === "XAU/USD") {
-      console.log(`[PINE-XAU-DEBUG] live update timestamp = ${new Date().toISOString()}`);
-      console.log(`[PINE-XAU-DEBUG] currentBar =`, currentBarRef.current);
-    }
-
     try {
       seriesRef.current.update({
         time: currentBarRef.current.time as Time,
@@ -529,7 +445,7 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
           <span>
             Source:{" "}
             <span className="text-slate-200 font-mono">
-              {instrument === "BTC/USD" ? "Coinbase (Exact)" : "Xaus Spot / PAXG (Partial)"}
+              {instrument === "BTC/USD" ? "Coinbase (WebSocket)" : "XAU/USD · Twelve Data"}
             </span>
           </span>
           <span>
@@ -619,95 +535,6 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
                   {livePrice.status}
                 </span>
               </div>
-            </div>
-          )}
-
-          {/* Strategy Signals Panel */}
-          {signals.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold flex items-center gap-1">
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  Strategy Signals ({signals.length})
-                </span>
-              </div>
-
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {signals.map((sig) => (
-                  <div
-                    key={sig.signalId}
-                    className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80 space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
-                          sig.direction === "BUY"
-                            ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                            : "bg-rose-500/15 text-rose-400 border-rose-500/30"
-                        }`}
-                      >
-                        {sig.direction} SETUP ({sig.strategy.replace("_", " ")})
-                      </span>
-                      <span className="text-[9px] text-slate-400">{sig.timeframe}</span>
-                    </div>
-
-                    <div className="text-[10px] text-slate-300">
-                      Ref: <span className="font-bold text-slate-100">{sig.referenceLevel}</span>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-slate-400">Trigger Price:</span>
-                      <span className="font-mono font-bold text-slate-100">${sig.triggerPrice.toFixed(2)}</span>
-                    </div>
-
-                    {/* Manual Execution Button */}
-                    <button
-                      onClick={() => {
-                        const side = sig.direction === "BUY" ? "LONG" : "SHORT";
-                        const liveData = getPrice(instrument);
-                        const execPrice = liveData && liveData.status === "LIVE" && liveData.price > 0 ? liveData.price : sig.triggerPrice;
-                        const sl = sig.direction === "BUY" ? parseFloat((execPrice - 20).toFixed(2)) : parseFloat((execPrice + 20).toFixed(2));
-                        const tp = sig.direction === "BUY" ? parseFloat((execPrice + 40).toFixed(2)) : parseFloat((execPrice - 40).toFixed(2));
-
-                        const todayStr = new Date().toISOString().split("T")[0];
-                        const timeStr = new Date().toTimeString().split(" ")[0].substring(0, 5);
-
-                        addTrade({
-                          date: todayStr,
-                          time: timeStr,
-                          symbol: instrument,
-                          side,
-                          strategy: sig.strategy,
-                          signalId: sig.signalId,
-                          entryPrice: execPrice,
-                          stopLoss: sl,
-                          targetPrice: tp,
-                          quantity: instrument.includes("BTC") ? 0.001 : 0.01,
-                          fees: 0,
-                          status: "OPEN",
-                          orderType: "MARKET",
-                          notes: `Manual Paper Order from ${sig.strategy} Signal on ${sig.referenceLevel}`,
-                        });
-                        setExecutedMessage(`✓ Manual ${sig.direction} Paper Order executed for strategy: ${sig.strategy}`);
-                        setTimeout(() => setExecutedMessage(null), 4000);
-                      }}
-                      className={`w-full py-1.5 rounded-lg text-[10px] font-sans font-bold flex items-center justify-center gap-1 shadow transition-all active:scale-[0.98] ${
-                        sig.direction === "BUY"
-                          ? "bg-emerald-600 hover:bg-emerald-500 text-white"
-                          : "bg-rose-600 hover:bg-rose-500 text-white"
-                      }`}
-                    >
-                      <span>EXECUTE {sig.direction} SIGNAL (PAPER ORDER)</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {executedMessage && (
-                <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] text-center font-bold animate-pulse">
-                  {executedMessage}
-                </div>
-              )}
             </div>
           )}
 

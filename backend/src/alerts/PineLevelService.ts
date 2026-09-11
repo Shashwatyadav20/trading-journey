@@ -23,6 +23,8 @@ import { pineAlertPipeline } from './pine/PineAlertPipeline';
 import { ActiveLevel, PremiumDiscountZoneState, Candle, PineSignal } from './pine/PineTypes';
 import { priceStore } from '../market/MarketPriceStore';
 
+import { TwelveDataMarketProvider } from '../market/providers/TwelveDataMarketProvider';
+
 const DEFAULT_CHART_TF = 15;
 
 export interface MarketSourceMetadata {
@@ -37,6 +39,7 @@ export class PineLevelService {
   private engines: Map<string, PineLiquidityEngine> = new Map();
   private signalEngines: Map<string, PineSignalEngine> = new Map();
   private alertBridge: PineAlertBridge = new PineAlertBridge();
+  private twelveDataProvider: TwelveDataMarketProvider = new TwelveDataMarketProvider();
   private openCandles: Map<string, Candle & { bucketStartMs: number }> = new Map();
   private historicalCandles: Map<string, Candle[]> = new Map();
   private isBootstrapped: Map<string, boolean> = new Map();
@@ -69,19 +72,20 @@ export class PineLevelService {
         parityNotes: 'Historical candles and live tick stream are sourced from the exact same Coinbase exchange product (BTC-USD).',
       };
     }
+
     return {
       instrument: 'XAU/USD',
-      historicalSource: 'Binance PAXGUSDT Spot Physical Gold (15M klines)',
-      liveSource: 'Xaus Gold Spot API (xaus.com/api/v1/spot)',
-      parityStatus: 'PARTIAL',
-      parityNotes: 'Xaus Gold API is a spot-only ticker feed with no historical candle REST API. Binance PAXGUSDT spot physical gold (1 PAXG = 1 oz Gold) provides real 15M historical OHLC candles.',
+      historicalSource: 'Twelve Data REST API (XAU/USD 15min Time Series)',
+      liveSource: 'Twelve Data REST API (XAU/USD Realtime Price Feed)',
+      parityStatus: 'EXACT',
+      parityNotes: 'Historical candles and live spot pricing are sourced from the exact same Twelve Data XAU/USD market feed.',
     };
   }
 
   /**
    * Fetches real historical market candles for the given instrument.
    * BTC/USD: Coinbase Exchange REST API (BTC-USD, granularity 900s) -> EXACT PARITY
-   * XAU/USD: Binance PAXGUSDT spot physical gold (15M klines) -> PARTIAL PARITY
+   * XAU/USD: Twelve Data REST API (XAU/USD 15min Time Series) -> EXACT PARITY
    */
   private async fetchHistoricalCandles(instrument: string): Promise<Candle[]> {
     try {
@@ -123,71 +127,12 @@ export class PineLevelService {
           return candles;
         }
       } else if (instrument === 'XAU/USD') {
-        try {
-          const url = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=15m&limit=1000';
-          const res = await fetch(url, { headers: { 'User-Agent': 'TradingApp/1.0' } });
-          if (res.ok) {
-            const raw = await res.json();
-            if (Array.isArray(raw) && raw.length > 0) {
-              const candles: Candle[] = raw.map((d: any) => ({
-                timestamp: new Date(d[0]).toISOString(),
-                open: parseFloat(d[1]),
-                high: parseFloat(d[2]),
-                low: parseFloat(d[3]),
-                close: parseFloat(d[4]),
-                volume: parseFloat(d[5]),
-              }));
-              candles.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-              if (candles.length > 0) return candles;
-            }
-          }
-        } catch { /* ignore fallback */ }
-
-        console.warn('[PineLevelService] Binance PAXGUSDT unavailable, falling back to Kraken PAXGUSD...');
-        try {
-          const krakenUrl = 'https://api.kraken.com/0/public/OHLC?pair=PAXGUSD&interval=15';
-          const krakenRes = await fetch(krakenUrl, { headers: { 'User-Agent': 'TradingApp/1.0' } });
-          if (krakenRes.ok) {
-            const data = await krakenRes.json();
-            if (data?.result) {
-              const pairKey = Object.keys(data.result).find((k) => k !== 'last');
-              if (pairKey && Array.isArray(data.result[pairKey])) {
-                const raw = data.result[pairKey];
-                const candles: Candle[] = raw.map((c: any) => ({
-                  timestamp: new Date(c[0] * 1000).toISOString(),
-                  open: parseFloat(c[1]),
-                  high: parseFloat(c[2]),
-                  low: parseFloat(c[3]),
-                  close: parseFloat(c[4]),
-                  volume: parseFloat(c[6]),
-                }));
-                candles.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                if (candles.length > 0) return candles;
-              }
-            }
-          }
-        } catch { /* ignore fallback */ }
-
-        console.warn('[PineLevelService] Kraken PAXGUSD unavailable, falling back to KuCoin PAXG-USDT...');
-        try {
-          const kucoinUrl = 'https://api.kucoin.com/api/v1/market/candles?symbol=PAXG-USDT&type=15min';
-          const kucoinRes = await fetch(kucoinUrl);
-          if (kucoinRes.ok) {
-            const data = await kucoinRes.json();
-            if (Array.isArray(data?.data)) {
-              const candles: Candle[] = data.data.map((c: any) => ({
-                timestamp: new Date(parseInt(c[0], 10) * 1000).toISOString(),
-                open: parseFloat(c[1]),
-                close: parseFloat(c[2]),
-                high: parseFloat(c[3]),
-                low: parseFloat(c[4]),
-                volume: parseFloat(c[5]),
-              }));
-              candles.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-              if (candles.length > 0) return candles;
-            }
-          }
-        } catch { /* ignore fallback */ }
+        console.log('[PineLevelService] Fetching primary historical candles from Twelve Data (XAU/USD)...');
+        const tdCandles = await this.twelveDataProvider.fetchHistoricalCandles('M15', 1000);
+        if (tdCandles.length > 0) {
+          return tdCandles;
+        }
+        console.warn('[PineLevelService] Twelve Data historical candle request returned empty array.');
       }
 
       return [];
@@ -215,42 +160,9 @@ export class PineLevelService {
         `[Historical Source: ${meta.historicalSource} | Live Source: ${meta.liveSource} | Parity: ${meta.parityStatus}]...`
       );
 
-      let history = await this.fetchHistoricalCandles(instrument);
+      const history = await this.fetchHistoricalCandles(instrument);
 
       if (history.length > 0) {
-        if (instrument === 'XAU/USD') {
-          const liveStorePrice = priceStore.getPrice('XAU/USD');
-          let livePrice = liveStorePrice && liveStorePrice.price > 0 ? liveStorePrice.price : 0;
-
-          if (livePrice === 0) {
-            try {
-              const res = await fetch('https://xaus.com/api/v1/spot');
-              if (res.ok) {
-                const data = await res.json();
-                const rawPrice = data?.spot_usd_oz;
-                const parsed = typeof rawPrice === 'number' ? rawPrice : parseFloat(rawPrice);
-                if (typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0) {
-                  livePrice = parsed;
-                }
-              }
-            } catch { /* ignore fallback */ }
-          }
-
-          const lastClose = history[history.length - 1].close;
-          if (livePrice > 0 && lastClose > 0) {
-            const scaleRatio = livePrice / lastClose;
-            if (Math.abs(scaleRatio - 1.0) > 0.001) {
-              history = history.map((c) => ({
-                ...c,
-                open: parseFloat((c.open * scaleRatio).toFixed(2)),
-                high: parseFloat((c.high * scaleRatio).toFixed(2)),
-                low: parseFloat((c.low * scaleRatio).toFixed(2)),
-                close: parseFloat((c.close * scaleRatio).toFixed(2)),
-              }));
-            }
-          }
-        }
-
         this.historicalCandles.set(instrument, history);
 
         let prev: Candle | null = null;
@@ -272,185 +184,178 @@ export class PineLevelService {
           `[PineLevelService] Bootstrapped ${history.length} historical candles for ${instrument}. ` +
           `Active levels: ${activeCount}, Active signals: ${activeSignalCount}, P/D zone active: ${pdZoneState.active}`
         );
+      } else {
+        console.warn(`[PineLevelService] No historical candles available for ${instrument}. Engine running empty.`);
       }
     }
   }
 
   /**
-   * Starts listening to live priceStore ticks and updating the engine state in realtime.
+   * Starts listening to live price updates from MarketPriceStore.
    */
-  start(): void {
+  public start(): void {
+    if (this.unsubscribe) return;
+
     this.bootstrap().catch((err) => {
-      console.error('[PineLevelService] Bootstrap error:', err);
+      console.error('[PineLevelService] Error during initial bootstrap:', err);
     });
 
-    const onPrice = (price: { instrument: string; price: number; timestamp: string }) => {
-      const engine = this.engines.get(price.instrument);
-      const signalEngine = this.signalEngines.get(price.instrument);
-      if (!engine || !signalEngine) return;
-
-      // Realtime level touch evaluation on every incoming market tick
-      this.alertBridge.checkLivePrice(price.instrument, price.price, price.timestamp);
-
-      const tickMs = new Date(price.timestamp).getTime();
-      const bucketMs = Math.floor(tickMs / (60 * 1000)) * 60 * 1000; // 1-minute bucket
-
-      const open = this.openCandles.get(price.instrument);
-
-      if (!open) {
-        this.openCandles.set(price.instrument, {
-          bucketStartMs: bucketMs,
-          timestamp: new Date(bucketMs).toISOString(),
-          open: price.price,
-          high: price.price,
-          low: price.price,
-          close: price.price,
-          volume: 0,
-        });
-        return;
-      }
-
-      if (bucketMs === open.bucketStartMs) {
-        open.high = Math.max(open.high, price.price);
-        open.low = Math.min(open.low, price.price);
-        open.close = price.price;
-      } else if (bucketMs > open.bucketStartMs) {
-        const closed: Candle = {
-          timestamp: open.timestamp,
-          open: open.open,
-          high: open.high,
-          low: open.low,
-          close: open.close,
-          volume: open.volume,
-        };
-
-        const hist = this.historicalCandles.get(price.instrument) || [];
-        const prevCandle = hist.length > 0 ? hist[hist.length - 1] : null;
-
-        engine.processCandle(closed);
-        const newSignals = signalEngine.evaluateCandle(price.instrument, closed, prevCandle, engine);
-        newSignals.forEach((sig) => {
-          pineAlertPipeline.dispatchSignal(sig).catch(() => {});
-        });
-
-        hist.push(closed);
-        if (hist.length > 2000) hist.shift();
-        this.historicalCandles.set(price.instrument, hist);
-
-        this.openCandles.set(price.instrument, {
-          bucketStartMs: bucketMs,
-          timestamp: new Date(bucketMs).toISOString(),
-          open: price.price,
-          high: price.price,
-          low: price.price,
-          close: price.price,
-          volume: 0,
-        });
-      }
-    };
-
-    priceStore.subscribe(onPrice as any);
-    this.unsubscribe = () => priceStore.unsubscribe(onPrice as any);
+    this.unsubscribe = priceStore.subscribe((price) => {
+      this.handleMarketPrice(price);
+    });
   }
 
-  stop(): void {
+  public stop(): void {
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = null;
     }
   }
 
-  public getAlertBridge(): PineAlertBridge {
-    return this.alertBridge;
+  /**
+   * Realtime market price tick handler.
+   */
+  public handleMarketPrice(marketPrice: { instrument: string; price: number; timestamp: string }): void {
+    const { instrument, price, timestamp } = marketPrice;
+    if (price <= 0 || !this.engines.has(instrument)) return;
+
+    const engine = this.engines.get(instrument);
+    if (!engine) return;
+
+    // Realtime level touch evaluation on every incoming market tick
+    const touchEvents = this.alertBridge.evaluateTick({
+      symbol: instrument,
+      price,
+      bid: price,
+      ask: price,
+      timestamp: new Date(timestamp).getTime(),
+    });
+
+    if (touchEvents.length > 0) {
+      touchEvents.forEach((evt) => {
+        pineAlertPipeline.dispatchLevelTouch(evt).catch(() => {});
+      });
+    }
+
+    // Candle aggregation logic (1-minute boundary)
+    const tickTime = new Date(timestamp).getTime();
+    const bucketStartMs = Math.floor(tickTime / 60000) * 60000;
+
+    let currentOpen = this.openCandles.get(instrument);
+
+    if (!currentOpen) {
+      this.openCandles.set(instrument, {
+        timestamp: new Date(bucketStartMs).toISOString(),
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: 0,
+        bucketStartMs,
+      });
+      return;
+    }
+
+    if (bucketStartMs > currentOpen.bucketStartMs) {
+      const closedCandle: Candle = {
+        timestamp: currentOpen.timestamp,
+        open: currentOpen.open,
+        high: currentOpen.high,
+        low: currentOpen.low,
+        close: currentOpen.close,
+        volume: currentOpen.volume,
+      };
+
+      engine.processCandle(closedCandle);
+
+      const history = this.historicalCandles.get(instrument) || [];
+      const prevCandle = history.length > 0 ? history[history.length - 1] : null;
+      history.push(closedCandle);
+
+      const signalEngine = this.signalEngines.get(instrument);
+      if (signalEngine) {
+        const newSignals = signalEngine.evaluateCandle(instrument, closedCandle, prevCandle, engine);
+        newSignals.forEach((sig) => {
+          pineAlertPipeline.dispatchSignal(sig).catch(() => {});
+        });
+      }
+
+      this.openCandles.set(instrument, {
+        timestamp: new Date(bucketStartMs).toISOString(),
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: 0,
+        bucketStartMs,
+      });
+    } else {
+      currentOpen.high = Math.max(currentOpen.high, price);
+      currentOpen.low = Math.min(currentOpen.low, price);
+      currentOpen.close = price;
+    }
   }
 
-  getLevels(instrument: string, chartTF: number = 15): ActiveLevel[] {
+  public getLevels(instrument: string, chartTF: number = DEFAULT_CHART_TF): ActiveLevel[] {
     const engine = this.engines.get(instrument);
     if (!engine) return [];
-    if (chartTF) {
-      engine.setChartTF(chartTF);
-    }
+    engine.setChartTF(chartTF);
     return engine.getActiveLevels();
   }
 
-  getSignals(instrument: string): PineSignal[] {
+  public getSignals(instrument: string): PineSignal[] {
     const signalEngine = this.signalEngines.get(instrument);
-    if (!signalEngine) return [];
-    return signalEngine.getActiveSignals(instrument);
+    return signalEngine ? signalEngine.getActiveSignals(instrument) : [];
   }
 
-  getSignalById(instrument: string, signalId: string): PineSignal | undefined {
-    const signalEngine = this.signalEngines.get(instrument);
-    if (!signalEngine) return undefined;
-    return signalEngine.getSignalById(signalId);
-  }
-
-  getPDZoneState(instrument: string): PremiumDiscountZoneState | null {
+  public getPDZoneState(instrument: string): PremiumDiscountZoneState | null {
     const engine = this.engines.get(instrument);
-    if (!engine) return null;
-    return engine.getPDZoneState();
+    return engine ? engine.getPDZoneState() : null;
   }
 
-  getHistoricalCandles(instrument: string, tf: number = 15): Candle[] {
+  public getHistoricalCandles(instrument: string, chartTF: number = DEFAULT_CHART_TF): Candle[] {
     const candles = this.historicalCandles.get(instrument) || [];
-    if (tf <= 15 || candles.length === 0) return candles;
+    if (chartTF === 15 || candles.length === 0) return candles;
 
-    const tfMs = tf * 60 * 1000;
+    // Aggregate 15M candles into requested chart timeframe if needed
+    const tfMinutes = chartTF;
     const aggregated: Candle[] = [];
-    let currentBucket: (Candle & { bucketStartMs: number }) | null = null;
+    let currentBucket: Candle | null = null;
+    let bucketStartMs = 0;
 
     for (const c of candles) {
-      const cMs = new Date(c.timestamp).getTime();
-      const bucketStartMs = Math.floor(cMs / tfMs) * tfMs;
+      const timeMs = new Date(c.timestamp).getTime();
+      const bucketMs = Math.floor(timeMs / (tfMinutes * 60 * 1000)) * (tfMinutes * 60 * 1000);
 
-      if (!currentBucket || currentBucket.bucketStartMs !== bucketStartMs) {
-        if (currentBucket) {
-          aggregated.push({
-            timestamp: currentBucket.timestamp,
-            open: currentBucket.open,
-            high: currentBucket.high,
-            low: currentBucket.low,
-            close: currentBucket.close,
-            volume: currentBucket.volume,
-          });
-        }
+      if (!currentBucket || bucketMs !== bucketStartMs) {
+        if (currentBucket) aggregated.push(currentBucket);
+        bucketStartMs = bucketMs;
         currentBucket = {
-          bucketStartMs,
           timestamp: new Date(bucketStartMs).toISOString(),
           open: c.open,
           high: c.high,
           low: c.low,
           close: c.close,
-          volume: c.volume,
+          volume: c.volume || 0,
         };
       } else {
         currentBucket.high = Math.max(currentBucket.high, c.high);
         currentBucket.low = Math.min(currentBucket.low, c.low);
         currentBucket.close = c.close;
-        currentBucket.volume += c.volume;
+        currentBucket.volume = (currentBucket.volume || 0) + (c.volume || 0);
       }
     }
 
-    if (currentBucket) {
-      aggregated.push({
-        timestamp: currentBucket.timestamp,
-        open: currentBucket.open,
-        high: currentBucket.high,
-        low: currentBucket.low,
-        close: currentBucket.close,
-        volume: currentBucket.volume,
-      });
-    }
-
+    if (currentBucket) aggregated.push(currentBucket);
     return aggregated;
   }
 
-  getSupportedInstruments(): string[] {
+  public getSupportedInstruments(): string[] {
     return Array.from(this.engines.keys());
   }
 
-  isInstrumentBootstrapped(instrument: string): boolean {
-    return this.isBootstrapped.get(instrument) ?? false;
+  public getAlertBridge(): PineAlertBridge {
+    return this.alertBridge;
   }
 }
 

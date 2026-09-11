@@ -1,10 +1,12 @@
 import { MarketProvider } from "./providers/MarketProvider";
 import { CoinbaseWebSocketProvider } from "./providers/CoinbaseWebSocketProvider";
-import { XausGoldProvider, isGoldMarketOpen } from "./providers/XausGoldProvider";
+import { TwelveDataMarketProvider } from "./providers/TwelveDataMarketProvider";
+import { isGoldMarketOpen } from "./providers/XausGoldProvider";
 import { priceStore } from "./MarketPriceStore";
 
 export class MarketDataService {
   private providers: MarketProvider[] = [];
+  private twelveDataProvider: TwelveDataMarketProvider;
   private staleIntervalId: NodeJS.Timeout | null = null;
   private isRunning: boolean = false;
 
@@ -15,11 +17,24 @@ export class MarketDataService {
     this.STALE_THRESHOLD_MS = parseInt(process.env.MARKET_DATA_STALE_AFTER_MS || "15000", 10);
     this.OFFLINE_THRESHOLD_MS = parseInt(process.env.MARKET_DATA_OFFLINE_AFTER_MS || "45000", 10);
 
-    const xausPollInterval = parseInt(process.env.GOLD_POLL_INTERVAL_MS || "30000", 10);
+    this.twelveDataProvider = new TwelveDataMarketProvider();
 
-    // Initialize production providers
+    // Initialize production providers:
+    // BTC/USD -> Coinbase WebSocket Provider
+    // XAU/USD -> Twelve Data Market Provider
     this.providers.push(new CoinbaseWebSocketProvider());
-    this.providers.push(new XausGoldProvider(xausPollInterval));
+
+    if (this.twelveDataProvider.isConfigured()) {
+      console.log("[MarketDataService] Initializing Twelve Data as primary XAU/USD market provider.");
+      this.providers.push(this.twelveDataProvider);
+    } else {
+      console.warn("[MarketDataService] TWELVE_DATA_API_KEY credentials not configured. XAU/USD provider running unconfigured.");
+      this.providers.push(this.twelveDataProvider);
+    }
+  }
+
+  public getTwelveDataProvider(): TwelveDataMarketProvider {
+    return this.twelveDataProvider;
   }
 
   start(): void {
