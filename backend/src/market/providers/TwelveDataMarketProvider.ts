@@ -33,6 +33,11 @@ export class TwelveDataMarketProvider implements MarketProvider {
   private pollIntervalMs: number;
 
   constructor(config?: TwelveDataConfig) {
+    const rawKey = process.env.TWELVE_DATA_API_KEY;
+    console.log(
+      `[TwelveDataMarketProvider] API key env diagnostic: configured=${Boolean(rawKey && rawKey.trim().length > 0)} length=${rawKey?.length ?? 0}`
+    );
+
     this.apiKey = config && config.apiKey !== undefined
       ? config.apiKey
       : process.env.TWELVE_DATA_API_KEY || "";
