@@ -135,7 +135,20 @@ export class TwelveDataMarketProvider implements MarketProvider {
       });
 
       if (!res.ok) {
-        console.error(`[TwelveDataMarketProvider] Live pricing request failed with HTTP ${res.status}`);
+        let apiCode: string | number = "UNKNOWN";
+        let apiMessage = "UNKNOWN";
+        let responseType = "unknown";
+        try {
+          const errBody = await res.json();
+          responseType = typeof errBody;
+          apiCode = errBody?.code ?? errBody?.status ?? "UNKNOWN";
+          apiMessage = errBody?.message ?? errBody?.error ?? "UNKNOWN";
+        } catch {
+          responseType = "string";
+        }
+        console.error(
+          `[TwelveDataMarketProvider] price request failed: httpStatus=${res.status} apiCode=${apiCode} apiMessage=${apiMessage} responseType=${responseType}`
+        );
         return null;
       }
 
@@ -155,6 +168,8 @@ export class TwelveDataMarketProvider implements MarketProvider {
             expectedUpdateIntervalMs: this.pollIntervalMs,
           };
 
+          console.log(`[TwelveDataMarketProvider] price request succeeded: price=${midPrice}`);
+
           if (this.onUpdateCallback) {
             this.onUpdateCallback(this.currentPrice);
           }
@@ -162,7 +177,9 @@ export class TwelveDataMarketProvider implements MarketProvider {
           return this.currentPrice;
         }
       } else if (data && data.message) {
-        console.error("[TwelveDataMarketProvider] Live pricing API error: Twelve Data reported error response.");
+        console.error(
+          `[TwelveDataMarketProvider] price request failed: httpStatus=${res.status} apiCode=${data?.code ?? "UNKNOWN"} apiMessage=${data.message} responseType=${typeof data}`
+        );
       }
 
       return null;
