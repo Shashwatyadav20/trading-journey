@@ -200,9 +200,9 @@ export class PineLevelService {
       console.error('[PineLevelService] Error during initial bootstrap:', err);
     });
 
-    this.unsubscribe = priceStore.subscribe((price) => {
-      this.handleMarketPrice(price);
-    });
+    const handler = this.handleMarketPrice.bind(this);
+    priceStore.subscribe(handler);
+    this.unsubscribe = () => priceStore.unsubscribe(handler);
   }
 
   public stop(): void {
@@ -223,19 +223,14 @@ export class PineLevelService {
     if (!engine) return;
 
     // Realtime level touch evaluation on every incoming market tick
-    const touchEvents = this.alertBridge.evaluateTick({
-      symbol: instrument,
+    const touchEvents = this.alertBridge.checkLivePrice(
+      instrument,
       price,
-      bid: price,
-      ask: price,
-      timestamp: new Date(timestamp).getTime(),
-    });
+      timestamp
+    );
 
-    if (touchEvents.length > 0) {
-      touchEvents.forEach((evt) => {
-        pineAlertPipeline.dispatchLevelTouch(evt).catch(() => {});
-      });
-    }
+    // touchEvents are already dispatched via Telegram directly inside PineAlertBridge.
+    // pineAlertPipeline is only for PineSignal dispatches.
 
     // Candle aggregation logic (1-minute boundary)
     const tickTime = new Date(timestamp).getTime();
@@ -306,6 +301,10 @@ export class PineLevelService {
   public getSignals(instrument: string): PineSignal[] {
     const signalEngine = this.signalEngines.get(instrument);
     return signalEngine ? signalEngine.getActiveSignals(instrument) : [];
+  }
+
+  public getSignalById(instrument: string, signalId: string): PineSignal | undefined {
+    return this.getSignals(instrument).find(s => s.signalId === signalId);
   }
 
   public getPDZoneState(instrument: string): PremiumDiscountZoneState | null {
