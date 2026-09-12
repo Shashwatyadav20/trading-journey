@@ -1,5 +1,5 @@
 import { PineLiquidityEngine } from "./PineLiquidityEngine";
-import { PineAlertEvent, ActiveLevel } from "./PineTypes";
+import { PineAlertEvent, ActiveLevel, Candle } from "./PineTypes";
 import { sendTelegramMessage } from "../../alerts/telegram/TelegramClient";
 
 /**
@@ -43,17 +43,21 @@ export function formatLevelTouchedTelegramMessage(
   levelTypeDisplay: string,
   currentPrice: number,
   timestamp: string,
-  timeframe: string
+  timeframe: string,
+  isWick: boolean = false
 ): string {
   const timeStr = formatTimestampIST_Long(timestamp);
+  const title = isWick ? `🔔 Trading Journey — Pine Level Touched (Candle Wick)` : `🔔 Trading Journey — Pine Level Touched`;
+  const eventName = isWick ? `LEVEL_TOUCHED_WICK` : `LEVEL_TOUCHED`;
+  const priceLabel = isWick ? `Wick Price` : `Current Price`;
   return [
-    `🔔 Trading Journey — Pine Level Touched`,
+    title,
     ``,
     `Instrument: ${instrument}`,
     `Type: ${levelTypeDisplay}`,
-    `Event: LEVEL_TOUCHED`,
+    `Event: ${eventName}`,
     `Level Price: ${levelPrice.toFixed(2)}`,
-    `Current Price: ${currentPrice.toFixed(2)}`,
+    `${priceLabel}: ${currentPrice.toFixed(2)}`,
     `Timeframe: ${timeframe}`,
     `Time: ${timeStr}`,
   ].join("\n");
@@ -82,8 +86,18 @@ export class PineAlertBridge {
   private engineMap: Map<string, PineLiquidityEngine> = new Map();
   private alertedLevelMap: Map<string, number> = new Map(); // for zone/eq dedup
   private levelTouchStateMap: Map<string, "armed" | "triggered"> = new Map();
+  private levelLastTriggeredTimeMap: Map<string, string> = new Map();
   private previousPriceMap: Map<string, number | null> = new Map();
   private onAlertCallback: ((alert: PineAlertEvent) => void) | null = null;
+
+  private getMinuteBucketIso(isoTimestamp: string): string {
+    try {
+      const ms = Math.floor(new Date(isoTimestamp).getTime() / 60000) * 60000;
+      return new Date(ms).toISOString();
+    } catch {
+      return isoTimestamp;
+    }
+  }
 
   constructor() {}
 
@@ -102,6 +116,7 @@ export class PineAlertBridge {
 
   public resetState(): void {
     this.levelTouchStateMap.clear();
+    this.levelLastTriggeredTimeMap.clear();
     this.previousPriceMap.clear();
     this.alertedLevelMap.clear();
   }
@@ -230,6 +245,7 @@ export class PineAlertBridge {
 
         if (currentState === "armed" && isTouched) {
           this.levelTouchStateMap.set(key, "triggered");
+          this.levelLastTriggeredTimeMap.set(key, this.getMinuteBucketIso(timestamp));
 
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(
@@ -274,6 +290,7 @@ export class PineAlertBridge {
 
         if (currentState === "armed" && isTouched) {
           this.levelTouchStateMap.set(key, "triggered");
+          this.levelLastTriggeredTimeMap.set(key, this.getMinuteBucketIso(timestamp));
 
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(
@@ -314,6 +331,152 @@ export class PineAlertBridge {
     }
 
     return results;
+  }
+
+  /**
+   * Evaluates active horizontal levels against a completed 1-minute candle (wick evaluation).
+   * Fallback detection path to catch intra-minute level touches missed between discrete live snapshots.
+   * Leverages the exact same levelTouchStateMap ('armed' -> 'triggered' -> 're-arm') to prevent duplicate alerts.
+   */
+  public evaluateCandleWick(
+    instrument: string,
+    candle: Candle,
+    candleMinuteTimestamp?: string
+  ): PineAlertEvent[] {
+    const engine = this.engineMap.get(instrument);
+    if (!engine) return [];
+
+    const activeLevels = engine.getActiveLevels();
+    const generatedAlerts: PineAlertEvent[] = [];
+    const targetMinuteIso = this.getMinuteBucketIso(candleMinuteTimestamp || candle.timestamp);
+
+    // Clean up stale level states for levels no longer active
+    const currentLevelKeys = new Set(activeLevels.map((l) => `${instrument}-${l.id}`));
+    for (const key of this.levelTouchStateMap.keys()) {
+      if (key.startsWith(`${instrument}-`) && !currentLevelKeys.has(key)) {
+        this.levelTouchStateMap.delete(key);
+        this.levelLastTriggeredTimeMap.delete(key);
+      }
+    }
+
+    for (const level of activeLevels) {
+      if (
+        level.type === "EQUILIBRIUM" ||
+        level.type === "PREMIUM" ||
+        level.type === "DISCOUNT"
+      ) {
+        continue;
+      }
+
+      const key = `${instrument}-${level.id}`;
+      const lastTriggeredMinuteIso = this.levelLastTriggeredTimeMap.get(key);
+
+      if (lastTriggeredMinuteIso && lastTriggeredMinuteIso === targetMinuteIso) {
+        // Live tick already triggered an alert for this level during the exact same 1-minute bucket.
+        // Suppress duplicate wick alert even if level re-armed on intra-minute pullback.
+        continue;
+      }
+
+      const currentState = this.levelTouchStateMap.get(key) ?? "armed";
+      const isResistance = level.type === "EQH" || level.type === "PWH" || level.type === "SWH";
+      const levelPrice = level.price;
+
+      if (isResistance) {
+        // Resistance wick condition: candle.high >= levelPrice
+        const isTouched = candle.high >= levelPrice;
+
+        if (currentState === "armed" && isTouched) {
+          this.levelTouchStateMap.set(key, "triggered");
+          this.levelLastTriggeredTimeMap.set(key, targetMinuteIso);
+
+          const typeDisplay = getLevelTypeDisplay(level);
+          const alertMessage = formatLevelTouchedTelegramMessage(
+            instrument,
+            levelPrice,
+            typeDisplay,
+            candle.high,
+            candle.timestamp,
+            level.timeframe,
+            true // isWick = true
+          );
+
+          // Structured Debug Logging
+          console.log(
+            `[PINE-TOUCH-WICK]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\ncandleHigh=${candle.high.toFixed(2)}\ncandleLow=${candle.low.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED_WICK`
+          );
+
+          // Dispatch Telegram notification immediately
+          sendTelegramMessage(alertMessage).then((res) => {
+            console.log(`[PINE-TOUCH-WICK]\ntelegram sent=${res.sent}`);
+          }).catch((err) => {
+            console.error(`[PINE-TOUCH-WICK]\ntelegram sent=false`, err);
+          });
+
+          const alertEvent: PineAlertEvent = {
+            instrument,
+            levelLabel: level.label,
+            levelPrice,
+            marketPrice: candle.high,
+            timeframe: level.timeframe,
+            event: "LEVEL_TOUCHED",
+            timestamp: candle.timestamp,
+          };
+
+          generatedAlerts.push(alertEvent);
+          if (this.onAlertCallback) {
+            this.onAlertCallback(alertEvent);
+          }
+        }
+      } else {
+        // Support wick condition: candle.low <= levelPrice
+        const isTouched = candle.low <= levelPrice;
+
+        if (currentState === "armed" && isTouched) {
+          this.levelTouchStateMap.set(key, "triggered");
+          this.levelLastTriggeredTimeMap.set(key, targetMinuteIso);
+
+          const typeDisplay = getLevelTypeDisplay(level);
+          const alertMessage = formatLevelTouchedTelegramMessage(
+            instrument,
+            levelPrice,
+            typeDisplay,
+            candle.low,
+            candle.timestamp,
+            level.timeframe,
+            true // isWick = true
+          );
+
+          // Structured Debug Logging
+          console.log(
+            `[PINE-TOUCH-WICK]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\ncandleHigh=${candle.high.toFixed(2)}\ncandleLow=${candle.low.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED_WICK`
+          );
+
+          // Dispatch Telegram notification immediately
+          sendTelegramMessage(alertMessage).then((res) => {
+            console.log(`[PINE-TOUCH-WICK]\ntelegram sent=${res.sent}`);
+          }).catch((err) => {
+            console.error(`[PINE-TOUCH-WICK]\ntelegram sent=false`, err);
+          });
+
+          const alertEvent: PineAlertEvent = {
+            instrument,
+            levelLabel: level.label,
+            levelPrice,
+            marketPrice: candle.low,
+            timeframe: level.timeframe,
+            event: "LEVEL_TOUCHED",
+            timestamp: candle.timestamp,
+          };
+
+          generatedAlerts.push(alertEvent);
+          if (this.onAlertCallback) {
+            this.onAlertCallback(alertEvent);
+          }
+        }
+      }
+    }
+
+    return generatedAlerts;
   }
 
   private tryEmit(dedupeKey: string, timestamp: string): boolean {

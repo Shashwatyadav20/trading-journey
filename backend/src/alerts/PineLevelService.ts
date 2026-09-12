@@ -42,6 +42,7 @@ export class PineLevelService {
   private historicalCandles: Map<string, Candle[]> = new Map();
   private isBootstrapped: Map<string, boolean> = new Map();
   private unsubscribe: (() => void) | null = null;
+  private lastProcessedWickCandleTs: string | null = null;
 
   constructor() {
     this.initEngine('BTC/USD');
@@ -273,6 +274,12 @@ export class PineLevelService {
         });
       }
 
+      if (instrument === "XAU/USD") {
+        this.verifyMissedWickXAU(closedCandle.timestamp).catch((err) => {
+          console.error("[PineLevelService] verifyMissedWickXAU error:", err);
+        });
+      }
+
       this.openCandles.set(instrument, {
         timestamp: new Date(bucketStartMs).toISOString(),
         open: price,
@@ -286,6 +293,32 @@ export class PineLevelService {
       currentOpen.high = Math.max(currentOpen.high, price);
       currentOpen.low = Math.min(currentOpen.low, price);
       currentOpen.close = price;
+    }
+  }
+
+  /**
+   * Fetches official 1-minute OHLC candle for XAU/USD from Twelve Data
+   * and checks for missed wicks in PineAlertBridge.
+   * Completely asynchronous & non-blocking.
+   */
+  public async verifyMissedWickXAU(targetTimestamp?: string): Promise<void> {
+    try {
+      const tdProvider = marketDataService.getTwelveDataProvider();
+      if (!tdProvider || !tdProvider.isConfigured()) return;
+
+      const candle = await tdProvider.fetchLatestOneMinuteCandle(targetTimestamp);
+      if (!candle) return;
+
+      // Deduplicate: avoid processing the exact same candle timestamp twice
+      if (this.lastProcessedWickCandleTs === candle.timestamp) {
+        return;
+      }
+      this.lastProcessedWickCandleTs = candle.timestamp;
+
+      // Evaluate candle wick against active levels in PineAlertBridge
+      this.alertBridge.evaluateCandleWick("XAU/USD", candle, targetTimestamp);
+    } catch (err) {
+      console.error("[PineLevelService] Diagnostic: verifyMissedWickXAU error handled safely:", err);
     }
   }
 

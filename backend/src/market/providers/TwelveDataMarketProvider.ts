@@ -31,6 +31,7 @@ export class TwelveDataMarketProvider implements MarketProvider {
   private isRunning: boolean = false;
   private isPollingLive: boolean = false;
   private pollIntervalMs: number;
+  private last1MinFetchMs: number = 0;
 
   constructor(config?: TwelveDataConfig) {
     const rawKey = process.env.TWELVE_DATA_API_KEY;
@@ -191,6 +192,94 @@ export class TwelveDataMarketProvider implements MarketProvider {
       return null;
     } finally {
       this.isPollingLive = false;
+    }
+  }
+
+  /**
+   * Fetches the 1-minute OHLC candle for XAU/USD from Twelve Data REST API.
+   * If targetTimestamp (ISO UTC string) is provided, iterates over the returned candles
+   * (e.g. values[0], values[1]) and selects ONLY the completed candle whose timestamp
+   * exactly matches targetTimestamp. Never blindly uses values[0] or an arbitrary candle.
+   * Rate limited: enforces at least 50,000ms delay between API calls to avoid request bursts.
+   */
+  public async fetchLatestOneMinuteCandle(targetTimestamp?: string): Promise<Candle | null> {
+    if (!this.isConfigured()) return null;
+
+    const now = Date.now();
+    if (now - this.last1MinFetchMs < 50_000) {
+      return null; // Rate limit guard: max 1 call per 50 seconds
+    }
+    this.last1MinFetchMs = now;
+
+    try {
+      const url = new URL("https://api.twelvedata.com/time_series");
+      url.searchParams.append("symbol", "XAU/USD");
+      url.searchParams.append("interval", "1min");
+      url.searchParams.append("outputsize", "4");
+      url.searchParams.append("timezone", "UTC");
+      url.searchParams.append("apikey", this.apiKey.trim());
+
+      const res = await fetch(url.toString(), {
+        headers: { "User-Agent": "TradingApp/1.0" },
+      });
+
+      if (!res.ok) {
+        console.error(`[TwelveDataMarketProvider] 1min candle request failed with HTTP ${res.status}`);
+        return null;
+      }
+
+      const data = await res.json();
+      if (data && data.status === "ok" && Array.isArray(data.values) && data.values.length > 0) {
+        const parsedCandles: Candle[] = data.values
+          .filter((c: any) => c && c.datetime && c.open && c.high && c.low && c.close)
+          .map((c: any) => {
+            const dtStr = c.datetime.includes("Z") ? c.datetime : `${c.datetime} Z`;
+            const tsMs = Math.floor(new Date(dtStr).getTime() / 60000) * 60000;
+            return {
+              timestamp: new Date(tsMs).toISOString(),
+              open: parseFloat(c.open),
+              high: parseFloat(c.high),
+              low: parseFloat(c.low),
+              close: parseFloat(c.close),
+              volume: c.volume ? parseFloat(c.volume) : 0,
+            };
+          })
+          .filter(
+            (c: Candle) =>
+              Number.isFinite(c.open) &&
+              Number.isFinite(c.high) &&
+              Number.isFinite(c.low) &&
+              Number.isFinite(c.close) &&
+              c.open > 0 &&
+              c.high > 0 &&
+              c.low > 0 &&
+              c.close > 0
+          );
+
+        if (parsedCandles.length === 0) return null;
+
+        if (targetTimestamp) {
+          const targetMs = Math.floor(new Date(targetTimestamp).getTime() / 60000) * 60000;
+          const targetIso = new Date(targetMs).toISOString();
+
+          // Select ONLY the completed candle whose UTC minute timestamp matches targetTimestamp
+          const matched = parsedCandles.find((c) => c.timestamp === targetIso);
+          if (matched) {
+            return matched;
+          }
+          // Strict requirement: never fall back to an arbitrary or forming candle
+          return null;
+        }
+
+        return parsedCandles[0];
+      } else if (data && data.message) {
+        console.error("[TwelveDataMarketProvider] 1min candle API error response.");
+      }
+
+      return null;
+    } catch (err: any) {
+      console.error("[TwelveDataMarketProvider] Error fetching 1min candle: network request failed.");
+      return null;
     }
   }
 
