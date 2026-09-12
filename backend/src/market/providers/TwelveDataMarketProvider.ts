@@ -225,6 +225,7 @@ export class TwelveDataMarketProvider implements MarketProvider {
       url.searchParams.append("symbol", "XAU/USD");
       url.searchParams.append("interval", interval);
       url.searchParams.append("outputsize", String(count));
+      url.searchParams.append("timezone", "UTC");
       url.searchParams.append("apikey", this.apiKey.trim());
 
       const res = await fetch(url.toString(), {

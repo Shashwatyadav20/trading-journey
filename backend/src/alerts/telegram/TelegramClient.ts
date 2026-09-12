@@ -34,6 +34,13 @@ export function isTelegramConfigured(): boolean {
   return Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
 }
 
+// Startup diagnostic — credentials are NEVER logged, only the boolean result.
+console.log(
+  `[TelegramClient] Startup check: configured=${isTelegramConfigured()} ` +
+  `(TELEGRAM_BOT_TOKEN set=${Boolean(process.env.TELEGRAM_BOT_TOKEN)} ` +
+  `TELEGRAM_CHAT_ID set=${Boolean(process.env.TELEGRAM_CHAT_ID)})`
+);
+
 /**
  * Sends a plain-text message to the configured Telegram chat.
  *

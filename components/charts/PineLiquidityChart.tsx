@@ -348,7 +348,7 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
     };
 
     loadCandles();
-  }, [instrument, chartTF]);
+  }, [instrument, chartTF, chartReady]);
 
   // ─── Update current price line & candle on live tick ───────────────────────
   useEffect(() => {

@@ -49,13 +49,13 @@ export const DEFAULT_PINE_INPUTS: PineInputs = {
   showEQ_D: true,
   eqPivotLen: 5,
   eqTolPct: 0.05,
-  maxEQLevels: 6,
+  maxEQLevels: 5,
 
   showPW: true,
 
   showSwings: true,
   swingPivotLen: 10,
-  maxSwingLevels: 6,
+  maxSwingLevels: 5,
 
   showPDZone: true,
   pdZoneTF: "15",
@@ -70,7 +70,7 @@ export const DEFAULT_PINE_INPUTS: PineInputs = {
   extendLevels: true,
   labelSize: "small",
   showPriceInLabel: true,
-  overlapTolPct: 0.05,
+  overlapTolPct: 0.15,
 
   colEQH: "#d946ef",
   colEQL: "#06b6d4",
