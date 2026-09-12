@@ -72,8 +72,6 @@ export async function checkTelegramBot(): Promise<TelegramCheckResult> {
 
   try {
     const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
     const json: any = await res.json().catch(() => null);
 
     return {
@@ -86,12 +84,13 @@ export async function checkTelegramBot(): Promise<TelegramCheckResult> {
       tokenDiagnostics,
     };
   } catch (err: any) {
-    clearTimeout(timeoutId);
     return {
       configured: true,
       tokenDiagnostics,
       error: err?.name === 'AbortError' ? 'Request timed out' : (err?.message ?? 'Network error'),
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
