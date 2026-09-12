@@ -26,6 +26,75 @@ export interface TelegramSendResult {
   error?: string;
 }
 
+export interface TelegramCheckResult {
+  configured: boolean;
+  httpStatus?: number;
+  ok?: boolean;
+  description?: string;
+  botUsername?: string;
+  botId?: number;
+  tokenDiagnostics?: {
+    length: number;
+    startsWithDigits: boolean;
+    containsWhitespace: boolean;
+    startsWithBot: boolean;
+    hasSurroundingQuotes: boolean;
+  };
+  error?: string;
+}
+
+/**
+ * Executes a diagnostic getMe call against the Telegram Bot API.
+ * Never logs or exposes credentials, tokens, or chat IDs.
+ */
+export async function checkTelegramBot(): Promise<TelegramCheckResult> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    return {
+      configured: false,
+      error: 'TELEGRAM_BOT_TOKEN is not set in environment.',
+    };
+  }
+
+  const trimmedToken = token.trim();
+  const tokenDiagnostics = {
+    length: token.length,
+    startsWithDigits: /^\d/.test(trimmedToken),
+    containsWhitespace: /\s/.test(token),
+    startsWithBot: /^bot/i.test(trimmedToken),
+    hasSurroundingQuotes: /^['"].*['"]$/.test(token),
+  };
+
+  const url = `https://api.telegram.org/bot${trimmedToken}/getMe`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TELEGRAM_API_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    const json: any = await res.json().catch(() => null);
+
+    return {
+      configured: true,
+      httpStatus: res.status,
+      ok: json?.ok ?? false,
+      description: json?.description,
+      botUsername: json?.result?.username,
+      botId: json?.result?.id,
+      tokenDiagnostics,
+    };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    return {
+      configured: true,
+      tokenDiagnostics,
+      error: err?.name === 'AbortError' ? 'Request timed out' : (err?.message ?? 'Network error'),
+    };
+  }
+}
+
 /**
  * Returns true if both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set
  * in the environment. Does NOT expose the values.
