@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PineLevelService } from '../../PineLevelService';
 import { PineAlertBridge } from '../PineAlertBridge';
 import { priceStore } from '../../../market/MarketPriceStore';
+import { marketDataService } from '../../../market/MarketDataService';
 import { Candle } from '../PineTypes';
 
 describe('XAU/USD Chart & Pine Levels Regression Suite (Twelve Data)', () => {
@@ -20,6 +21,7 @@ describe('XAU/USD Chart & Pine Levels Regression Suite (Twelve Data)', () => {
   beforeEach(() => {
     // Ensure TwelveDataMarketProvider treats itself as configured
     process.env = { ...originalEnv, TWELVE_DATA_API_KEY: 'test_key_vitest_placeholder' };
+    (marketDataService.getTwelveDataProvider() as any)['apiKey'] = 'test_key_vitest_placeholder';
     pineService = new PineLevelService();
   });
 

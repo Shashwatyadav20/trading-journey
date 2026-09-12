@@ -42,17 +42,19 @@ export function formatLevelTouchedTelegramMessage(
   levelPrice: number,
   levelTypeDisplay: string,
   currentPrice: number,
-  timestamp: string
+  timestamp: string,
+  timeframe: string
 ): string {
   const timeStr = formatTimestampIST_Long(timestamp);
   return [
     `🔔 Trading Journey — Pine Level Touched`,
     ``,
     `Instrument: ${instrument}`,
-    `Level: ${levelPrice.toFixed(2)}`,
     `Type: ${levelTypeDisplay}`,
     `Event: LEVEL_TOUCHED`,
-    `Price: ${currentPrice.toFixed(2)}`,
+    `Level Price: ${levelPrice.toFixed(2)}`,
+    `Current Price: ${currentPrice.toFixed(2)}`,
+    `Timeframe: ${timeframe}`,
     `Time: ${timeStr}`,
   ].join("\n");
 }
@@ -235,12 +237,13 @@ export class PineAlertBridge {
             levelPrice,
             typeDisplay,
             currentPrice,
-            timestamp
+            timestamp,
+            level.timeframe
           );
 
           // Structured Debug Logging
           console.log(
-            `[PINE-TOUCH]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\npreviousPrice=${previousPrice !== null ? previousPrice.toFixed(2) : "null"}\ncurrentPrice=${currentPrice.toFixed(2)}\nevent=LEVEL_TOUCHED`
+            `[PINE-TOUCH]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\npreviousPrice=${previousPrice !== null ? previousPrice.toFixed(2) : "null"}\ncurrentPrice=${currentPrice.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED`
           );
 
           // Dispatch Telegram notification immediately
@@ -278,12 +281,13 @@ export class PineAlertBridge {
             levelPrice,
             typeDisplay,
             currentPrice,
-            timestamp
+            timestamp,
+            level.timeframe
           );
 
           // Structured Debug Logging
           console.log(
-            `[PINE-TOUCH]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\npreviousPrice=${previousPrice !== null ? previousPrice.toFixed(2) : "null"}\ncurrentPrice=${currentPrice.toFixed(2)}\nevent=LEVEL_TOUCHED`
+            `[PINE-TOUCH]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\npreviousPrice=${previousPrice !== null ? previousPrice.toFixed(2) : "null"}\ncurrentPrice=${currentPrice.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED`
           );
 
           // Dispatch Telegram notification immediately

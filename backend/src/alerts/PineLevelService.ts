@@ -22,8 +22,7 @@ import { PineAlertBridge } from './pine/PineAlertBridge';
 import { pineAlertPipeline } from './pine/PineAlertPipeline';
 import { ActiveLevel, PremiumDiscountZoneState, Candle, PineSignal } from './pine/PineTypes';
 import { priceStore } from '../market/MarketPriceStore';
-
-import { TwelveDataMarketProvider } from '../market/providers/TwelveDataMarketProvider';
+import { marketDataService } from '../market/MarketDataService';
 
 const DEFAULT_CHART_TF = 15;
 
@@ -39,7 +38,6 @@ export class PineLevelService {
   private engines: Map<string, PineLiquidityEngine> = new Map();
   private signalEngines: Map<string, PineSignalEngine> = new Map();
   private alertBridge: PineAlertBridge = new PineAlertBridge();
-  private twelveDataProvider: TwelveDataMarketProvider = new TwelveDataMarketProvider();
   private openCandles: Map<string, Candle & { bucketStartMs: number }> = new Map();
   private historicalCandles: Map<string, Candle[]> = new Map();
   private isBootstrapped: Map<string, boolean> = new Map();
@@ -127,8 +125,8 @@ export class PineLevelService {
           return candles;
         }
       } else if (instrument === 'XAU/USD') {
-        console.log('[PineLevelService] Fetching primary historical candles from Twelve Data (XAU/USD)...');
-        const tdCandles = await this.twelveDataProvider.fetchHistoricalCandles('M15', 1000);
+        console.log('[PineLevelService] Fetching primary historical candles from shared Twelve Data provider (XAU/USD)...');
+        const tdCandles = await marketDataService.getTwelveDataProvider().fetchHistoricalCandles('M15', 1000);
         if (tdCandles.length > 0) {
           return tdCandles;
         }

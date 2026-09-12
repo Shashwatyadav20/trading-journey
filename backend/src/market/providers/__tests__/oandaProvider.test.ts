@@ -3,6 +3,7 @@ import { OandaMarketProvider } from '../OandaMarketProvider';
 import { PineLevelService } from '../../../alerts/PineLevelService';
 import { PineLiquidityEngine } from '../../../alerts/pine/PineLiquidityEngine';
 import { priceStore } from '../../MarketPriceStore';
+import { marketDataService } from '../../MarketDataService';
 import { Candle } from '../../../alerts/pine/PineTypes';
 
 describe('OANDA XAU_USD Market Provider Suite (Requirements 1-22)', () => {
@@ -225,8 +226,9 @@ describe('OANDA XAU_USD Market Provider Suite (Requirements 1-22)', () => {
     // Set API key so TwelveDataMarketProvider.isConfigured() returns true
     const savedKey = process.env.TWELVE_DATA_API_KEY;
     process.env.TWELVE_DATA_API_KEY = 'test_key_vitest_placeholder';
-
-    const pineService = new PineLevelService();
+    const tdProvider = marketDataService.getTwelveDataProvider() as any;
+    const origApiKey = tdProvider['apiKey'];
+    tdProvider['apiKey'] = 'test_key_vitest_placeholder';
 
     const origFetch = global.fetch;
     global.fetch = async (url: any) => {
@@ -248,6 +250,8 @@ describe('OANDA XAU_USD Market Provider Suite (Requirements 1-22)', () => {
       return { ok: false, status: 404 } as any;
     };
 
+    const pineService = new PineLevelService();
+
     try {
       await pineService.bootstrap();
       const candles = pineService.getHistoricalCandles('XAU/USD', 15);
@@ -258,6 +262,7 @@ describe('OANDA XAU_USD Market Provider Suite (Requirements 1-22)', () => {
     } finally {
       global.fetch = origFetch;
       process.env.TWELVE_DATA_API_KEY = savedKey;
+      tdProvider['apiKey'] = origApiKey;
     }
   });
 

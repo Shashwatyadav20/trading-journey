@@ -123,7 +123,7 @@ export default function LiveChartsView() {
         ) : viewMode === "STRATEGY" ? (
           <StrategyChart />
         ) : (
-          <PineLiquidityProvider instrument={currentDisplaySymbol}>
+          <PineLiquidityProvider key={currentDisplaySymbol} instrument={currentDisplaySymbol}>
             <PineLiquidityChart instrument={currentDisplaySymbol} />
           </PineLiquidityProvider>
         )}
