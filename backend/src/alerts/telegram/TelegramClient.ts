@@ -59,10 +59,10 @@ export async function sendTelegramMessage(text: string): Promise<TelegramSendRes
 
   // Build URL in a way that keeps the token out of any logs that might
   // capture the full request URL at the application layer.
-  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  const url = `https://api.telegram.org/bot${token.trim()}/sendMessage`;
 
   const body = JSON.stringify({
-    chat_id: chatId,
+    chat_id: chatId.trim(),
     text,
     parse_mode: 'Markdown',
   });
