@@ -199,7 +199,7 @@ export class TwelveDataMarketProvider implements MarketProvider {
    * Timeframes: 15min, 30min, 1h, 4h, 1day
    */
   public async fetchHistoricalCandles(
-    granularity: "15" | "30" | "60" | "240" | "1440" | "M15" | "M30" | "H1" | "H4" | "D" | string = "M15",
+    granularity: "1" | "3" | "5" | "15" | "30" | "60" | "240" | "1440" | "M1" | "M3" | "M5" | "M15" | "M30" | "H1" | "H4" | "D" | string = "M1",
     count: number = 500
   ): Promise<Candle[]> {
     if (!this.isConfigured()) {
@@ -208,19 +208,29 @@ export class TwelveDataMarketProvider implements MarketProvider {
 
     try {
       const granMap: Record<string, string> = {
+        "1": "1min",
+        "3": "3min",
+        "5": "5min",
         "15": "15min",
         "30": "30min",
         "60": "1h",
         "240": "4h",
         "1440": "1day",
+        M1: "1min",
+        M3: "3min",
+        M5: "5min",
         M15: "15min",
         M30: "30min",
         H1: "1h",
         H4: "4h",
         D: "1day",
+        "1min": "1min",
+        "3min": "3min",
+        "5min": "5min",
+        "15min": "15min",
       };
 
-      const interval = granMap[granularity] || "15min";
+      const interval = granMap[granularity] || "1min";
       const url = new URL("https://api.twelvedata.com/time_series");
       url.searchParams.append("symbol", "XAU/USD");
       url.searchParams.append("interval", interval);
