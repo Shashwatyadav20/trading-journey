@@ -68,6 +68,7 @@ describe('TwelveDataMarketProvider', () => {
     consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.setSystemTime(new Date('2026-09-10T12:00:00Z')); // Thursday (Market Open)
   });
 
   afterEach(() => {

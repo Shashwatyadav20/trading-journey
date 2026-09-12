@@ -56,7 +56,9 @@ export class MarketDataService {
 
       // Initialize the store with the default provider price
       const initialPrice = provider.getCurrentPrice();
-      priceStore.setPrice(initialPrice.instrument, initialPrice);
+      if (initialPrice.price > 0) {
+        priceStore.setPrice(initialPrice.instrument, initialPrice);
+      }
     });
 
     // Start background check for stale/offline statuses
