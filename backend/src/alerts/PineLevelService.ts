@@ -88,7 +88,7 @@ export class PineLevelService {
   private async fetchHistoricalCandles(instrument: string): Promise<Candle[]> {
     try {
       if (instrument === 'BTC/USD') {
-        const url = 'https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=60';
+        const url = 'https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=900';
         const res = await fetch(url, {
           headers: { 'User-Agent': 'TradingApp/1.0' },
         });
@@ -109,7 +109,7 @@ export class PineLevelService {
         }
 
         console.warn('[PineLevelService] Coinbase REST API unavailable, falling back to Binance BTCUSDT...');
-        const fallbackUrl = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1000';
+        const fallbackUrl = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=500';
         const fallbackRes = await fetch(fallbackUrl);
         if (fallbackRes.ok) {
           const raw = await fallbackRes.json();
@@ -125,8 +125,8 @@ export class PineLevelService {
           return candles;
         }
       } else if (instrument === 'XAU/USD') {
-        console.log('[PineLevelService] Fetching primary historical 1M candles from shared Twelve Data provider (XAU/USD)...');
-        const tdCandles = await marketDataService.getTwelveDataProvider().fetchHistoricalCandles('1min', 1000);
+        console.log('[PineLevelService] Fetching primary historical candles from shared Twelve Data provider (XAU/USD)...');
+        const tdCandles = await marketDataService.getTwelveDataProvider().fetchHistoricalCandles('M15', 1000);
         if (tdCandles.length > 0) {
           return tdCandles;
         }
@@ -163,11 +163,8 @@ export class PineLevelService {
       if (history.length > 0) {
         this.historicalCandles.set(instrument, history);
 
-        // Feed PineLiquidityEngine with 15M candles aggregated from 1M base seed candles
-        // to preserve 100% exact parity with HTF Pine liquidity levels (15M+)
-        const history15M = this.aggregateCandles(history, 15);
         let prev: Candle | null = null;
-        for (const candle of history15M) {
+        for (const candle of history) {
           engine.processCandle(candle);
           const newSignals = signalEngine.evaluateCandle(instrument, candle, prev, engine);
           newSignals.forEach((sig) => {
@@ -182,7 +179,7 @@ export class PineLevelService {
         const activeSignalCount = signalEngine.getActiveSignals(instrument).length;
         const pdZoneState = engine.getPDZoneState();
         console.log(
-          `[PineLevelService] Bootstrapped ${history.length} 1M base candles for ${instrument}. ` +
+          `[PineLevelService] Bootstrapped ${history.length} historical candles for ${instrument}. ` +
           `Active levels: ${activeCount}, Active signals: ${activeSignalCount}, P/D zone active: ${pdZoneState.active}`
         );
       } else {
@@ -315,13 +312,10 @@ export class PineLevelService {
 
   public getHistoricalCandles(instrument: string, chartTF: number = DEFAULT_CHART_TF): Candle[] {
     const candles = this.historicalCandles.get(instrument) || [];
-    if (chartTF <= 1 || candles.length === 0) return candles;
-    return this.aggregateCandles(candles, chartTF);
-  }
+    if (chartTF === 15 || candles.length === 0) return candles;
 
-  public aggregateCandles(candles: Candle[], tfMinutes: number): Candle[] {
-    if (tfMinutes <= 1 || candles.length === 0) return candles;
-
+    // Aggregate 15M candles into requested chart timeframe if needed
+    const tfMinutes = chartTF;
     const aggregated: Candle[] = [];
     let currentBucket: Candle | null = null;
     let bucketStartMs = 0;

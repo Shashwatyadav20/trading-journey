@@ -44,9 +44,6 @@ interface PineLiquidityChartProps {
 
 // Timeframes available in the UI
 const TF_OPTIONS = [
-  { label: "1M",  minutes: 1 },
-  { label: "3M",  minutes: 3 },
-  { label: "5M",  minutes: 5 },
   { label: "15M", minutes: 15 },
   { label: "30M", minutes: 30 },
   { label: "1H",  minutes: 60 },
@@ -303,9 +300,6 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
         // 2. Fallback to Coinbase public endpoint if backend candles are empty for BTC/USD
         if (chartData.length < 5 && instrument === "BTC/USD") {
           const granularityMap: Record<number, number> = {
-            1: 60,
-            3: 180,
-            5: 300,
             15: 900,
             30: 1800,
             60: 3600,

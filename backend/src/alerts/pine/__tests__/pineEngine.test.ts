@@ -78,13 +78,13 @@ describe("PineLiquidityEngine — 1:1 Pine Script Unit Tests", () => {
     expect(inputs.showEQ_D).toBe(true);
     expect(inputs.eqPivotLen).toBe(5);
     expect(inputs.eqTolPct).toBe(0.05);
-    expect(inputs.maxEQLevels).toBe(5);
+    expect(inputs.maxEQLevels).toBe(6);
     // PW
     expect(inputs.showPW).toBe(true);
     // Swings
     expect(inputs.showSwings).toBe(true);
     expect(inputs.swingPivotLen).toBe(10);
-    expect(inputs.maxSwingLevels).toBe(5);
+    expect(inputs.maxSwingLevels).toBe(6);
     // P/D Zone
     expect(inputs.showPDZone).toBe(true);
     expect(inputs.pdZoneTF).toBe("15");
@@ -96,7 +96,7 @@ describe("PineLiquidityEngine — 1:1 Pine Script Unit Tests", () => {
     expect(inputs.extendLevels).toBe(true);
     expect(inputs.labelSize).toBe("small");
     expect(inputs.showPriceInLabel).toBe(true);
-    expect(inputs.overlapTolPct).toBe(0.15);
+    expect(inputs.overlapTolPct).toBe(0.05);
     // Colors (all 6)
     expect(inputs.colEQH).toBe("#d946ef");
     expect(inputs.colEQL).toBe("#06b6d4");
