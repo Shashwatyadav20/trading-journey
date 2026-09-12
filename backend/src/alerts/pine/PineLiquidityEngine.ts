@@ -18,7 +18,7 @@ import {
  *     21:00 UTC in winter, Sunday 20:00 UTC in summer), matching FX Sunday open.
  *
  * The backend cannot reliably replicate symbol-specific TradingView session calendars from raw OHLC data alone.
- * Our market data providers (Coinbase for BTC, XAUS for XAU) deliver UTC-timestamped candles with no
+ * Our market data providers (Coinbase for BTC, Twelve Data for XAU) deliver UTC-timestamped candles with no
  * embedded exchange-session metadata.
  *
  * APPROXIMATION USED:

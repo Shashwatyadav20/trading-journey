@@ -11,11 +11,11 @@ import PaperTradingPanel from "../trading/PaperTradingPanel";
 import OpenPositionsTable from "../trading/OpenPositionsTable";
 import PendingOrdersPanel from "../trading/PendingOrdersPanel";
 
-type MarketSymbol = "OANDA:XAUUSD" | "BINANCE:BTCUSD";
+type MarketSymbol = "FX:XAUUSD" | "BINANCE:BTCUSD";
 type ViewMode = "LIVE" | "STRATEGY" | "PINE";
 
 export default function LiveChartsView() {
-  const [activeSymbol, setActiveSymbol] = useState<MarketSymbol>("OANDA:XAUUSD");
+  const [activeSymbol, setActiveSymbol] = useState<MarketSymbol>("FX:XAUUSD");
   const [viewMode, setViewMode] = useState<ViewMode>("LIVE");
 
   const currentDisplaySymbol = activeSymbol.includes("BTC") ? "BTC/USD" : "XAU/USD";
@@ -90,9 +90,9 @@ export default function LiveChartsView() {
           {(viewMode === "LIVE" || viewMode === "PINE") && (
             <div className="flex bg-slate-900/80 p-1 rounded-xl border border-slate-800/80 shadow-inner">
               <button
-                onClick={() => setActiveSymbol("OANDA:XAUUSD")}
+                onClick={() => setActiveSymbol("FX:XAUUSD")}
                 className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                  activeSymbol === "OANDA:XAUUSD"
+                  activeSymbol === "FX:XAUUSD"
                     ? "bg-amber-500/10 text-amber-400 shadow-sm border border-amber-500/20"
                     : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
                 }`}

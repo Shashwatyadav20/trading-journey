@@ -10,6 +10,7 @@ describe('OANDA XAU_USD Market Provider Suite (Requirements 1-22)', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
+    vi.setSystemTime(new Date('2026-09-10T12:00:00Z')); // Thursday (Market Open)
     process.env = { ...originalEnv };
     process.env.OANDA_API_TOKEN = 'test_token_secret_12345';
     process.env.OANDA_ACCOUNT_ID = '101-001-1234567-001';
