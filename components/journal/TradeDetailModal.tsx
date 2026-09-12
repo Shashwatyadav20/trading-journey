@@ -3,6 +3,7 @@
 import React from "react";
 import { Trade } from "../../types/trade";
 import { formatCurrency, formatPercent } from "../../lib/calculations";
+import TradeExecutionChart from "./TradeExecutionChart";
 import {
   X,
   TrendingUp,
@@ -130,6 +131,17 @@ export default function TradeDetailModal({
                 {formatCurrency(trade.fees)}
               </span>
             </div>
+          </div>
+
+          {/* Execution Chart & Markers */}
+          <div className="space-y-2">
+            <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Trade Execution Chart</span>
+              <span className="text-[10px] text-cyan-400 font-normal">
+                {trade.symbol} · {trade.side}
+              </span>
+            </h4>
+            <TradeExecutionChart trade={trade} />
           </div>
 
           {/* Execution Prices Matrix */}
