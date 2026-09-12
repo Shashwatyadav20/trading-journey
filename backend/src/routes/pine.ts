@@ -33,7 +33,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { pineLevelService } from '../alerts/PineLevelService';
 import { authenticateRequest } from '../auth/middleware';
-import { sendTelegramMessage, isTelegramConfigured, checkTelegramBot } from '../alerts/telegram/TelegramClient';
+import { sendTelegramMessage, isTelegramConfigured } from '../alerts/telegram/TelegramClient';
 
 const pineRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/pine/instruments', async (_request, _reply) => {
@@ -125,20 +125,6 @@ const pineRoutes: FastifyPluginAsync = async (fastify) => {
       sent: result.sent,
       configured,
     });
-  });
-
-  /**
-   * GET /pine/telegram/check
-   * ========================
-   * Diagnostic endpoint calling Telegram Bot API getMe.
-   * Protected by authenticateRequest (Supabase JWT + approved user check).
-   * Returns safe bot information & token diagnostics. Never returns credentials.
-   */
-  fastify.get('/pine/telegram/check', {
-    preHandler: authenticateRequest,
-  }, async (_request, reply) => {
-    const result = await checkTelegramBot();
-    reply.status(200).send(result);
   });
 };
 
