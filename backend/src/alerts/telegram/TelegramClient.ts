@@ -82,8 +82,17 @@ export async function sendTelegramMessage(text: string): Promise<TelegramSendRes
 
     // ── Non-2xx HTTP status ───────────────────────────────────────────────
     if (!res.ok) {
-      // Log only the HTTP status, never the request URL (which contains the token)
-      console.error(`[TelegramClient] HTTP error: ${res.status} ${res.statusText}`);
+      let description = 'no description';
+      try {
+        const errJson: any = await res.json();
+        if (errJson && typeof errJson.description === 'string') {
+          description = errJson.description;
+        }
+      } catch {
+        // Ignored — fallback to 'no description'
+      }
+      // Log only the HTTP status and safe description, never the request URL (which contains the token)
+      console.error(`[TelegramClient] HTTP error: ${res.status} ${res.statusText} - ${description}`);
       return { sent: false, error: `Telegram API HTTP error: ${res.status}` };
     }
 
