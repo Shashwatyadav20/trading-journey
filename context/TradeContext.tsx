@@ -125,11 +125,12 @@ export function computeTradeMetrics(input: CreateTradeInput): {
 } {
   const fees = input.fees ?? 0;
   const entry = input.entryPrice;
-  const exit = input.exitPrice ?? entry;
+  const hasExit = input.exitPrice !== undefined && input.exitPrice > 0;
+  const exit = hasExit ? input.exitPrice! : entry;
   const qty = input.quantity;
   const side = input.side;
 
-  if (input.status === "OPEN") {
+  if (input.status === "OPEN" || (!input.status && !hasExit)) {
     return { pnl: 0, rMultiple: 0, status: "OPEN" };
   }
 
@@ -383,15 +384,17 @@ export function TradeProvider({ children }: { children: React.ReactNode }) {
 
   const addTrade = (input: CreateTradeInput): Trade => {
     const fees = input.fees ?? 0;
-    const { pnl, rMultiple, status } = computeTradeMetrics({ ...input, fees });
+    const hasExit = input.exitPrice !== undefined && input.exitPrice > 0;
+    const defaultStatus = hasExit ? undefined : "OPEN";
+    const { pnl, rMultiple, status } = computeTradeMetrics({ ...input, status: input.status || defaultStatus, fees });
     const newTrade: Trade = {
       ...input,
       id: `trade_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       fees,
-      exitPrice: input.exitPrice ?? input.entryPrice,
+      exitPrice: hasExit ? input.exitPrice! : input.entryPrice,
       pnl,
       rMultiple,
-      status: input.status || "OPEN",
+      status: input.status || status,
     };
 
     console.log(`[TRADE] addTrade called for ${newTrade.symbol} (${newTrade.side}) id=${newTrade.id}`);
@@ -405,7 +408,7 @@ export function TradeProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (user) {
-      const isOpenMarket = (input.status === "OPEN" || !input.status) && (input.orderType === "MARKET" || !input.orderType);
+      const isOpenMarket = newTrade.status === "OPEN" && (input.orderType === "MARKET" || !input.orderType);
 
       if (isOpenMarket) {
         console.log(`[TRADE] Routing OPEN paper position through backend trading API to ensure engine positionStore registration...`);

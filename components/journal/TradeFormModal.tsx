@@ -117,8 +117,8 @@ export default function TradeFormModal({
     if (!symbol.trim()) errs.symbol = "Symbol is required (e.g. NQ1!, BTC/USD)";
     if (!entryPrice || isNaN(numEntry) || numEntry <= 0)
       errs.entryPrice = "Valid Entry Price > 0 is required";
-    if (!exitPrice || isNaN(numExit) || numExit <= 0)
-      errs.exitPrice = "Valid Exit Price > 0 is required";
+    if (exitPrice.trim() !== "" && (isNaN(numExit) || numExit <= 0))
+      errs.exitPrice = "Exit Price must be > 0";
     if (!quantity || isNaN(numQty) || numQty <= 0)
       errs.quantity = "Quantity > 0 is required";
 
@@ -130,6 +130,7 @@ export default function TradeFormModal({
     e.preventDefault();
     if (!validate()) return;
 
+    const hasExit = exitPrice.trim() !== "" && !isNaN(numExit) && numExit > 0;
     onSubmit({
       date,
       time,
@@ -139,7 +140,7 @@ export default function TradeFormModal({
       entryPrice: numEntry,
       stopLoss: numSL > 0 ? numSL : undefined,
       targetPrice: parseFloat(targetPrice) || undefined,
-      exitPrice: numExit,
+      exitPrice: hasExit ? numExit : undefined,
       quantity: numQty,
       fees: numFees,
       notes: notes.trim(),
@@ -351,7 +352,7 @@ export default function TradeFormModal({
             </div>
 
             <div className="space-y-1">
-              <label className="text-slate-300 font-semibold">Exit Price *</label>
+              <label className="text-slate-300 font-semibold">Exit Price (optional)</label>
               <input
                 type="number"
                 step="any"
