@@ -238,9 +238,25 @@ describe('XAU/USD Chart & Pine Levels Regression Suite (Twelve Data)', () => {
     const engine = pineService['engines'].get('XAU/USD')!;
     expect(engine).toBeDefined();
 
-    // Native XAU/USD prices ~2500 range
-    const candles = generateNativeXauCandles(150, 2500);
-    for (const c of candles) {
+    // Use candles with wide enough intra-day range so PDH/PDL from each day
+    // are NOT swept by subsequent candles (each day occupies a distinct price band).
+    // Day 1 (2026-08-01): range 2400–2600.  Day 2 (2026-08-02): range 2601–2700.
+    // PDH=2600 from day1. Day2.high=2700 > 2600 → PDH consumed. OK — that's correct.
+    // But we need at least one level to survive. Use Week boundary:
+    // Week 1 candles: high~2500, low~2400 across 7 days.
+    // Week 2 first candle: high=2480, low=2420 → does NOT cross PWH=2500 or PWL=2400.
+    const baseMs = new Date('2026-08-03T00:00:00Z').getTime(); // Monday = week start
+    const candlesWide: import('../PineTypes').Candle[] = [];
+    // Week 1: 7 daily candles Mon 3 Aug – Sun 9 Aug, all in 2400–2500 range
+    for (let d = 0; d < 7; d++) {
+      const ts = new Date(baseMs + d * 24 * 60 * 60 * 1000).toISOString();
+      candlesWide.push({ timestamp: ts, open: 2450, high: 2500, low: 2400, close: 2450, volume: 100 });
+    }
+    // Week 2: Mon 10 Aug — high=2480, low=2420 — stays inside PWH=2500 and PWL=2400
+    const week2Ts = new Date(baseMs + 7 * 24 * 60 * 60 * 1000).toISOString();
+    candlesWide.push({ timestamp: week2Ts, open: 2450, high: 2480, low: 2420, close: 2450, volume: 100 });
+
+    for (const c of candlesWide) {
       engine.processCandle(c);
     }
 
@@ -250,7 +266,7 @@ describe('XAU/USD Chart & Pine Levels Regression Suite (Twelve Data)', () => {
     // All levels must be in native XAU/USD price range (no PAXG base ~$2500 scaled to ~$4418)
     for (const lvl of levels) {
       if (!['PREMIUM', 'DISCOUNT', 'EQUILIBRIUM'].includes(lvl.type)) {
-        expect(lvl.price).toBeGreaterThan(2400);
+        expect(lvl.price).toBeGreaterThan(2300);
         expect(lvl.price).toBeLessThan(2700);
       }
     }
@@ -355,10 +371,17 @@ describe('XAU/USD Chart & Pine Levels Regression Suite (Twelve Data)', () => {
     const engine = pineService['engines'].get('BTC/USD');
     expect(engine).toBeDefined();
 
-    const candles = generateNativeXauCandles(150, 60000);
-    for (const c of candles) {
-      engine!.processCandle(c);
+    // Use candles with a weekly boundary so PWH/PWL are created and NOT swept.
+    // Week 1 (Mon 3 Aug): 7 daily candles in range 59000–61000.
+    // Week 2 first candle (Mon 10 Aug): stays inside week1 range → PWH/PWL survive.
+    const baseMs = new Date('2026-08-03T00:00:00Z').getTime();
+    for (let d = 0; d < 7; d++) {
+      const ts = new Date(baseMs + d * 24 * 60 * 60 * 1000).toISOString();
+      engine!.processCandle({ timestamp: ts, open: 60000, high: 61000, low: 59000, close: 60000, volume: 100 });
     }
+    // Week 2 first candle: high=60500 < PWH=61000, low=59500 > PWL=59000 → levels survive
+    const week2Ts = new Date(baseMs + 7 * 24 * 60 * 60 * 1000).toISOString();
+    engine!.processCandle({ timestamp: week2Ts, open: 60000, high: 60500, low: 59500, close: 60000, volume: 100 });
 
     const levels = pineService.getLevels('BTC/USD', 15);
     expect(levels.length).toBeGreaterThan(0);

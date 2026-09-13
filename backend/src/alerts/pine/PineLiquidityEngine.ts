@@ -289,11 +289,59 @@ export class PineLiquidityEngine {
     // 2. Session High / Low Tracking
     this.evaluateSessions(candle);
 
-    // 3. Wick-Based Invalidation
+    // 3. Wick-Based Invalidation for array levels
     this.f_removeBroken(this.eqhPrices, this.eqhTexts, true, candle.high, candle.low, "EQH");
     this.f_removeBroken(this.eqlPrices, this.eqlTexts, false, candle.high, candle.low, "EQL");
     this.f_removeBroken(this.swhPrices, this.swhTexts, true, candle.high, candle.low, "SWH");
     this.f_removeBroken(this.swlPrices, this.swlTexts, false, candle.high, candle.low, "SWL");
+
+    // 4. Wick-Based Consumption for scalar HTF & Session levels.
+    //
+    // Chronological safety: aggregateTimeframes() and evaluateSessions() have already
+    // run above and set these scalar prices only from *completed* prior periods
+    // (previous week, previous day, previous month, or a closed session). Therefore
+    // the candle currently being processed is always chronologically AFTER the level
+    // became valid, making these checks safe to apply on the current candle.
+    //
+    // Resistance: consumed when candle.high reaches or exceeds the level.
+    if (this.pwhPrice !== null && candle.high >= this.pwhPrice) {
+      this.consumeLevel(`PWH-${this.pwhPrice.toFixed(2)}`);
+    }
+    if (this.pdhPrice !== null && candle.high >= this.pdhPrice) {
+      this.consumeLevel(`PDH-${this.pdhPrice.toFixed(2)}`);
+    }
+    if (this.pmhPrice !== null && candle.high >= this.pmhPrice) {
+      this.consumeLevel(`PMH-${this.pmhPrice.toFixed(2)}`);
+    }
+    if (this.asiaHPrice !== null && candle.high >= this.asiaHPrice) {
+      this.consumeLevel(`ASIA_H-${this.asiaHPrice.toFixed(2)}`);
+    }
+    if (this.londonHPrice !== null && candle.high >= this.londonHPrice) {
+      this.consumeLevel(`LONDON_H-${this.londonHPrice.toFixed(2)}`);
+    }
+    if (this.nyHPrice !== null && candle.high >= this.nyHPrice) {
+      this.consumeLevel(`NY_H-${this.nyHPrice.toFixed(2)}`);
+    }
+    //
+    // Support: consumed when candle.low reaches or falls below the level.
+    if (this.pwlPrice !== null && candle.low <= this.pwlPrice) {
+      this.consumeLevel(`PWL-${this.pwlPrice.toFixed(2)}`);
+    }
+    if (this.pdlPrice !== null && candle.low <= this.pdlPrice) {
+      this.consumeLevel(`PDL-${this.pdlPrice.toFixed(2)}`);
+    }
+    if (this.pmlPrice !== null && candle.low <= this.pmlPrice) {
+      this.consumeLevel(`PML-${this.pmlPrice.toFixed(2)}`);
+    }
+    if (this.asiaLPrice !== null && candle.low <= this.asiaLPrice) {
+      this.consumeLevel(`ASIA_L-${this.asiaLPrice.toFixed(2)}`);
+    }
+    if (this.londonLPrice !== null && candle.low <= this.londonLPrice) {
+      this.consumeLevel(`LONDON_L-${this.londonLPrice.toFixed(2)}`);
+    }
+    if (this.nyLPrice !== null && candle.low <= this.nyLPrice) {
+      this.consumeLevel(`NY_L-${this.nyLPrice.toFixed(2)}`);
+    }
   }
 
   // ─── TIMEFRAME AGGREGATION & HTF PROCESSING ────────────────────────────────
