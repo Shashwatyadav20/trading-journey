@@ -11,9 +11,16 @@ export type PineLevelType =
   | "PWL"
   | "SWH"
   | "SWL"
-  | "PREMIUM"
-  | "DISCOUNT"
-  | "EQUILIBRIUM";
+  | "PDH"
+  | "PDL"
+  | "PMH"
+  | "PML"
+  | "ASIA_H"
+  | "ASIA_L"
+  | "LONDON_H"
+  | "LONDON_L"
+  | "NY_H"
+  | "NY_L";
 
 export type PineLineStyle = "solid" | "dashed" | "dotted";
 

@@ -41,6 +41,16 @@ export function getLevelTypeDisplay(level: ActiveLevel): string {
   if (level.type === "SWL") return "15M+ Swing Low";
   if (level.type === "PWH") return "PWH";
   if (level.type === "PWL") return "PWL";
+  if (level.type === "PDH") return "PDH";
+  if (level.type === "PDL") return "PDL";
+  if (level.type === "PMH") return "PMH";
+  if (level.type === "PML") return "PML";
+  if (level.type === "ASIA_H") return "Asia High";
+  if (level.type === "ASIA_L") return "Asia Low";
+  if (level.type === "LONDON_H") return "London High";
+  if (level.type === "LONDON_L") return "London Low";
+  if (level.type === "NY_H") return "NY High";
+  if (level.type === "NY_L") return "NY Low";
   const labelClean = level.label.split("  ")[0];
   return labelClean || level.type;
 }
@@ -83,14 +93,14 @@ export function formatLevelTouchedTelegramMessage(
  *
  * Real-Time Touch Semantics (LEVEL_TOUCHED):
  * - Evaluated on every live market tick for BTC/USD and XAU/USD.
- * - Resistance levels (EQH, PWH, SWH):
+ * - Resistance levels (EQH, PWH, SWH, PDH, PMH, Session Highs):
  *     If previousPrice < level AND currentPrice >= level (or starting on level),
  *     emit LEVEL_TOUCHED alert.
- * - Support levels (EQL, PWL, SWL):
+ * - Support levels (EQL, PWL, SWL, PDL, PML, Session Lows):
  *     If previousPrice > level AND currentPrice <= level (or starting on level),
  *     emit LEVEL_TOUCHED alert.
- * - Duplicate protection: State machine per active level (`armed` vs `triggered`).
- *     Re-arms when price moves clearly away from level in a subsequent minute.
+ * - Duplicate protection & Level Consumption:
+ *     Triggers exactly ONE alert and consumes the level immediately.
  * - Dispatches Telegram notification immediately.
  */
 export class PineAlertBridge {
@@ -166,254 +176,9 @@ export class PineAlertBridge {
       return [];
     }
 
-    // READ-ONLY: engine state is never mutated here
-    const activeLevels = engine.getActiveLevels();
-    const pdState = engine.getPDZoneState();
+    const activeLevels = engine.getActiveLevels(instrument);
     const previousPrice = this.previousPriceMap.get(instrument) ?? null;
     const generatedAlerts: PineAlertEvent[] = [];
-
-    // Clean up stale level states for levels no longer active (keyed by stable state key)
-    const currentLevelStateKeys = new Set(
-      activeLevels.map((l) => PineAlertBridge.getLevelStateKey(instrument, l))
-    );
-    for (const key of this.levelTouchStateMap.keys()) {
-      if (key.startsWith(`${instrument}-`)) {
-        if (!currentLevelStateKeys.has(key)) {
-          // Check if key is raw instrument-levelId or stateKey
-          const isRawKeyStillActive = activeLevels.some((l) => `${instrument}-${l.id}` === key);
-          if (!isRawKeyStillActive) {
-            this.levelTouchStateMap.delete(key);
-            this.levelLastTriggeredTimeMap.delete(key);
-          }
-        }
-      }
-    }
-
-    for (const level of activeLevels) {
-      const alertsForLevel = this.evaluateLevel(
-        instrument,
-        previousPrice,
-        currentPrice,
-        timestamp,
-        level,
-        pdState
-      );
-      for (const alert of alertsForLevel) {
-        generatedAlerts.push(alert);
-        if (this.onAlertCallback) {
-          this.onAlertCallback(alert);
-        }
-      }
-    }
-
-    // Update previous price after evaluating all levels for this tick
-    this.previousPriceMap.set(instrument, currentPrice);
-
-    return generatedAlerts;
-  }
-
-  private evaluateLevel(
-    instrument: string,
-    previousPrice: number | null,
-    currentPrice: number,
-    timestamp: string,
-    level: ActiveLevel,
-    pdState: ReturnType<PineLiquidityEngine["getPDZoneState"]>
-  ): PineAlertEvent[] {
-    const results: PineAlertEvent[] = [];
-
-    if (level.type === "EQUILIBRIUM") {
-      const eqPrice = level.price;
-      const tol = eqPrice * 0.0005;
-      if (Math.abs(currentPrice - eqPrice) <= tol) {
-        const dedupeKey = `${instrument}-eq-${eqPrice}-EQUILIBRIUM_TOUCHED`;
-        if (this.tryEmit(dedupeKey, timestamp)) {
-          results.push({
-            instrument,
-            levelLabel: level.label,
-            levelPrice: eqPrice,
-            marketPrice: currentPrice,
-            timeframe: level.timeframe,
-            event: "EQUILIBRIUM_TOUCHED",
-            timestamp,
-          });
-        }
-      }
-    } else if (level.type === "PREMIUM" || level.type === "DISCOUNT") {
-      if (!pdState.active || pdState.top === null || pdState.bottom === null || pdState.equilibrium === null) {
-        return results;
-      }
-
-      const isInPremium = currentPrice >= pdState.equilibrium && currentPrice <= pdState.top;
-      const isInDiscount = currentPrice >= pdState.bottom && currentPrice <= pdState.equilibrium;
-
-      if (level.type === "PREMIUM" && isInPremium) {
-        const dedupeKey = `${instrument}-premium-ZONE_ENTERED`;
-        if (this.tryEmit(dedupeKey, timestamp)) {
-          results.push({
-            instrument,
-            levelLabel: "Premium Zone",
-            levelPrice: pdState.top,
-            marketPrice: currentPrice,
-            timeframe: level.timeframe,
-            event: "ZONE_ENTERED",
-            timestamp,
-          });
-        }
-      }
-
-      if (level.type === "DISCOUNT" && isInDiscount) {
-        const dedupeKey = `${instrument}-discount-ZONE_ENTERED`;
-        if (this.tryEmit(dedupeKey, timestamp)) {
-          results.push({
-            instrument,
-            levelLabel: "Discount Zone",
-            levelPrice: pdState.bottom,
-            marketPrice: currentPrice,
-            timeframe: level.timeframe,
-            event: "ZONE_ENTERED",
-            timestamp,
-          });
-        }
-      }
-    } else {
-      // Horizontal liquidity level: EQH, EQL, PWH, PWL, SWH, SWL
-      const stateKey = PineAlertBridge.getLevelStateKey(instrument, level);
-      const rawKey = `${instrument}-${level.id}`;
-      const currentState = this.levelTouchStateMap.get(stateKey) ?? this.levelTouchStateMap.get(rawKey) ?? "armed";
-      const isResistance = level.type === "EQH" || level.type === "PWH" || level.type === "SWH";
-      const levelPrice = level.price;
-      const currentMinuteIso = this.getMinuteBucketIso(timestamp);
-
-      if (isResistance) {
-        // Resistance semantics: previousPrice < levelPrice AND currentPrice >= levelPrice
-        const isTouchFromBelow = previousPrice !== null ? (previousPrice < levelPrice && currentPrice >= levelPrice) : false;
-        const isExactStart = (previousPrice === null || previousPrice === levelPrice) && currentPrice >= levelPrice;
-        const isTouched = isTouchFromBelow || isExactStart;
-
-        if (currentState === "armed" && isTouched) {
-          this.levelTouchStateMap.set(stateKey, "triggered");
-          this.levelTouchStateMap.set(rawKey, "triggered");
-          this.levelLastTriggeredTimeMap.set(stateKey, currentMinuteIso);
-          this.levelLastTriggeredTimeMap.set(rawKey, currentMinuteIso);
-
-          const typeDisplay = getLevelTypeDisplay(level);
-          const alertMessage = formatLevelTouchedTelegramMessage(
-            instrument,
-            levelPrice,
-            typeDisplay,
-            currentPrice,
-            timestamp,
-            level.timeframe
-          );
-
-          // Structured Debug Logging
-          console.log(
-            `[PINE-TOUCH]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\npreviousPrice=${previousPrice !== null ? previousPrice.toFixed(2) : "null"}\ncurrentPrice=${currentPrice.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED`
-          );
-
-          // Dispatch Telegram notification immediately
-          sendTelegramMessage(alertMessage).then((res) => {
-            console.log(`[PINE-TOUCH]\ntelegram sent=${res.sent}`);
-          }).catch((err) => {
-            console.error(`[PINE-TOUCH]\ntelegram sent=false`, err);
-          });
-
-          results.push({
-            instrument,
-            levelLabel: level.label,
-            levelPrice,
-            marketPrice: currentPrice,
-            timeframe: level.timeframe,
-            event: "LEVEL_TOUCHED",
-            timestamp,
-          });
-        } else if (currentState === "triggered" && currentPrice < levelPrice) {
-          const lastTriggeredMinute = this.levelLastTriggeredTimeMap.get(stateKey) ?? this.levelLastTriggeredTimeMap.get(rawKey);
-          if (!lastTriggeredMinute || currentMinuteIso !== lastTriggeredMinute) {
-            // Re-arm when price moves clearly below resistance level in a subsequent minute
-            this.levelTouchStateMap.set(stateKey, "armed");
-            this.levelTouchStateMap.set(rawKey, "armed");
-          }
-        }
-      } else {
-        // Support semantics: previousPrice > levelPrice AND currentPrice <= levelPrice
-        const isTouchFromAbove = previousPrice !== null ? (previousPrice > levelPrice && currentPrice <= levelPrice) : false;
-        const isExactStart = (previousPrice === null || previousPrice === levelPrice) && currentPrice <= levelPrice;
-        const isTouched = isTouchFromAbove || isExactStart;
-
-        if (currentState === "armed" && isTouched) {
-          this.levelTouchStateMap.set(stateKey, "triggered");
-          this.levelTouchStateMap.set(rawKey, "triggered");
-          this.levelLastTriggeredTimeMap.set(stateKey, currentMinuteIso);
-          this.levelLastTriggeredTimeMap.set(rawKey, currentMinuteIso);
-
-          const typeDisplay = getLevelTypeDisplay(level);
-          const alertMessage = formatLevelTouchedTelegramMessage(
-            instrument,
-            levelPrice,
-            typeDisplay,
-            currentPrice,
-            timestamp,
-            level.timeframe
-          );
-
-          // Structured Debug Logging
-          console.log(
-            `[PINE-TOUCH]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\npreviousPrice=${previousPrice !== null ? previousPrice.toFixed(2) : "null"}\ncurrentPrice=${currentPrice.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED`
-          );
-
-          // Dispatch Telegram notification immediately
-          sendTelegramMessage(alertMessage).then((res) => {
-            console.log(`[PINE-TOUCH]\ntelegram sent=${res.sent}`);
-          }).catch((err) => {
-            console.error(`[PINE-TOUCH]\ntelegram sent=false`, err);
-          });
-
-          results.push({
-            instrument,
-            levelLabel: level.label,
-            levelPrice,
-            marketPrice: currentPrice,
-            timeframe: level.timeframe,
-            event: "LEVEL_TOUCHED",
-            timestamp,
-          });
-        } else if (currentState === "triggered" && currentPrice > levelPrice) {
-          const lastTriggeredMinute = this.levelLastTriggeredTimeMap.get(stateKey) ?? this.levelLastTriggeredTimeMap.get(rawKey);
-          if (!lastTriggeredMinute || currentMinuteIso !== lastTriggeredMinute) {
-            // Re-arm when price moves clearly above support level in a subsequent minute
-            this.levelTouchStateMap.set(stateKey, "armed");
-            this.levelTouchStateMap.set(rawKey, "armed");
-          }
-        }
-      }
-    }
-
-    return results;
-  }
-
-  /**
-   * Evaluates active horizontal levels against a completed 1-minute candle (wick evaluation).
-   * Fallback detection path to catch intra-minute level touches missed between discrete live snapshots.
-   * Leverages the exact same levelTouchStateMap ('armed' -> 'triggered' -> 're-arm') to prevent duplicate alerts.
-   */
-  public evaluateCandleWick(
-    instrument: string,
-    candle: Candle,
-    candleMinuteTimestamp?: string
-  ): PineAlertEvent[] {
-    const engine = this.engineMap.get(instrument);
-    if (!engine) return [];
-
-    const targetTimestamp = candleMinuteTimestamp || candle.timestamp;
-    if (instrument === "XAU/USD" && isXauWeekend(targetTimestamp)) {
-      return [];
-    }
-
-    const activeLevels = engine.getActiveLevels();
-    const generatedAlerts: PineAlertEvent[] = [];
-    const targetMinuteIso = this.getMinuteBucketIso(targetTimestamp);
 
     // Clean up stale level states for levels no longer active
     const currentLevelStateKeys = new Set(
@@ -430,26 +195,209 @@ export class PineAlertBridge {
     }
 
     for (const level of activeLevels) {
-      if (
-        level.type === "EQUILIBRIUM" ||
-        level.type === "PREMIUM" ||
-        level.type === "DISCOUNT"
-      ) {
-        continue;
+      const alertsForLevel = this.evaluateLevel(
+        instrument,
+        previousPrice,
+        currentPrice,
+        timestamp,
+        level,
+        engine
+      );
+      for (const alert of alertsForLevel) {
+        generatedAlerts.push(alert);
+        if (this.onAlertCallback) {
+          this.onAlertCallback(alert);
+        }
       }
+    }
 
+    this.previousPriceMap.set(instrument, currentPrice);
+
+    return generatedAlerts;
+  }
+
+  private evaluateLevel(
+    instrument: string,
+    previousPrice: number | null,
+    currentPrice: number,
+    timestamp: string,
+    level: ActiveLevel,
+    engine: PineLiquidityEngine
+  ): PineAlertEvent[] {
+    const results: PineAlertEvent[] = [];
+    const stateKey = PineAlertBridge.getLevelStateKey(instrument, level);
+    const rawKey = `${instrument}-${level.id}`;
+    const currentState = this.levelTouchStateMap.get(stateKey) ?? this.levelTouchStateMap.get(rawKey) ?? "armed";
+
+    const isResistance =
+      level.type === "EQH" ||
+      level.type === "PWH" ||
+      level.type === "SWH" ||
+      level.type === "PDH" ||
+      level.type === "PMH" ||
+      level.type === "ASIA_H" ||
+      level.type === "LONDON_H" ||
+      level.type === "NY_H";
+
+    const levelPrice = level.price;
+    const currentMinuteIso = this.getMinuteBucketIso(timestamp);
+
+    if (isResistance) {
+      const isTouchFromBelow = previousPrice !== null ? (previousPrice < levelPrice && currentPrice >= levelPrice) : false;
+      const isExactStart = (previousPrice === null || previousPrice === levelPrice) && currentPrice >= levelPrice;
+      const isTouched = isTouchFromBelow || isExactStart;
+
+      if (currentState === "armed" && isTouched) {
+        this.levelTouchStateMap.set(stateKey, "triggered");
+        this.levelTouchStateMap.set(rawKey, "triggered");
+        this.levelLastTriggeredTimeMap.set(stateKey, currentMinuteIso);
+        this.levelLastTriggeredTimeMap.set(rawKey, currentMinuteIso);
+
+        // CONSUME LEVEL IMMEDIATELY ON TOUCH
+        engine.consumeLevel(level, instrument);
+
+        const typeDisplay = getLevelTypeDisplay(level);
+        const alertMessage = formatLevelTouchedTelegramMessage(
+          instrument,
+          levelPrice,
+          typeDisplay,
+          currentPrice,
+          timestamp,
+          level.timeframe
+        );
+
+        console.log(
+          `[PINE-TOUCH]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\npreviousPrice=${previousPrice !== null ? previousPrice.toFixed(2) : "null"}\ncurrentPrice=${currentPrice.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED`
+        );
+
+        sendTelegramMessage(alertMessage).then((res) => {
+          console.log(`[PINE-TOUCH]\ntelegram sent=${res.sent}`);
+        }).catch((err) => {
+          console.error(`[PINE-TOUCH]\ntelegram sent=false`, err);
+        });
+
+        results.push({
+          instrument,
+          levelLabel: level.label,
+          levelPrice,
+          marketPrice: currentPrice,
+          timeframe: level.timeframe,
+          event: "LEVEL_TOUCHED",
+          timestamp,
+        });
+      } else if (currentState === "triggered" && currentPrice < levelPrice) {
+        const lastTriggeredMinute = this.levelLastTriggeredTimeMap.get(stateKey) ?? this.levelLastTriggeredTimeMap.get(rawKey);
+        if (!lastTriggeredMinute || currentMinuteIso !== lastTriggeredMinute) {
+          this.levelTouchStateMap.set(stateKey, "armed");
+          this.levelTouchStateMap.set(rawKey, "armed");
+        }
+      }
+    } else {
+      const isTouchFromAbove = previousPrice !== null ? (previousPrice > levelPrice && currentPrice <= levelPrice) : false;
+      const isExactStart = (previousPrice === null || previousPrice === levelPrice) && currentPrice <= levelPrice;
+      const isTouched = isTouchFromAbove || isExactStart;
+
+      if (currentState === "armed" && isTouched) {
+        this.levelTouchStateMap.set(stateKey, "triggered");
+        this.levelTouchStateMap.set(rawKey, "triggered");
+        this.levelLastTriggeredTimeMap.set(stateKey, currentMinuteIso);
+        this.levelLastTriggeredTimeMap.set(rawKey, currentMinuteIso);
+
+        // CONSUME LEVEL IMMEDIATELY ON TOUCH
+        engine.consumeLevel(level, instrument);
+
+        const typeDisplay = getLevelTypeDisplay(level);
+        const alertMessage = formatLevelTouchedTelegramMessage(
+          instrument,
+          levelPrice,
+          typeDisplay,
+          currentPrice,
+          timestamp,
+          level.timeframe
+        );
+
+        console.log(
+          `[PINE-TOUCH]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\npreviousPrice=${previousPrice !== null ? previousPrice.toFixed(2) : "null"}\ncurrentPrice=${currentPrice.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED`
+        );
+
+        sendTelegramMessage(alertMessage).then((res) => {
+          console.log(`[PINE-TOUCH]\ntelegram sent=${res.sent}`);
+        }).catch((err) => {
+          console.error(`[PINE-TOUCH]\ntelegram sent=false`, err);
+        });
+
+        results.push({
+          instrument,
+          levelLabel: level.label,
+          levelPrice,
+          marketPrice: currentPrice,
+          timeframe: level.timeframe,
+          event: "LEVEL_TOUCHED",
+          timestamp,
+        });
+      } else if (currentState === "triggered" && currentPrice > levelPrice) {
+        const lastTriggeredMinute = this.levelLastTriggeredTimeMap.get(stateKey) ?? this.levelLastTriggeredTimeMap.get(rawKey);
+        if (!lastTriggeredMinute || currentMinuteIso !== lastTriggeredMinute) {
+          this.levelTouchStateMap.set(stateKey, "armed");
+          this.levelTouchStateMap.set(rawKey, "armed");
+        }
+      }
+    }
+
+    return results;
+  }
+
+  public evaluateCandleWick(
+    instrument: string,
+    candle: Candle,
+    candleMinuteTimestamp?: string
+  ): PineAlertEvent[] {
+    const engine = this.engineMap.get(instrument);
+    if (!engine) return [];
+
+    const targetTimestamp = candleMinuteTimestamp || candle.timestamp;
+    if (instrument === "XAU/USD" && isXauWeekend(targetTimestamp)) {
+      return [];
+    }
+
+    const activeLevels = engine.getActiveLevels(instrument);
+    const generatedAlerts: PineAlertEvent[] = [];
+    const targetMinuteIso = this.getMinuteBucketIso(targetTimestamp);
+
+    const currentLevelStateKeys = new Set(
+      activeLevels.map((l) => PineAlertBridge.getLevelStateKey(instrument, l))
+    );
+    for (const key of this.levelTouchStateMap.keys()) {
+      if (key.startsWith(`${instrument}-`)) {
+        const isRawKeyStillActive = activeLevels.some((l) => `${instrument}-${l.id}` === key);
+        if (!currentLevelStateKeys.has(key) && !isRawKeyStillActive) {
+          this.levelTouchStateMap.delete(key);
+          this.levelLastTriggeredTimeMap.delete(key);
+        }
+      }
+    }
+
+    for (const level of activeLevels) {
       const stateKey = PineAlertBridge.getLevelStateKey(instrument, level);
       const rawKey = `${instrument}-${level.id}`;
       const lastTriggeredMinuteIso = this.levelLastTriggeredTimeMap.get(stateKey) ?? this.levelLastTriggeredTimeMap.get(rawKey);
 
       if (lastTriggeredMinuteIso && lastTriggeredMinuteIso === targetMinuteIso) {
-        // Live tick already triggered an alert for this level during the exact same 1-minute bucket.
-        // Suppress duplicate wick alert even if level re-armed on intra-minute pullback.
         continue;
       }
 
       let currentState = this.levelTouchStateMap.get(stateKey) ?? this.levelTouchStateMap.get(rawKey) ?? "armed";
-      const isResistance = level.type === "EQH" || level.type === "PWH" || level.type === "SWH";
+
+      const isResistance =
+        level.type === "EQH" ||
+        level.type === "PWH" ||
+        level.type === "SWH" ||
+        level.type === "PDH" ||
+        level.type === "PMH" ||
+        level.type === "ASIA_H" ||
+        level.type === "LONDON_H" ||
+        level.type === "NY_H";
+
       const levelPrice = level.price;
       const previousPrice = this.previousPriceMap.get(instrument) ?? null;
 
@@ -465,7 +413,6 @@ export class PineAlertBridge {
       }
 
       if (isResistance) {
-        // Resistance wick condition: candle.high >= levelPrice
         const isTouched = candle.high >= levelPrice;
 
         if (currentState === "armed" && isTouched) {
@@ -473,6 +420,9 @@ export class PineAlertBridge {
           this.levelTouchStateMap.set(rawKey, "triggered");
           this.levelLastTriggeredTimeMap.set(stateKey, targetMinuteIso);
           this.levelLastTriggeredTimeMap.set(rawKey, targetMinuteIso);
+
+          // CONSUME LEVEL IMMEDIATELY ON WICK TOUCH
+          engine.consumeLevel(level, instrument);
 
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(
@@ -482,15 +432,13 @@ export class PineAlertBridge {
             candle.high,
             candle.timestamp,
             level.timeframe,
-            true // isWick = true
+            true
           );
 
-          // Structured Debug Logging
           console.log(
             `[PINE-TOUCH-WICK]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\ncandleHigh=${candle.high.toFixed(2)}\ncandleLow=${candle.low.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED_WICK`
           );
 
-          // Dispatch Telegram notification immediately
           sendTelegramMessage(alertMessage).then((res) => {
             console.log(`[PINE-TOUCH-WICK]\ntelegram sent=${res.sent}`);
           }).catch((err) => {
@@ -513,7 +461,6 @@ export class PineAlertBridge {
           }
         }
       } else {
-        // Support wick condition: candle.low <= levelPrice
         const isTouched = candle.low <= levelPrice;
 
         if (currentState === "armed" && isTouched) {
@@ -521,6 +468,9 @@ export class PineAlertBridge {
           this.levelTouchStateMap.set(rawKey, "triggered");
           this.levelLastTriggeredTimeMap.set(stateKey, targetMinuteIso);
           this.levelLastTriggeredTimeMap.set(rawKey, targetMinuteIso);
+
+          // CONSUME LEVEL IMMEDIATELY ON WICK TOUCH
+          engine.consumeLevel(level, instrument);
 
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(
@@ -530,15 +480,13 @@ export class PineAlertBridge {
             candle.low,
             candle.timestamp,
             level.timeframe,
-            true // isWick = true
+            true
           );
 
-          // Structured Debug Logging
           console.log(
             `[PINE-TOUCH-WICK]\ninstrument=${instrument}\nlevelType=${typeDisplay}\nlevelPrice=${levelPrice.toFixed(2)}\ncandleHigh=${candle.high.toFixed(2)}\ncandleLow=${candle.low.toFixed(2)}\ntimeframe=${level.timeframe}\nevent=LEVEL_TOUCHED_WICK`
           );
 
-          // Dispatch Telegram notification immediately
           sendTelegramMessage(alertMessage).then((res) => {
             console.log(`[PINE-TOUCH-WICK]\ntelegram sent=${res.sent}`);
           }).catch((err) => {

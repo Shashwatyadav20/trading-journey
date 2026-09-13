@@ -182,8 +182,8 @@ describe("Real-Time Pine Level Touch Alerts (Requirement 10 Test Suite)", () => 
     expect(alert.length).toBe(0);
   });
 
-  // ─── TEST I: Pine State Immutability ───────────────────────────────────────
-  it("I: touch detection is strictly read-only and does not mutate Pine Liquidity Engine state", () => {
+  // ─── TEST I: Level Touch Consumes Active Level ──────────────────────────────────
+  it("I: touch detection marks level as consumed and removes it from getActiveLevels()", () => {
     const originalEqhPrices = [100.0];
     const originalEqhTexts = ["HTF EQH (15M)"];
     const originalSwhPrices = [105.0];
@@ -194,18 +194,13 @@ describe("Real-Time Pine Level Touch Alerts (Requirement 10 Test Suite)", () => 
     (btcEngine as any).swhPrices = [...originalSwhPrices];
     (btcEngine as any).swhTexts = [...originalSwhTexts];
 
-    const snapshotBefore = JSON.stringify(btcEngine.getActiveLevels());
+    const levelsBefore = btcEngine.getActiveLevels();
+    expect(levelsBefore.some((l) => l.price === 100.0)).toBe(true);
 
     bridge.checkLivePrice("BTC/USD", 100.0, nowIso);
-    bridge.checkLivePrice("BTC/USD", 105.0, nowIso);
 
-    const snapshotAfter = JSON.stringify(btcEngine.getActiveLevels());
-
-    expect((btcEngine as any).eqhPrices).toEqual(originalEqhPrices);
-    expect((btcEngine as any).eqhTexts).toEqual(originalEqhTexts);
-    expect((btcEngine as any).swhPrices).toEqual(originalSwhPrices);
-    expect((btcEngine as any).swhTexts).toEqual(originalSwhTexts);
-    expect(snapshotAfter).toEqual(snapshotBefore);
+    const levelsAfter = btcEngine.getActiveLevels();
+    expect(levelsAfter.some((l) => l.price === 100.0)).toBe(false);
   });
 
   // ─── TEST J: No Auto Trading ───────────────────────────────────────────────

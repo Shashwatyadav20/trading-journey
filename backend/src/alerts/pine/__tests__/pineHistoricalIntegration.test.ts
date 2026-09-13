@@ -28,8 +28,8 @@ function makeHistoricalCandles(count: number = 300, basePrice: number = 2000): C
 
   for (let i = 0; i < count; i++) {
     const t = new Date(startMs + i * 15 * 60 * 1000).toISOString(); // 15M candles
-    // Create wave pattern to generate pivots
-    const wave = Math.sin(i / 10) * 50;
+    // Create wave pattern with varied peaks to generate unconsumed pivots
+    const wave = Math.sin(i / 12) * 40 + Math.cos(i / 25) * 20;
     const open = basePrice + wave;
     const high = open + 10;
     const low = open - 10;

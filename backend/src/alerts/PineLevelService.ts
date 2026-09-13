@@ -167,10 +167,7 @@ export class PineLevelService {
         let prev: Candle | null = null;
         for (const candle of history) {
           engine.processCandle(candle);
-          const newSignals = signalEngine.evaluateCandle(instrument, candle, prev, engine);
-          newSignals.forEach((sig) => {
-            pineAlertPipeline.dispatchSignal(sig).catch(() => {});
-          });
+          signalEngine.evaluateCandle(instrument, candle, prev, engine);
           prev = candle;
         }
 

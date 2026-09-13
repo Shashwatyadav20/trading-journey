@@ -22,12 +22,11 @@
 
 import { useEffect, useRef } from "react";
 import { ISeriesApi, LineStyle } from "lightweight-charts";
-import { PineActiveLevel, PinePDZoneState } from "../../types/pine";
+import { PineActiveLevel } from "../../types/pine";
 
 interface PineChartOverlayProps {
   series: ISeriesApi<"Candlestick"> | null;
   levels: PineActiveLevel[];
-  pdZone?: PinePDZoneState | null;
 }
 
 function mapLineStyle(style: "solid" | "dashed" | "dotted"): LineStyle {
@@ -39,25 +38,19 @@ function mapLineStyle(style: "solid" | "dashed" | "dotted"): LineStyle {
   }
 }
 
-export function PineChartOverlay({ series, levels, pdZone }: PineChartOverlayProps) {
+export function PineChartOverlay({ series, levels }: PineChartOverlayProps) {
   // Map from Pine level ID → IPriceLine reference
   const pineLinesRef = useRef<Map<string, any>>(new Map());
 
   useEffect(() => {
     if (!series) return;
 
-    // Collect all level IDs from active levels + pdZone synthetic IDs
+    // Collect all level IDs from active levels
     const activeIds = new Set<string>();
 
     levels.forEach((l) => activeIds.add(l.id));
 
-    if (pdZone && pdZone.active && pdZone.top !== null && pdZone.bottom !== null && pdZone.equilibrium !== null) {
-      activeIds.add("pd-zone-top");
-      activeIds.add("pd-zone-eq");
-      activeIds.add("pd-zone-bot");
-    }
-
-    // 1. Remove stale lines (backend removed them or pdZone deactivated)
+    // 1. Remove stale/consumed lines
     for (const [id, priceLine] of pineLinesRef.current.entries()) {
       if (!activeIds.has(id)) {
         try {
@@ -89,52 +82,7 @@ export function PineChartOverlay({ series, levels, pdZone }: PineChartOverlayPro
         // Ignore creation errors
       }
     }
-
-    // 3. Add Premium / Discount Zone & Equilibrium lines if active
-    if (pdZone && pdZone.active && pdZone.top !== null && pdZone.bottom !== null && pdZone.equilibrium !== null) {
-      if (!pineLinesRef.current.has("pd-zone-top")) {
-        try {
-          const topLine = series.createPriceLine({
-            price: pdZone.top,
-            color: "#ef4444", // Red for Premium top
-            lineWidth: 2,
-            lineStyle: LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: `PREMIUM Top [${pdZone.top.toFixed(2)}]`,
-          });
-          pineLinesRef.current.set("pd-zone-top", topLine);
-        } catch { /* ignore */ }
-      }
-
-      if (!pineLinesRef.current.has("pd-zone-eq")) {
-        try {
-          const eqLine = series.createPriceLine({
-            price: pdZone.equilibrium,
-            color: "#94a3b8", // Slate for Equilibrium
-            lineWidth: 2,
-            lineStyle: LineStyle.Solid,
-            axisLabelVisible: true,
-            title: `Equilibrium [${pdZone.equilibrium.toFixed(2)}]`,
-          });
-          pineLinesRef.current.set("pd-zone-eq", eqLine);
-        } catch { /* ignore */ }
-      }
-
-      if (!pineLinesRef.current.has("pd-zone-bot")) {
-        try {
-          const botLine = series.createPriceLine({
-            price: pdZone.bottom,
-            color: "#22c55e", // Green for Discount bottom
-            lineWidth: 2,
-            lineStyle: LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: `DISCOUNT Bottom [${pdZone.bottom.toFixed(2)}]`,
-          });
-          pineLinesRef.current.set("pd-zone-bot", botLine);
-        } catch { /* ignore */ }
-      }
-    }
-  }, [series, levels, pdZone]);
+  }, [series, levels]);
 
   // Cleanup all Pine price lines when component unmounts
   useEffect(() => {

@@ -67,14 +67,17 @@ export class PineSignalEngine {
 
     // 1. Evaluate Liquidity Sweep, Swing, EQH/EQL, PWH/PWL Signals
     for (const level of activeLevels) {
-      if (["PREMIUM", "DISCOUNT", "EQUILIBRIUM"].includes(level.type)) continue;
+      if (engine.isConsumed(level)) continue;
 
       // Check level interaction (high reached for resistance, low for support)
       const isUpsideTouch = candle.high >= level.price;
       const isDownsideTouch = candle.low <= level.price;
 
+      const isResistance = ["EQH", "PWH", "SWH", "PDH", "PMH", "ASIA_H", "LONDON_H", "NY_H"].includes(level.type);
+      const isSupport = ["EQL", "PWL", "SWL", "PDL", "PML", "ASIA_L", "LONDON_L", "NY_L"].includes(level.type);
+
       // ─── A. General Liquidity Sweep ──────────────────────────────────────
-      if (isUpsideTouch && (level.type === "EQH" || level.type === "PWH" || level.type === "SWH")) {
+      if (isUpsideTouch && isResistance) {
         const sig = this.createSignal({
           instrument,
           candle,
@@ -88,7 +91,7 @@ export class PineSignalEngine {
           notes: `Upside sweep of ${level.label} @ ${level.price.toFixed(2)}`,
         });
         if (sig) detected.push(sig);
-      } else if (isDownsideTouch && (level.type === "EQL" || level.type === "PWL" || level.type === "SWL")) {
+      } else if (isDownsideTouch && isSupport) {
         const sig = this.createSignal({
           instrument,
           candle,
@@ -200,7 +203,7 @@ export class PineSignalEngine {
       // ─── E. Sweep + Engulfing Strategy ───────────────────────────────────
       if (prevCandle) {
         // Bullish Sweep + Engulfing: Downside liquidity swept + bullish body engulfs prev body
-        if (isDownsideTouch && (level.type === "EQL" || level.type === "PWL" || level.type === "SWL")) {
+        if (isDownsideTouch && isSupport) {
           const isBullishEngulf =
             candle.close > candle.open && // Bullish candle
             candle.open <= Math.max(prevCandle.open, prevCandle.close) &&
@@ -225,7 +228,7 @@ export class PineSignalEngine {
         }
 
         // Bearish Sweep + Engulfing: Upside liquidity swept + bearish body engulfs prev body
-        if (isUpsideTouch && (level.type === "EQH" || level.type === "PWH" || level.type === "SWH")) {
+        if (isUpsideTouch && isResistance) {
           const isBearishEngulf =
             candle.close < candle.open && // Bearish candle
             candle.open >= Math.max(prevCandle.open, prevCandle.close) &&
@@ -251,9 +254,6 @@ export class PineSignalEngine {
     }
 
     // ─── F. Order Block Strategy (NOT IMPLEMENTED) ───────────────────────────
-    // Order Block Create + Retest + Entry is intentionally NOT IMPLEMENTED because
-    // the original Pine indicator does not define an Order Block algorithm.
-    // Infrastructure types exist, but no ORDER_BLOCK signal is generated.
     const obSignal = this.evaluateOrderBlocks(instrument, candle, prevCandle, timeframe);
     if (obSignal) detected.push(obSignal);
 
@@ -262,12 +262,6 @@ export class PineSignalEngine {
 
   /**
    * Order Block Strategy: NOT IMPLEMENTED
-   *
-   * "Order Block Create + Retest + Entry is intentionally NOT IMPLEMENTED because the
-   * original Pine indicator does not define an Order Block algorithm."
-   *
-   * Infrastructure types exist for future expansion, but this method explicitly
-   * returns null so no ORDER_BLOCK strategy signals are generated.
    */
   private evaluateOrderBlocks(
     _instrument: string,
@@ -291,7 +285,7 @@ export class PineSignalEngine {
     signalType: "BUY_SETUP" | "SELL_SETUP";
     triggerPrice: number;
     referenceLevel: string;
-    referenceLevelType: "EQH" | "EQL" | "PWH" | "PWL" | "SWH" | "SWL" | "ORDER_BLOCK";
+    referenceLevelType: import("./PineTypes").LiquidityLevelType | "ORDER_BLOCK";
     orderBlockState?: OrderBlockState;
     notes?: string;
   }): PineSignal | null {

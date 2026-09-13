@@ -6,13 +6,12 @@
  * A self-contained lightweight-charts candlestick chart that renders:
  *   - Historical seed candles from backend bootstrap / market API
  *   - Pine Engine liquidity levels via PineChartOverlay
- *   - TradingView-style Premium/Discount Zone canvas overlay
  *   - Timeframe switcher (15M, 30M, 1H, 4H, 1D)
- *   - P/D Zone status sidebar & canvas lines
+ *   - Active level sidebar summary
  *
  * Drawing layer separation:
  *   1. Candlestick layer  — chart series data
- *   2. Pine liquidity     — PineChartOverlay & PinePDZoneCanvasOverlay (separate references)
+ *   2. Pine liquidity     — PineChartOverlay (16 level types as PriceLines)
  *   3. Manual drawings    — NOT included (Pine-only chart)
  *   4. Trade drawings     — NOT included
  */
@@ -20,7 +19,6 @@ import React, {
   useEffect,
   useRef,
   useState,
-  useMemo,
   memo,
 } from "react";
 import {
@@ -31,12 +29,12 @@ import {
   Time,
   LineStyle,
 } from "lightweight-charts";
-import { Loader2, Activity, AlertCircle, Clock, Zap } from "lucide-react";
+import { Loader2, Activity, AlertCircle, Clock } from "lucide-react";
 import { useMarketData } from "../../context/MarketDataContext";
 import { usePineLiquidity } from "../../context/PineLiquidityContext";
 import { useTrades } from "../../context/TradeContext";
 import { PineChartOverlay } from "./PineChartOverlay";
-import { PinePDZoneState } from "../../types/pine";
+
 
 interface PineLiquidityChartProps {
   instrument: string; // "XAU/USD" or "BTC/USD"
@@ -59,125 +57,7 @@ function getBackendUrl() {
   );
 }
 
-/**
- * Premium / Discount Zone Overlay Component
- * Renders TradingView-style translucent shaded Premium (Red) and Discount (Green)
- * background regions with Equilibrium line using exact backend Pine coordinates.
- * No frontend calculation or alteration of backend Pine values.
- */
-function PinePDZoneCanvasOverlay({
-  series,
-  pdZone,
-}: {
-  series: ISeriesApi<"Candlestick"> | null;
-  pdZone: PinePDZoneState | null;
-}) {
-  const [coords, setCoords] = useState<{ topY: number; eqY: number; botY: number } | null>(null);
 
-  useEffect(() => {
-    if (
-      !series ||
-      !pdZone ||
-      !pdZone.active ||
-      pdZone.top === null ||
-      pdZone.bottom === null ||
-      pdZone.equilibrium === null
-    ) {
-      setCoords(null);
-      return;
-    }
-
-    const updateCoords = () => {
-      try {
-        const tY = series.priceToCoordinate(pdZone.top!);
-        const eY = series.priceToCoordinate(pdZone.equilibrium!);
-        const bY = series.priceToCoordinate(pdZone.bottom!);
-
-        if (tY !== null && eY !== null && bY !== null && !isNaN(tY) && !isNaN(eY) && !isNaN(bY)) {
-          setCoords({ topY: tY, eqY: eY, botY: bY });
-        } else {
-          setCoords(null);
-        }
-      } catch {
-        setCoords(null);
-      }
-    };
-
-    updateCoords();
-
-    // Subscribe to chart timeScale / priceScale changes so Y coordinates update on scroll/zoom
-    const chart = (series as any)._chart || (series as any).chart;
-    if (chart) {
-      try {
-        const timeScale = chart.timeScale();
-        timeScale.subscribeVisibleLogicalRangeChange(updateCoords);
-        timeScale.subscribeVisibleTimeRangeChange(updateCoords);
-      } catch { /* ignore */ }
-    }
-
-    window.addEventListener("resize", updateCoords);
-
-    return () => {
-      window.removeEventListener("resize", updateCoords);
-      if (chart) {
-        try {
-          const timeScale = chart.timeScale();
-          timeScale.unsubscribeVisibleLogicalRangeChange(updateCoords);
-          timeScale.unsubscribeVisibleTimeRangeChange(updateCoords);
-        } catch { /* ignore */ }
-      }
-    };
-  }, [series, pdZone]);
-
-  if (
-    !coords ||
-    !pdZone ||
-    !pdZone.active ||
-    pdZone.top === null ||
-    pdZone.bottom === null ||
-    pdZone.equilibrium === null
-  ) {
-    return null;
-  }
-
-  const { topY, eqY, botY } = coords;
-  const premHeight = Math.max(1, eqY - topY);
-  const discHeight = Math.max(1, botY - eqY);
-
-  return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden z-[5]">
-      {/* Premium Zone Region (Above Equilibrium) */}
-      <div
-        className="absolute left-0 right-0 border-t border-rose-500/40 bg-gradient-to-b from-rose-500/15 to-rose-500/05 transition-all duration-75 flex items-start justify-end pr-4 pt-1"
-        style={{ top: `${topY}px`, height: `${premHeight}px` }}
-      >
-        <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-mono font-bold uppercase shadow-sm">
-          PREMIUM ZONE ({pdZone.top.toFixed(2)})
-        </span>
-      </div>
-
-      {/* Equilibrium Midpoint Line */}
-      <div
-        className="absolute left-0 right-0 border-t-2 border-slate-400/80 transition-all duration-75 flex items-center justify-end pr-4 z-10"
-        style={{ top: `${eqY}px` }}
-      >
-        <span className="px-2 py-0.5 rounded bg-slate-800/90 text-slate-200 border border-slate-600 text-[10px] font-mono font-bold uppercase shadow-sm -translate-y-1/2">
-          EQUILIBRIUM 50% ({pdZone.equilibrium.toFixed(2)})
-        </span>
-      </div>
-
-      {/* Discount Zone Region (Below Equilibrium) */}
-      <div
-        className="absolute left-0 right-0 border-b border-emerald-500/40 bg-gradient-to-b from-emerald-500/05 to-emerald-500/15 transition-all duration-75 flex items-end justify-end pr-4 pb-1"
-        style={{ top: `${eqY}px`, height: `${discHeight}px` }}
-      >
-        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono font-bold uppercase shadow-sm">
-          DISCOUNT ZONE ({pdZone.bottom.toFixed(2)})
-        </span>
-      </div>
-    </div>
-  );
-}
 
 function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
   const { getPrice } = useMarketData();
@@ -409,10 +289,9 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
     } catch { /* ignore */ }
   }, [getPrice, instrument, chartTF]);
 
-  const horizontalLevels = useMemo(
-    () => levels.filter((l) => !["PREMIUM", "DISCOUNT", "EQUILIBRIUM"].includes(l.type)),
-    [levels]
-  );
+  // All 16 level types (EQH/EQL, PWH/PWL, SWH/SWL, PDH/PDL, PMH/PML, Session H/L) are horizontal.
+  // No PREMIUM/DISCOUNT/EQUILIBRIUM types exist — backend engine no longer produces them.
+  const horizontalLevels = levels;
 
   const livePrice = getPrice(instrument);
   const isLoading = candlesLoading;
@@ -468,16 +347,10 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
 
       <div className="flex flex-col lg:flex-row flex-1 min-h-0 relative">
         {/* Chart canvas container */}
-        <div ref={containerRef} className="flex-1 min-h-[380px] relative">
-          {/* TradingView-style Premium / Discount Shaded Canvas Overlay */}
-          {chartReady && (
-            <PinePDZoneCanvasOverlay series={seriesRef.current} pdZone={pdZone} />
-          )}
-        </div>
-
+        <div ref={containerRef} className="flex-1 min-h-[380px] relative" />
         {/* Pine Level Overlay (horizontal PriceLines) */}
         {chartReady && seriesRef.current && (
-          <PineChartOverlay series={seriesRef.current} levels={levels} pdZone={pdZone} />
+          <PineChartOverlay series={seriesRef.current} levels={horizontalLevels} />
         )}
 
         {/* Sidebar */}
@@ -538,40 +411,7 @@ function PineLiquidityChartComponent({ instrument }: PineLiquidityChartProps) {
             </div>
           )}
 
-          {/* P/D Zone Sidebar Summary */}
-          {pdZone && pdZone.active && pdZone.top != null && pdZone.bottom != null && pdZone.equilibrium != null && (
-            <div className="space-y-1.5">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold block">
-                Premium / Discount Zone
-              </span>
 
-              <div className="rounded-xl overflow-hidden border border-slate-800/60">
-                {/* Premium */}
-                <div className="p-2 bg-rose-500/15 flex justify-between items-center border-b border-slate-800/60">
-                  <span className="text-rose-300 font-bold text-[11px]">PREMIUM</span>
-                  <span className="text-rose-300 font-mono text-[11px]">
-                    {pdZone.top.toFixed(2)}
-                  </span>
-                </div>
-
-                {/* Equilibrium */}
-                <div className="p-2 bg-slate-800/60 flex justify-between items-center border-b border-slate-800/60">
-                  <span className="text-slate-300 font-bold text-[11px]">Equilibrium</span>
-                  <span className="text-slate-200 font-mono text-[11px]">
-                    {pdZone.equilibrium.toFixed(2)}
-                  </span>
-                </div>
-
-                {/* Discount */}
-                <div className="p-2 bg-emerald-500/15 flex justify-between items-center">
-                  <span className="text-emerald-300 font-bold text-[11px]">DISCOUNT</span>
-                  <span className="text-emerald-300 font-mono text-[11px]">
-                    {pdZone.bottom.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Horizontal Levels List */}
           <div className="space-y-1.5 flex-1 overflow-y-auto">

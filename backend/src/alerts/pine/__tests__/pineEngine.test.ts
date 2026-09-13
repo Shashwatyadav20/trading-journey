@@ -85,29 +85,23 @@ describe("PineLiquidityEngine — 1:1 Pine Script Unit Tests", () => {
     expect(inputs.showSwings).toBe(true);
     expect(inputs.swingPivotLen).toBe(10);
     expect(inputs.maxSwingLevels).toBe(5);
-    // P/D Zone
-    expect(inputs.showPDZone).toBe(true);
-    expect(inputs.pdZoneTF).toBe("15");
-    expect(inputs.pdPivotLen).toBe(10);
-    expect(inputs.pdAtrLen).toBe(14);
-    expect(inputs.pdAtrMult).toBe(0.25);
-    expect(inputs.showEqLine).toBe(true);
-    // General
-    expect(inputs.extendLevels).toBe(true);
-    expect(inputs.labelSize).toBe("small");
-    expect(inputs.showPriceInLabel).toBe(true);
-    expect(inputs.overlapTolPct).toBe(0.15);
-    // Colors (all 6)
+    // Colors (all 16 liquidity types)
     expect(inputs.colEQH).toBe("#d946ef");
     expect(inputs.colEQL).toBe("#06b6d4");
     expect(inputs.colPWH).toBe("#f97316");
     expect(inputs.colPWL).toBe("#eab308");
     expect(inputs.colSWH).toBe("#84cc16");
     expect(inputs.colSWL).toBe("#ef4444");
-    // Color inputs from P/D zone
-    expect(inputs.colPremium).toBe("#ef4444d9");
-    expect(inputs.colDiscount).toBe("#22c55ed9");
-    expect(inputs.colEqLine).toBe("#808080");
+    expect(inputs.colPDH).toBe("#a855f7");
+    expect(inputs.colPDL).toBe("#3b82f6");
+    expect(inputs.colPMH).toBe("#ec4899");
+    expect(inputs.colPML).toBe("#14b8a6");
+    expect(inputs.colAsiaH).toBe("#f43f5e");
+    expect(inputs.colAsiaL).toBe("#10b981");
+    expect(inputs.colLondonH).toBe("#8b5cf6");
+    expect(inputs.colLondonL).toBe("#0284c7");
+    expect(inputs.colNYH).toBe("#d97706");
+    expect(inputs.colNYL).toBe("#6366f1");
   });
 
   // ─── TEST 2: Pivot Confirmation Delay ─────────────────────────────────────
@@ -567,30 +561,12 @@ describe("PineLiquidityEngine — 1:1 Pine Script Unit Tests", () => {
     expect(pwl?.price).toBe(80);
   });
 
-  // ─── TEST: Alert Bridge Premium/Discount Sub-zone Distinction ────────────
-  it("Alert bridge emits 'Premium Zone' and 'Discount Zone' as distinct events", () => {
-    const bridge = new PineAlertBridge();
-    bridge.registerEngine("BTC/USD", engine);
-
-    // Inject active P/D zone state directly
-    (engine as any).pdZoneActive = true;
-    (engine as any).pdZoneTop = 110;
-    (engine as any).pdZoneBot = 90;
-    (engine as any).pdLastPH = 110;
-    (engine as any).pdLastPL = 90;
-    (engine as any).inputs = { ...DEFAULT_PINE_INPUTS, showPDZone: true, showEqLine: true };
-
-    const nowIso = new Date().toISOString();
-
-    // Price in premium (above eq=100, below top=110)
-    const premiumAlerts = bridge.checkLivePrice("BTC/USD", 105, nowIso);
-    const premiumEvt = premiumAlerts.find((a) => a.event === "ZONE_ENTERED");
-    expect(premiumEvt?.levelLabel).toBe("Premium Zone");
-
-    // Price in discount (below eq=100, above bot=90)
-    const laterIso = new Date(Date.now() + 120_000).toISOString(); // past 60s dedup
-    const discountAlerts = bridge.checkLivePrice("BTC/USD", 95, laterIso);
-    const discountEvt = discountAlerts.find((a) => a.event === "ZONE_ENTERED");
-    expect(discountEvt?.levelLabel).toBe("Discount Zone");
+  // ─── TEST: Premium/Discount Zones Are NOT Present ───────────────────────
+  it("verifies Premium/Discount zones are NOT present in engine or alert bridge", () => {
+    const pdState = engine.getPDZoneState();
+    expect(pdState.active).toBe(false);
+    expect(pdState.top).toBeNull();
+    expect(pdState.bottom).toBeNull();
+    expect(pdState.equilibrium).toBeNull();
   });
 });

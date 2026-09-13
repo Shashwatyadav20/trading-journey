@@ -54,9 +54,33 @@ export class PineLiquidityEngine {
   private swlPrices: number[] = [];
   private swlTexts: string[] = [];
 
-  // PWH / PWL state (set from completed weekly candle [high[1], low[1]])
+  // PWH / PWL state
   private pwhPrice: number | null = null;
   private pwlPrice: number | null = null;
+
+  // PDH / PDL state (Previous Day High / Low)
+  private pdhPrice: number | null = null;
+  private pdlPrice: number | null = null;
+
+  // PMH / PML state (Previous Month High / Low)
+  private pmhPrice: number | null = null;
+  private pmlPrice: number | null = null;
+
+  // Session High / Low state (Asia, London, New York)
+  private asiaHPrice: number | null = null;
+  private asiaLPrice: number | null = null;
+  private londonHPrice: number | null = null;
+  private londonLPrice: number | null = null;
+  private nyHPrice: number | null = null;
+  private nyLPrice: number | null = null;
+
+  // Active session tracking buffers
+  private currentAsiaHigh: number | null = null;
+  private currentAsiaLow: number | null = null;
+  private currentLondonHigh: number | null = null;
+  private currentLondonLow: number | null = null;
+  private currentNYHigh: number | null = null;
+  private currentNYLow: number | null = null;
 
   // Track previous pivots for equality checks per timeframe
   private prevPH15: number | null = null;
@@ -71,12 +95,8 @@ export class PineLiquidityEngine {
   private prevPHD: number | null = null;
   private prevPLD: number | null = null;
 
-  // Premium / Discount Zone state machine
-  private pdLastPH: number | null = null;
-  private pdLastPL: number | null = null;
-  private pdZoneTop: number | null = null;
-  private pdZoneBot: number | null = null;
-  private pdZoneActive: boolean = false;
+  // Consumed level stable keys (e.g. "PWL-4368.53" or "XAU/USD-PWL-4368.53")
+  private consumedLevelKeys: Set<string> = new Set();
 
   // Bar history per timeframe
   private baseCandles: Candle[] = [];   // 1M base candles from provider
@@ -85,20 +105,7 @@ export class PineLiquidityEngine {
   private tf240Candles: Candle[] = [];
   private tfDailyCandles: Candle[] = [];
   private tfWeeklyCandles: Candle[] = [];
-  /**
-   * tfChartCandles — aggregated candles for the active chart timeframe.
-   *
-   * Pine logic for swing detection:
-   *   useForced15 = chartTFinMinutes < 15
-   *   tfToUse = useForced15 ? "15" : timeframe.period
-   *
-   * When chartTFinMinutes >= 15, swings must use the chart TF candle series,
-   * NOT the raw 1M baseCandles.
-   *
-   * For the four well-known TFs (15, 60, 240, 1440) we reuse the existing
-   * dedicated buffers. For any other TF >= 15 (e.g. 30M) we maintain this
-   * separate buffer.
-   */
+  private tfMonthlyCandles: Candle[] = [];
   private tfChartCandles: Candle[] = [];
 
   private chartTFinMinutes: number = 15;
@@ -121,7 +128,6 @@ export class PineLiquidityEngine {
     const targetTF = tfMinutes < 15 ? 15 : tfMinutes;
     if (this.chartTFinMinutes !== targetTF) {
       this.chartTFinMinutes = targetTF;
-      // Re-evaluate major swings for the new timeframe
       const swingCandles = this.getSwingCandles();
       if (swingCandles.length >= this.inputs.swingPivotLen * 2 + 1) {
         this.evaluateMajorSwings(swingCandles);
@@ -129,18 +135,62 @@ export class PineLiquidityEngine {
     }
   }
 
-  // ─── PINE HELPER FUNCTIONS (1:1 Port) ──────────────────────────────────────
+  // ─── LEVEL CONSUMPTION ENGINE ─────────────────────────────────────────────
+
+  public consumeLevel(levelOrKey: ActiveLevel | string, instrument?: string): void {
+    if (typeof levelOrKey === "string") {
+      const cleanKey = levelOrKey.trim();
+      this.consumedLevelKeys.add(cleanKey);
+      const parts = cleanKey.split("-");
+      if (parts.length >= 2) {
+        const typeStr = parts[parts.length - 2] || parts[0];
+        const priceNum = parseFloat(parts[parts.length - 1]);
+        if (!isNaN(priceNum)) {
+          this.consumedLevelKeys.add(`${typeStr.toUpperCase()}-${priceNum.toFixed(2)}`);
+        }
+      }
+    } else {
+      const type = levelOrKey.type;
+      const priceStr = levelOrKey.price.toFixed(2);
+      this.consumedLevelKeys.add(`${type}-${priceStr}`);
+      this.consumedLevelKeys.add(`${levelOrKey.id}`);
+      if (instrument) {
+        this.consumedLevelKeys.add(`${instrument}-${type}-${priceStr}`);
+      }
+    }
+  }
+
+  public isConsumed(level: ActiveLevel, instrument?: string): boolean {
+    const priceStr = level.price.toFixed(2);
+    const key1 = `${level.type}-${priceStr}`;
+    const key2 = level.id;
+    const key3 = instrument ? `${instrument}-${level.type}-${priceStr}` : "";
+
+    return (
+      this.consumedLevelKeys.has(key1) ||
+      this.consumedLevelKeys.has(key2) ||
+      (key3 !== "" && this.consumedLevelKeys.has(key3))
+    );
+  }
+
+  public getConsumedLevels(): string[] {
+    return Array.from(this.consumedLevelKeys);
+  }
+
+  public resetConsumedLevels(): void {
+    this.consumedLevelKeys.clear();
+  }
+
+  // ─── PINE HELPER FUNCTIONS ────────────────────────────────────────────────
 
   public static f_pivotHigh(highs: number[], len: number): number | null {
     const idx = highs.length - 1 - len;
     if (idx < len) return null;
     const targetPrice = highs[idx];
 
-    // Must be > all len bars to the left
     for (let k = idx - len; k < idx; k++) {
       if (highs[k] >= targetPrice) return null;
     }
-    // Must be > all len bars to the right
     for (let k = idx + 1; k <= highs.length - 1; k++) {
       if (highs[k] >= targetPrice) return null;
     }
@@ -153,11 +203,9 @@ export class PineLiquidityEngine {
     if (idx < len) return null;
     const targetPrice = lows[idx];
 
-    // Must be < all len bars to the left
     for (let k = idx - len; k < idx; k++) {
       if (lows[k] <= targetPrice) return null;
     }
-    // Must be < all len bars to the right
     for (let k = idx + 1; k <= lows.length - 1; k++) {
       if (lows[k] <= targetPrice) return null;
     }
@@ -213,7 +261,8 @@ export class PineLiquidityEngine {
     textArr: string[],
     isHighType: boolean,
     currentHigh: number,
-    currentLow: number
+    currentLow: number,
+    levelType: import("./PineTypes").LiquidityLevelType
   ): void {
     if (priceArr.length === 0) return;
 
@@ -221,27 +270,11 @@ export class PineLiquidityEngine {
       const p = priceArr[i];
       const broken = isHighType ? currentHigh >= p : currentLow <= p;
       if (broken) {
+        this.consumeLevel(`${levelType}-${p.toFixed(2)}`);
         priceArr.splice(i, 1);
         textArr.splice(i, 1);
       }
     }
-  }
-
-  // ─── ATR CALCULATION ────────────────────────────────────────────────────────
-
-  private calculateATR(candles: Candle[], length: number): number {
-    if (candles.length < length + 1) return 0;
-    const trs: number[] = [];
-    for (let i = 1; i < candles.length; i++) {
-      const high = candles[i].high;
-      const low = candles[i].low;
-      const prevClose = candles[i - 1].close;
-      const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
-      trs.push(tr);
-    }
-    const recentTrs = trs.slice(-length);
-    const sum = recentTrs.reduce((a, b) => a + b, 0);
-    return sum / length;
   }
 
   // ─── CANDLE PROCESSOR ───────────────────────────────────────────────────────
@@ -253,13 +286,14 @@ export class PineLiquidityEngine {
     // 1. Aggregations & Pivots on Timeframes
     this.aggregateTimeframes(candle);
 
-    // 2. Wick-Based Invalidation (Evaluated EVERY candle, against EQH/EQL/SWH/SWL only)
-    // NOTE: PWH/PWL are intentionally NOT passed through f_removeBroken —
-    // they persist throughout the entire week matching Pine behavior.
-    this.f_removeBroken(this.eqhPrices, this.eqhTexts, true, candle.high, candle.low);
-    this.f_removeBroken(this.eqlPrices, this.eqlTexts, false, candle.high, candle.low);
-    this.f_removeBroken(this.swhPrices, this.swhTexts, true, candle.high, candle.low);
-    this.f_removeBroken(this.swlPrices, this.swlTexts, false, candle.high, candle.low);
+    // 2. Session High / Low Tracking
+    this.evaluateSessions(candle);
+
+    // 3. Wick-Based Invalidation
+    this.f_removeBroken(this.eqhPrices, this.eqhTexts, true, candle.high, candle.low, "EQH");
+    this.f_removeBroken(this.eqlPrices, this.eqlTexts, false, candle.high, candle.low, "EQL");
+    this.f_removeBroken(this.swhPrices, this.swhTexts, true, candle.high, candle.low, "SWH");
+    this.f_removeBroken(this.swlPrices, this.swlTexts, false, candle.high, candle.low, "SWL");
   }
 
   // ─── TIMEFRAME AGGREGATION & HTF PROCESSING ────────────────────────────────
@@ -269,7 +303,6 @@ export class PineLiquidityEngine {
     const isNew15M = this.updateTfBuffer(this.tf15Candles, candle, 15);
     if (isNew15M && this.tf15Candles.length >= this.inputs.eqPivotLen * 2 + 1) {
       this.evaluateEQH_EQL_15M();
-      this.evaluatePDZone15M();
     }
 
     // 1H (60M) Aggregation
@@ -284,20 +317,28 @@ export class PineLiquidityEngine {
       this.evaluateEQH_EQL_4H();
     }
 
-    // Daily Aggregation
+    // Daily Aggregation (PDH / PDL)
     const isNewDaily = this.updateTfBuffer(this.tfDailyCandles, candle, 1440);
-    if (isNewDaily && this.tfDailyCandles.length >= this.inputs.eqPivotLen * 2 + 1) {
-      this.evaluateEQH_EQL_Daily();
+    if (isNewDaily && this.tfDailyCandles.length >= 2) {
+      this.evaluatePreviousDay();
+      if (this.tfDailyCandles.length >= this.inputs.eqPivotLen * 2 + 1) {
+        this.evaluateEQH_EQL_Daily();
+      }
     }
 
     // Weekly Aggregation (PWH / PWL)
-    // See class-level comment for the known limitation on weekly boundary semantics.
     const isNewWeekly = this.updateWeeklyBuffer(candle);
     if (isNewWeekly && this.tfWeeklyCandles.length >= 2) {
       this.evaluatePreviousWeek();
     }
 
-    // Chart TF Aggregation (for swing detection on non-standard TFs >= 15 and != 60, 240, 1440)
+    // Monthly Aggregation (PMH / PML)
+    const isNewMonthly = this.updateMonthlyBuffer(candle);
+    if (isNewMonthly && this.tfMonthlyCandles.length >= 2) {
+      this.evaluatePreviousMonth();
+    }
+
+    // Chart TF Aggregation
     if (this.chartTFinMinutes >= 15 &&
         this.chartTFinMinutes !== 15 &&
         this.chartTFinMinutes !== 60 &&
@@ -306,34 +347,15 @@ export class PineLiquidityEngine {
       this.updateTfBuffer(this.tfChartCandles, candle, this.chartTFinMinutes);
     }
 
-    // 15M+ Major Swings — Pine logic: useForced15 ? "15" : timeframe.period
+    // Major Swings
     const swingCandles = this.getSwingCandles();
     if (swingCandles.length >= this.inputs.swingPivotLen * 2 + 1) {
       this.evaluateMajorSwings(swingCandles);
     }
   }
 
-  /**
-   * Returns the candle series to use for swing pivot detection.
-   *
-   * Pine script:
-   *   chartTFinMinutes = timeframe.in_seconds(timeframe.period) / 60
-   *   useForced15 = chartTFinMinutes < 15
-   *   tfToUse = useForced15 ? "15" : timeframe.period
-   *
-   * Rules:
-   *   chart < 15  → 15M
-   *   chart = 15  → 15M
-   *   chart = 30  → tfChartCandles (30M buffer)
-   *   chart = 60  → 1H buffer
-   *   chart = 240 → 4H buffer
-   *   chart = 1440 → Daily buffer
-   */
   public getSwingCandles(): Candle[] {
-    if (this.chartTFinMinutes < 15) {
-      return this.tf15Candles;
-    }
-    if (this.chartTFinMinutes === 15) {
+    if (this.chartTFinMinutes <= 15) {
       return this.tf15Candles;
     }
     if (this.chartTFinMinutes === 60) {
@@ -345,7 +367,6 @@ export class PineLiquidityEngine {
     if (this.chartTFinMinutes === 1440) {
       return this.tfDailyCandles;
     }
-    // Any other TF >= 15 (e.g. 30M) uses dedicated tfChartCandles
     return this.tfChartCandles;
   }
 
@@ -361,7 +382,6 @@ export class PineLiquidityEngine {
 
     const currentBucket = new Date(buffer[buffer.length - 1].timestamp).getTime();
     if (bucketStart === currentBucket) {
-      // Update existing candle in bucket
       const last = buffer[buffer.length - 1];
       last.high = Math.max(last.high, candle.high);
       last.low = Math.min(last.low, candle.low);
@@ -369,26 +389,15 @@ export class PineLiquidityEngine {
       last.volume += candle.volume;
       return false;
     } else {
-      // New bucket started → complete previous bucket, open new one
       buffer.push({ ...candle, timestamp: new Date(bucketStart).toISOString() });
       return true;
     }
   }
 
-  /**
-   * Aggregates weekly candles using Monday 00:00:00 UTC as the week boundary (ISO-8601 weeks).
-   *
-   * KNOWN LIMITATION: TradingView's "W" timeframe uses symbol/exchange session calendars:
-   *   - BTC/USD: Sunday 00:00 UTC start (Coinbase, 24/7)
-   *   - XAU/USD: Sunday ~21:00 UTC start (FX Sunday open, session-dependent)
-   * This backend implementation uses Monday 00:00 UTC (closest reproducible approximation
-   * from raw UTC OHLC data). See class-level documentation for full details.
-   */
   private updateWeeklyBuffer(candle: Candle): boolean {
     const d = new Date(candle.timestamp);
-    // ISO-8601: Monday = start of week
     const day = d.getUTCDay();            // 0=Sun, 1=Mon, ... 6=Sat
-    const diffToMon = (day + 6) % 7;     // days since last Monday
+    const diffToMon = (day + 6) % 7;
     const mon = new Date(d);
     mon.setUTCDate(d.getUTCDate() - diffToMon);
     mon.setUTCHours(0, 0, 0, 0);
@@ -416,7 +425,34 @@ export class PineLiquidityEngine {
     }
   }
 
-  // ─── 1. HTF EQH / EQL EVALUATIONS ──────────────────────────────────────────
+  private updateMonthlyBuffer(candle: Candle): boolean {
+    const d = new Date(candle.timestamp);
+    const monthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
+    const monthStartMs = monthStart.getTime();
+
+    if (this.tfMonthlyCandles.length === 0) {
+      this.tfMonthlyCandles.push({ ...candle, timestamp: monthStart.toISOString() });
+      return true;
+    }
+
+    const currentMonthStart = new Date(
+      this.tfMonthlyCandles[this.tfMonthlyCandles.length - 1].timestamp
+    ).getTime();
+
+    if (monthStartMs === currentMonthStart) {
+      const last = this.tfMonthlyCandles[this.tfMonthlyCandles.length - 1];
+      last.high = Math.max(last.high, candle.high);
+      last.low = Math.min(last.low, candle.low);
+      last.close = candle.close;
+      last.volume += candle.volume;
+      return false;
+    } else {
+      this.tfMonthlyCandles.push({ ...candle, timestamp: monthStart.toISOString() });
+      return true;
+    }
+  }
+
+  // ─── HTF EQH / EQL EVALUATIONS ──────────────────────────────────────────
 
   private evaluateEQH_EQL_15M(): void {
     if (!this.inputs.showEQ_15) return;
@@ -439,7 +475,7 @@ export class PineLiquidityEngine {
           this.inputs.overlapTolPct
         );
       }
-      this.prevPH15 = ph15; // Always update on every confirmed pivot
+      this.prevPH15 = ph15;
     }
 
     if (pl15 !== null) {
@@ -582,11 +618,10 @@ export class PineLiquidityEngine {
     }
   }
 
-  // ─── 2. PREVIOUS WEEK HIGH / LOW ───────────────────────────────────────────
+  // ─── PREVIOUS WEEK / DAY / MONTH HIGH & LOW ──────────────────────────────
 
   private evaluatePreviousWeek(): void {
     if (!this.inputs.showPW) return;
-    // Pine: [high[1], low[1]] on "W" series = last completed weekly candle
     const prevWeekCandle = this.tfWeeklyCandles[this.tfWeeklyCandles.length - 2];
     if (prevWeekCandle) {
       this.pwhPrice = prevWeekCandle.high;
@@ -594,7 +629,81 @@ export class PineLiquidityEngine {
     }
   }
 
-  // ─── 3. 15M+ MAJOR SWINGS ─────────────────────────────────────────────────
+  private evaluatePreviousDay(): void {
+    if (!this.inputs.showPD) return;
+    const prevDayCandle = this.tfDailyCandles[this.tfDailyCandles.length - 2];
+    if (prevDayCandle) {
+      this.pdhPrice = prevDayCandle.high;
+      this.pdlPrice = prevDayCandle.low;
+    }
+  }
+
+  private evaluatePreviousMonth(): void {
+    if (!this.inputs.showPM) return;
+    const prevMonthCandle = this.tfMonthlyCandles[this.tfMonthlyCandles.length - 2];
+    if (prevMonthCandle) {
+      this.pmhPrice = prevMonthCandle.high;
+      this.pmlPrice = prevMonthCandle.low;
+    }
+  }
+
+  // ─── SESSION HIGH / LOW EVALUATIONS ────────────────────────────────────────
+
+  private evaluateSessions(candle: Candle): void {
+    if (!this.inputs.showSessions) return;
+    const d = new Date(candle.timestamp);
+    const hour = d.getUTCHours();
+
+    // Asia session: 00:00 - 08:59 UTC
+    if (hour >= 0 && hour < 9) {
+      if (this.currentAsiaHigh === null || this.currentAsiaLow === null) {
+        this.currentAsiaHigh = candle.high;
+        this.currentAsiaLow = candle.low;
+      } else {
+        this.currentAsiaHigh = Math.max(this.currentAsiaHigh, candle.high);
+        this.currentAsiaLow = Math.min(this.currentAsiaLow, candle.low);
+      }
+    } else if (hour === 9 && this.currentAsiaHigh !== null) {
+      this.asiaHPrice = this.currentAsiaHigh;
+      this.asiaLPrice = this.currentAsiaLow;
+      this.currentAsiaHigh = null;
+      this.currentAsiaLow = null;
+    }
+
+    // London session: 07:00 - 15:59 UTC
+    if (hour >= 7 && hour < 16) {
+      if (this.currentLondonHigh === null || this.currentLondonLow === null) {
+        this.currentLondonHigh = candle.high;
+        this.currentLondonLow = candle.low;
+      } else {
+        this.currentLondonHigh = Math.max(this.currentLondonHigh, candle.high);
+        this.currentLondonLow = Math.min(this.currentLondonLow, candle.low);
+      }
+    } else if (hour === 16 && this.currentLondonHigh !== null) {
+      this.londonHPrice = this.currentLondonHigh;
+      this.londonLPrice = this.currentLondonLow;
+      this.currentLondonHigh = null;
+      this.currentLondonLow = null;
+    }
+
+    // New York session: 13:00 - 20:59 UTC
+    if (hour >= 13 && hour < 21) {
+      if (this.currentNYHigh === null || this.currentNYLow === null) {
+        this.currentNYHigh = candle.high;
+        this.currentNYLow = candle.low;
+      } else {
+        this.currentNYHigh = Math.max(this.currentNYHigh, candle.high);
+        this.currentNYLow = Math.min(this.currentNYLow, candle.low);
+      }
+    } else if (hour === 21 && this.currentNYHigh !== null) {
+      this.nyHPrice = this.currentNYHigh;
+      this.nyLPrice = this.currentNYLow;
+      this.currentNYHigh = null;
+      this.currentNYLow = null;
+    }
+  }
+
+  // ─── MAJOR SWINGS ─────────────────────────────────────────────────────────
 
   private evaluateMajorSwings(candles: Candle[]): void {
     if (!this.inputs.showSwings) return;
@@ -605,7 +714,6 @@ export class PineLiquidityEngine {
     const swPL = PineLiquidityEngine.f_pivotLow(lows, this.inputs.swingPivotLen);
 
     if (swPH !== null) {
-      // Swings pass empty array [] for crossArr (NEVER suppressed by EQH/EQL)
       this.f_pushLevelUnique(
         this.swhPrices,
         this.swhTexts,
@@ -630,59 +738,16 @@ export class PineLiquidityEngine {
     }
   }
 
-  // ─── 4. PREMIUM / DISCOUNT ZONE STATE MACHINE ───────────────────────────────
+  // ─── ACTIVE LEVELS SNAPSHOT (CONSUMPTION & DEDUP FILTERED) ─────────────────
 
-  private evaluatePDZone15M(): void {
-    if (!this.inputs.showPDZone) return;
-    const highs = this.tf15Candles.map((c) => c.high);
-    const lows = this.tf15Candles.map((c) => c.low);
+  public getActiveLevels(instrument?: string): ActiveLevel[] {
+    const rawLevels: ActiveLevel[] = [];
 
-    const pdPH = PineLiquidityEngine.f_pivotHigh(highs, this.inputs.pdPivotLen);
-    const pdPL = PineLiquidityEngine.f_pivotLow(lows, this.inputs.pdPivotLen);
-
-    if (pdPH !== null) this.pdLastPH = pdPH;
-    if (pdPL !== null) this.pdLastPL = pdPL;
-
-    // Form zone once fresh swing high AND low are both available
-    if (!this.pdZoneActive && this.pdLastPH !== null && this.pdLastPL !== null) {
-      this.pdZoneTop = Math.max(this.pdLastPH, this.pdLastPL);
-      this.pdZoneBot = Math.min(this.pdLastPH, this.pdLastPL);
-      this.pdZoneActive = true;
-    }
-
-    // Breakout & Reset check on active zone (evaluated on candle close)
-    if (this.pdZoneActive && this.pdZoneTop !== null && this.pdZoneBot !== null) {
-      const atr = this.calculateATR(this.baseCandles, this.inputs.pdAtrLen);
-      const pdAtrBuf = atr * this.inputs.pdAtrMult;
-
-      const lastCandle = this.baseCandles[this.baseCandles.length - 1];
-      if (lastCandle) {
-        const brokenUp = lastCandle.close > this.pdZoneTop + pdAtrBuf;
-        const brokenDown = lastCandle.close < this.pdZoneBot - pdAtrBuf;
-
-        if (brokenUp || brokenDown) {
-          // EXPLICIT RESET OF ALL STATE VARIABLES
-          // A new zone cannot form until fresh PH AND PL confirmations occur.
-          this.pdZoneActive = false;
-          this.pdZoneTop = null;
-          this.pdZoneBot = null;
-          this.pdLastPH = null;
-          this.pdLastPL = null;
-        }
-      }
-    }
-  }
-
-  // ─── ACTIVE LEVELS SNAPSHOT ────────────────────────────────────────────────
-
-  public getActiveLevels(): ActiveLevel[] {
-    const levels: ActiveLevel[] = [];
-
-    // EQH
+    // EQH / EQL
     if (this.inputs.showEQ_15 || this.inputs.showEQ_1H || this.inputs.showEQ_4H || this.inputs.showEQ_D) {
       this.eqhPrices.forEach((price, idx) => {
-        levels.push({
-          id: `eqh-${idx}-${price}`,
+        rawLevels.push({
+          id: `eqh-${price.toFixed(2)}`,
           type: "EQH",
           label: this.inputs.showPriceInLabel ? `${this.eqhTexts[idx]}  ${price.toFixed(2)}` : this.eqhTexts[idx],
           price,
@@ -695,8 +760,8 @@ export class PineLiquidityEngine {
       });
 
       this.eqlPrices.forEach((price, idx) => {
-        levels.push({
-          id: `eql-${idx}-${price}`,
+        rawLevels.push({
+          id: `eql-${price.toFixed(2)}`,
           type: "EQL",
           label: this.inputs.showPriceInLabel ? `${this.eqlTexts[idx]}  ${price.toFixed(2)}` : this.eqlTexts[idx],
           price,
@@ -712,8 +777,8 @@ export class PineLiquidityEngine {
     // PWH / PWL
     if (this.inputs.showPW) {
       if (this.pwhPrice !== null) {
-        levels.push({
-          id: `pwh-${this.pwhPrice}`,
+        rawLevels.push({
+          id: `pwh-${this.pwhPrice.toFixed(2)}`,
           type: "PWH",
           label: this.inputs.showPriceInLabel ? `PWH  ${this.pwhPrice.toFixed(2)}` : "PWH",
           price: this.pwhPrice,
@@ -725,8 +790,8 @@ export class PineLiquidityEngine {
         });
       }
       if (this.pwlPrice !== null) {
-        levels.push({
-          id: `pwl-${this.pwlPrice}`,
+        rawLevels.push({
+          id: `pwl-${this.pwlPrice.toFixed(2)}`,
           type: "PWL",
           label: this.inputs.showPriceInLabel ? `PWL  ${this.pwlPrice.toFixed(2)}` : "PWL",
           price: this.pwlPrice,
@@ -739,11 +804,153 @@ export class PineLiquidityEngine {
       }
     }
 
-    // 15M+ Swings
+    // PDH / PDL
+    if (this.inputs.showPD) {
+      if (this.pdhPrice !== null) {
+        rawLevels.push({
+          id: `pdh-${this.pdhPrice.toFixed(2)}`,
+          type: "PDH",
+          label: this.inputs.showPriceInLabel ? `PDH  ${this.pdhPrice.toFixed(2)}` : "PDH",
+          price: this.pdhPrice,
+          timeframe: "1D",
+          color: this.inputs.colPDH,
+          lineStyle: "solid",
+          lineWidth: 2,
+          createdAtBar: this.barIndex,
+        });
+      }
+      if (this.pdlPrice !== null) {
+        rawLevels.push({
+          id: `pdl-${this.pdlPrice.toFixed(2)}`,
+          type: "PDL",
+          label: this.inputs.showPriceInLabel ? `PDL  ${this.pdlPrice.toFixed(2)}` : "PDL",
+          price: this.pdlPrice,
+          timeframe: "1D",
+          color: this.inputs.colPDL,
+          lineStyle: "solid",
+          lineWidth: 2,
+          createdAtBar: this.barIndex,
+        });
+      }
+    }
+
+    // PMH / PML
+    if (this.inputs.showPM) {
+      if (this.pmhPrice !== null) {
+        rawLevels.push({
+          id: `pmh-${this.pmhPrice.toFixed(2)}`,
+          type: "PMH",
+          label: this.inputs.showPriceInLabel ? `PMH  ${this.pmhPrice.toFixed(2)}` : "PMH",
+          price: this.pmhPrice,
+          timeframe: "1M",
+          color: this.inputs.colPMH,
+          lineStyle: "solid",
+          lineWidth: 3,
+          createdAtBar: this.barIndex,
+        });
+      }
+      if (this.pmlPrice !== null) {
+        rawLevels.push({
+          id: `pml-${this.pmlPrice.toFixed(2)}`,
+          type: "PML",
+          label: this.inputs.showPriceInLabel ? `PML  ${this.pmlPrice.toFixed(2)}` : "PML",
+          price: this.pmlPrice,
+          timeframe: "1M",
+          color: this.inputs.colPML,
+          lineStyle: "solid",
+          lineWidth: 3,
+          createdAtBar: this.barIndex,
+        });
+      }
+    }
+
+    // Sessions (Asia, London, New York)
+    if (this.inputs.showSessions) {
+      if (this.asiaHPrice !== null) {
+        rawLevels.push({
+          id: `asia_h-${this.asiaHPrice.toFixed(2)}`,
+          type: "ASIA_H",
+          label: this.inputs.showPriceInLabel ? `Asia High  ${this.asiaHPrice.toFixed(2)}` : "Asia High",
+          price: this.asiaHPrice,
+          timeframe: "Session",
+          color: this.inputs.colAsiaH,
+          lineStyle: "dashed",
+          lineWidth: 1,
+          createdAtBar: this.barIndex,
+        });
+      }
+      if (this.asiaLPrice !== null) {
+        rawLevels.push({
+          id: `asia_l-${this.asiaLPrice.toFixed(2)}`,
+          type: "ASIA_L",
+          label: this.inputs.showPriceInLabel ? `Asia Low  ${this.asiaLPrice.toFixed(2)}` : "Asia Low",
+          price: this.asiaLPrice,
+          timeframe: "Session",
+          color: this.inputs.colAsiaL,
+          lineStyle: "dashed",
+          lineWidth: 1,
+          createdAtBar: this.barIndex,
+        });
+      }
+      if (this.londonHPrice !== null) {
+        rawLevels.push({
+          id: `london_h-${this.londonHPrice.toFixed(2)}`,
+          type: "LONDON_H",
+          label: this.inputs.showPriceInLabel ? `London High  ${this.londonHPrice.toFixed(2)}` : "London High",
+          price: this.londonHPrice,
+          timeframe: "Session",
+          color: this.inputs.colLondonH,
+          lineStyle: "dashed",
+          lineWidth: 1,
+          createdAtBar: this.barIndex,
+        });
+      }
+      if (this.londonLPrice !== null) {
+        rawLevels.push({
+          id: `london_l-${this.londonLPrice.toFixed(2)}`,
+          type: "LONDON_L",
+          label: this.inputs.showPriceInLabel ? `London Low  ${this.londonLPrice.toFixed(2)}` : "London Low",
+          price: this.londonLPrice,
+          timeframe: "Session",
+          color: this.inputs.colLondonL,
+          lineStyle: "dashed",
+          lineWidth: 1,
+          createdAtBar: this.barIndex,
+        });
+      }
+      if (this.nyHPrice !== null) {
+        rawLevels.push({
+          id: `ny_h-${this.nyHPrice.toFixed(2)}`,
+          type: "NY_H",
+          label: this.inputs.showPriceInLabel ? `NY High  ${this.nyHPrice.toFixed(2)}` : "NY High",
+          price: this.nyHPrice,
+          timeframe: "Session",
+          color: this.inputs.colNYH,
+          lineStyle: "dashed",
+          lineWidth: 1,
+          createdAtBar: this.barIndex,
+        });
+      }
+      if (this.nyLPrice !== null) {
+        rawLevels.push({
+          id: `ny_l-${this.nyLPrice.toFixed(2)}`,
+          type: "NY_L",
+          label: this.inputs.showPriceInLabel ? `NY Low  ${this.nyLPrice.toFixed(2)}` : "NY Low",
+          price: this.nyLPrice,
+          timeframe: "Session",
+          color: this.inputs.colNYL,
+          lineStyle: "dashed",
+          lineWidth: 1,
+          createdAtBar: this.barIndex,
+        });
+      }
+    }
+
+    // 15M+ Major Swings
     if (this.inputs.showSwings) {
       this.swhPrices.forEach((price, idx) => {
-        levels.push({
-          id: `swh-${idx}-${price}`,
+        rawLevels.push({
+          id: `swh-${price.toFixed(2)}`,
           type: "SWH",
           label: this.inputs.showPriceInLabel ? `${this.swhTexts[idx]}  ${price.toFixed(2)}` : this.swhTexts[idx],
           price,
@@ -756,8 +963,8 @@ export class PineLiquidityEngine {
       });
 
       this.swlPrices.forEach((price, idx) => {
-        levels.push({
-          id: `swl-${idx}-${price}`,
+        rawLevels.push({
+          id: `swl-${price.toFixed(2)}`,
           type: "SWL",
           label: this.inputs.showPriceInLabel ? `${this.swlTexts[idx]}  ${price.toFixed(2)}` : this.swlTexts[idx],
           price,
@@ -770,62 +977,35 @@ export class PineLiquidityEngine {
       });
     }
 
-    // P/D Zone
-    if (this.inputs.showPDZone && this.pdZoneActive && this.pdZoneTop !== null && this.pdZoneBot !== null) {
-      const eq = (this.pdZoneTop + this.pdZoneBot) / 2;
-      levels.push({
-        id: `pd-premium-${this.pdZoneTop}`,
-        type: "PREMIUM",
-        label: this.inputs.showPriceInLabel ? `Premium  ${this.pdZoneTop.toFixed(2)}` : "Premium",
-        price: this.pdZoneTop,
-        timeframe: this.inputs.pdZoneTF,
-        color: this.inputs.colPremium,
-        lineStyle: "solid",
-        lineWidth: 1,
-        createdAtBar: this.barIndex,
+    // 1. FILTER CONSUMED LEVELS
+    const activeNonConsumed = rawLevels.filter((lvl) => !this.isConsumed(lvl, instrument));
+
+    // 2. OVERLAP / DUPLICATE FILTERING (avoid visual duplicate lines at effectively same price)
+    const filteredLevels: ActiveLevel[] = [];
+    const tolPct = this.inputs.overlapTolPct;
+
+    for (const lvl of activeNonConsumed) {
+      const isOverlap = filteredLevels.some((existing) => {
+        const maxP = Math.max(lvl.price, existing.price);
+        return maxP > 0 && (Math.abs(lvl.price - existing.price) / maxP) * 100 <= tolPct;
       });
 
-      levels.push({
-        id: `pd-discount-${this.pdZoneBot}`,
-        type: "DISCOUNT",
-        label: this.inputs.showPriceInLabel ? `Discount  ${this.pdZoneBot.toFixed(2)}` : "Discount",
-        price: this.pdZoneBot,
-        timeframe: this.inputs.pdZoneTF,
-        color: this.inputs.colDiscount,
-        lineStyle: "solid",
-        lineWidth: 1,
-        createdAtBar: this.barIndex,
-      });
-
-      if (this.inputs.showEqLine) {
-        levels.push({
-          id: `pd-eq-${eq}`,
-          type: "EQUILIBRIUM",
-          label: this.inputs.showPriceInLabel ? `Equilibrium  ${eq.toFixed(2)}` : "Equilibrium",
-          price: eq,
-          timeframe: this.inputs.pdZoneTF,
-          color: this.inputs.colEqLine,
-          lineStyle: "dashed",
-          lineWidth: 1,
-          createdAtBar: this.barIndex,
-        });
+      if (!isOverlap) {
+        filteredLevels.push(lvl);
       }
     }
 
-    return levels;
+    return filteredLevels;
   }
 
   public getPDZoneState(): PremiumDiscountZoneState {
     return {
-      active: this.pdZoneActive,
-      top: this.pdZoneTop,
-      bottom: this.pdZoneBot,
-      equilibrium:
-        this.pdZoneTop !== null && this.pdZoneBot !== null
-          ? (this.pdZoneTop + this.pdZoneBot) / 2
-          : null,
-      lastPH: this.pdLastPH,
-      lastPL: this.pdLastPL,
+      active: false,
+      top: null,
+      bottom: null,
+      equilibrium: null,
+      lastPH: null,
+      lastPL: null,
     };
   }
 }

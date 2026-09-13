@@ -11,21 +11,19 @@ export interface PineInputs {
   // Previous Week High/Low
   showPW: boolean;
 
+  // Previous Day High/Low
+  showPD: boolean;
+
+  // Previous Month High/Low
+  showPM: boolean;
+
+  // Session High/Low (Asia, London, New York)
+  showSessions: boolean;
+
   // 15M+ Major Swing High/Low
   showSwings: boolean;
   swingPivotLen: number;
   maxSwingLevels: number;
-
-  // Premium/Discount Zone
-  showPDZone: boolean;
-  pdZoneTF: string;
-  pdPivotLen: number;
-  pdAtrLen: number;
-  pdAtrMult: number;
-  showEqLine: boolean;
-  colPremium: string;
-  colDiscount: string;
-  colEqLine: string;
 
   // General
   extendLevels: boolean;
@@ -40,6 +38,16 @@ export interface PineInputs {
   colPWL: string;
   colSWH: string;
   colSWL: string;
+  colPDH: string;
+  colPDL: string;
+  colPMH: string;
+  colPML: string;
+  colAsiaH: string;
+  colAsiaL: string;
+  colLondonH: string;
+  colLondonL: string;
+  colNYH: string;
+  colNYL: string;
 }
 
 export const DEFAULT_PINE_INPUTS: PineInputs = {
@@ -52,20 +60,13 @@ export const DEFAULT_PINE_INPUTS: PineInputs = {
   maxEQLevels: 5,
 
   showPW: true,
+  showPD: true,
+  showPM: true,
+  showSessions: true,
 
   showSwings: true,
   swingPivotLen: 10,
   maxSwingLevels: 5,
-
-  showPDZone: true,
-  pdZoneTF: "15",
-  pdPivotLen: 10,
-  pdAtrLen: 14,
-  pdAtrMult: 0.25,
-  showEqLine: true,
-  colPremium: "#ef4444d9", // red 85%
-  colDiscount: "#22c55ed9", // green 85%
-  colEqLine: "#808080",
 
   extendLevels: true,
   labelSize: "small",
@@ -78,6 +79,16 @@ export const DEFAULT_PINE_INPUTS: PineInputs = {
   colPWL: "#eab308",
   colSWH: "#84cc16",
   colSWL: "#ef4444",
+  colPDH: "#a855f7",
+  colPDL: "#3b82f6",
+  colPMH: "#ec4899",
+  colPML: "#14b8a6",
+  colAsiaH: "#f43f5e",
+  colAsiaL: "#10b981",
+  colLondonH: "#8b5cf6",
+  colLondonL: "#0284c7",
+  colNYH: "#d97706",
+  colNYL: "#6366f1",
 };
 
 export interface Candle {
@@ -89,9 +100,27 @@ export interface Candle {
   volume: number;
 }
 
+export type LiquidityLevelType =
+  | "EQH"
+  | "EQL"
+  | "PWH"
+  | "PWL"
+  | "SWH"
+  | "SWL"
+  | "PDH"
+  | "PDL"
+  | "PMH"
+  | "PML"
+  | "ASIA_H"
+  | "ASIA_L"
+  | "LONDON_H"
+  | "LONDON_L"
+  | "NY_H"
+  | "NY_L";
+
 export interface ActiveLevel {
   id: string;
-  type: "EQH" | "EQL" | "PWH" | "PWL" | "SWH" | "SWL" | "PREMIUM" | "DISCOUNT" | "EQUILIBRIUM";
+  type: LiquidityLevelType;
   label: string;
   price: number;
   timeframe: string;
@@ -116,7 +145,7 @@ export interface PineAlertEvent {
   levelPrice: number;
   marketPrice: number;
   timeframe: string;
-  event: "LEVEL_TOUCHED" | "ZONE_ENTERED" | "EQUILIBRIUM_TOUCHED";
+  event: "LEVEL_TOUCHED";
   timestamp: string;
 }
 
@@ -142,7 +171,7 @@ export interface PineSignal {
   signalType: "BUY_SETUP" | "SELL_SETUP";
   triggerPrice: number;
   referenceLevel: string;
-  referenceLevelType: "EQH" | "EQL" | "PWH" | "PWL" | "SWH" | "SWL" | "ORDER_BLOCK";
+  referenceLevelType: LiquidityLevelType | "ORDER_BLOCK";
   confidence?: number;
   status: PineSignalStatus;
   orderBlockState?: OrderBlockState;
