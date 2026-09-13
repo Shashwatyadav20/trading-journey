@@ -105,34 +105,37 @@ describe("Real-Time Pine Level Touch Alerts (Requirement 10 Test Suite)", () => 
     expect(bridge.getLevelTouchState("BTC/USD", swhLevel.id)).toBe("triggered");
   });
 
-  // ─── TEST E: Price Moves Away ──────────────────────────────────────────────
-  it("E: re-arms level when price moves clearly away from touched resistance level", () => {
+  // ─── TEST E: Price Moves Away in Subsequent Minute ─────────────────────────
+  it("E: re-arms level when price moves clearly away from touched resistance level in a subsequent minute", () => {
     btcEngine.getActiveLevels = () => [swhLevel];
 
     bridge.checkLivePrice("BTC/USD", 80560, nowIso);
     bridge.checkLivePrice("BTC/USD", 80565, nowIso); // triggered
     expect(bridge.getLevelTouchState("BTC/USD", swhLevel.id)).toBe("triggered");
 
-    // Price moves back down below resistance (80560 < 80564.24)
-    bridge.checkLivePrice("BTC/USD", 80560, nowIso);
+    // Price moves back down below resistance in next minute (80560 < 80564.24 at 13:16)
+    const nextMinIso = "2026-09-07T13:16:00.000Z";
+    bridge.checkLivePrice("BTC/USD", 80560, nextMinIso);
     expect(bridge.getLevelTouchState("BTC/USD", swhLevel.id)).toBe("armed");
   });
 
-  // ─── TEST F: Price Returns ─────────────────────────────────────────────────
-  it("F: allows second LEVEL_TOUCHED event when price moves away and returns to level", () => {
+  // ─── TEST F: Price Returns in Later Minute ─────────────────────────────────
+  it("F: allows second LEVEL_TOUCHED event when price moves away and returns to level in a later minute", () => {
     btcEngine.getActiveLevels = () => [swhLevel];
 
-    // First touch
+    // First touch (13:15)
     bridge.checkLivePrice("BTC/USD", 80560, nowIso);
     const alert1 = bridge.checkLivePrice("BTC/USD", 80565, nowIso);
     expect(alert1.length).toBe(1);
 
-    // Moves away -> re-arms
-    bridge.checkLivePrice("BTC/USD", 80560, nowIso);
+    // Moves away -> re-arms (13:16)
+    const min2Iso = "2026-09-07T13:16:00.000Z";
+    bridge.checkLivePrice("BTC/USD", 80560, min2Iso);
     expect(bridge.getLevelTouchState("BTC/USD", swhLevel.id)).toBe("armed");
 
-    // Returns to level -> second alert
-    const alert2 = bridge.checkLivePrice("BTC/USD", 80565, nowIso);
+    // Returns to level -> second alert (13:17)
+    const min3Iso = "2026-09-07T13:17:00.000Z";
+    const alert2 = bridge.checkLivePrice("BTC/USD", 80565, min3Iso);
     expect(alert2.length).toBe(1);
     expect(alert2[0].event).toBe("LEVEL_TOUCHED");
   });
@@ -251,11 +254,148 @@ describe("Real-Time Pine Level Touch Alerts (Requirement 10 Test Suite)", () => 
     expect(btcAlerts.length).toBe(1);
     expect(btcAlerts[0].instrument).toBe("BTC/USD");
 
-    // XAU tick touch
-    bridge.checkLivePrice("XAU/USD", 2490.0, nowIso);
-    const xauAlerts = bridge.checkLivePrice("XAU/USD", 2501.0, nowIso);
+    // XAU tick touch on weekday
+    const weekdayIso = "2026-09-07T13:15:00.000Z";
+    bridge.checkLivePrice("XAU/USD", 2490.0, weekdayIso);
+    const xauAlerts = bridge.checkLivePrice("XAU/USD", 2501.0, weekdayIso);
     expect(xauAlerts.length).toBe(1);
     expect(xauAlerts[0].instrument).toBe("XAU/USD");
     expect(xauAlerts[0].levelPrice).toBe(2500.00);
+  });
+
+  // ─── REGRESSION AUDIT TESTS (Requirements 1 - 6) ─────────────────────────
+  describe("Audit Regression Fixes (Weekend XAU + Single Alert Per Level Touch)", () => {
+    const pwhXauLevel: ActiveLevel = {
+      id: "pwh-2500.00",
+      type: "PWH",
+      label: "PWH  2500.00",
+      price: 2500.00,
+      timeframe: "1W",
+      color: "#f59e0b",
+      lineStyle: "dashed",
+      lineWidth: 2,
+      createdAtBar: 1,
+    };
+
+    // 1. Weekend XAU = no alert
+    it("1. Weekend XAU generates zero alerts on Saturday/Sunday", () => {
+      xauEngine.getActiveLevels = () => [pwhXauLevel];
+
+      const saturdayIso = "2026-09-12T14:00:00.000Z"; // Sat
+      const sundayIso = "2026-09-13T10:00:00.000Z";   // Sun
+
+      bridge.checkLivePrice("XAU/USD", 2495.0, saturdayIso);
+      const satAlerts = bridge.checkLivePrice("XAU/USD", 2505.0, saturdayIso);
+      expect(satAlerts.length).toBe(0);
+
+      bridge.checkLivePrice("XAU/USD", 2495.0, sundayIso);
+      const sunAlerts = bridge.checkLivePrice("XAU/USD", 2505.0, sundayIso);
+      expect(sunAlerts.length).toBe(0);
+    });
+
+    // 2. Same level remains beyond price = exactly one alert
+    it("2. Same level remaining beyond price produces exactly one alert across intra-minute ticks & micro pullbacks", () => {
+      xauEngine.getActiveLevels = () => [pwhXauLevel];
+      const weekdayIso = "2026-09-07T13:15:05.000Z";
+
+      bridge.checkLivePrice("XAU/USD", 2495.0, weekdayIso);
+      const tick1 = bridge.checkLivePrice("XAU/USD", 2502.0, weekdayIso);
+      expect(tick1.length).toBe(1);
+
+      // Micro ticks remaining beyond or hovering around level during same minute
+      const tick2 = bridge.checkLivePrice("XAU/USD", 2503.0, "2026-09-07T13:15:15.000Z");
+      const tick3 = bridge.checkLivePrice("XAU/USD", 2499.8, "2026-09-07T13:15:25.000Z");
+      const tick4 = bridge.checkLivePrice("XAU/USD", 2501.5, "2026-09-07T13:15:35.000Z");
+
+      expect(tick2.length).toBe(0);
+      expect(tick3.length).toBe(0);
+      expect(tick4.length).toBe(0);
+      expect(bridge.getLevelTouchState("XAU/USD", pwhXauLevel.id)).toBe("triggered");
+    });
+
+    // 3. Level refresh/recalculation does not reset the triggered state
+    it("3. Level refresh or index recalculation does not reset triggered state", () => {
+      const initialSwh: ActiveLevel = {
+        id: "swh-0-80564.24",
+        type: "SWH",
+        label: "15M+ Swing High  80564.24",
+        price: 80564.24,
+        timeframe: "15M+",
+        color: "#84cc16",
+        lineStyle: "dotted",
+        lineWidth: 2,
+        createdAtBar: 1,
+      };
+
+      btcEngine.getActiveLevels = () => [initialSwh];
+      bridge.checkLivePrice("BTC/USD", 80560, nowIso);
+      const alert1 = bridge.checkLivePrice("BTC/USD", 80565, nowIso);
+      expect(alert1.length).toBe(1);
+      expect(bridge.getLevelTouchState("BTC/USD", "swh-0-80564.24")).toBe("triggered");
+
+      // Engine recalculates levels: index shifted to swh-1-80564.24
+      const recalculatedSwh: ActiveLevel = {
+        ...initialSwh,
+        id: "swh-1-80564.24",
+      };
+      btcEngine.getActiveLevels = () => [recalculatedSwh];
+
+      // Subsequent tick should NOT re-trigger alert
+      const tickAfterRecalc = bridge.checkLivePrice("BTC/USD", 80566, nowIso);
+      expect(tickAfterRecalc.length).toBe(0);
+      expect(bridge.getLevelTouchState("BTC/USD", "swh-1-80564.24")).toBe("triggered");
+    });
+
+    // 4. Legitimate later re-arm + new touch = one new alert
+    it("4. Legitimate later re-arm in a subsequent minute followed by a new touch produces exactly one new alert", () => {
+      xauEngine.getActiveLevels = () => [pwhXauLevel];
+
+      // Minute 1: initial touch
+      bridge.checkLivePrice("XAU/USD", 2495.0, "2026-09-07T13:15:05.000Z");
+      const alert1 = bridge.checkLivePrice("XAU/USD", 2502.0, "2026-09-07T13:15:15.000Z");
+      expect(alert1.length).toBe(1);
+
+      // Minute 2: price moves clearly below resistance -> re-arms
+      bridge.checkLivePrice("XAU/USD", 2490.0, "2026-09-07T13:16:10.000Z");
+      expect(bridge.getLevelTouchState("XAU/USD", pwhXauLevel.id)).toBe("armed");
+
+      // Minute 3: new touch -> exactly 1 new alert
+      const alert2 = bridge.checkLivePrice("XAU/USD", 2503.0, "2026-09-07T13:17:05.000Z");
+      expect(alert2.length).toBe(1);
+      expect(alert2[0].event).toBe("LEVEL_TOUCHED");
+    });
+
+    // 5. Existing XAU missed-wick behavior remains valid
+    it("5. XAU missed-wick evaluation on weekdays remains valid and suppresses duplicates", () => {
+      xauEngine.getActiveLevels = () => [pwhXauLevel];
+      const weekdayMinute = "2026-09-07T13:15:00.000Z";
+
+      // Live tick triggers level
+      bridge.checkLivePrice("XAU/USD", 2495.0, "2026-09-07T13:15:10.000Z");
+      bridge.checkLivePrice("XAU/USD", 2502.0, "2026-09-07T13:15:20.000Z");
+
+      // Completed candle evaluation for exact same minute bucket
+      const candle: Candle = {
+        timestamp: weekdayMinute,
+        open: 2495.0,
+        high: 2503.0,
+        low: 2494.0,
+        close: 2501.0,
+      };
+
+      const wickAlerts = bridge.evaluateCandleWick("XAU/USD", candle, weekdayMinute);
+      expect(wickAlerts.length).toBe(0); // Suppressed as expected
+    });
+
+    // 6. BTC existing behavior remains unchanged
+    it("6. BTC existing behavior (including weekend activity) remains completely unchanged", () => {
+      btcEngine.getActiveLevels = () => [swhLevel];
+      const satIso = "2026-09-12T14:00:00.000Z";
+
+      bridge.checkLivePrice("BTC/USD", 80560, satIso);
+      const btcSatAlerts = bridge.checkLivePrice("BTC/USD", 80565, satIso);
+      expect(btcSatAlerts.length).toBe(1);
+      expect(btcSatAlerts[0].instrument).toBe("BTC/USD");
+    });
   });
 });

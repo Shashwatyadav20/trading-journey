@@ -18,7 +18,7 @@
  */
 import { PineLiquidityEngine } from './pine/PineLiquidityEngine';
 import { PineSignalEngine } from './pine/PineSignalEngine';
-import { PineAlertBridge } from './pine/PineAlertBridge';
+import { PineAlertBridge, isXauWeekend } from './pine/PineAlertBridge';
 import { pineAlertPipeline } from './pine/PineAlertPipeline';
 import { ActiveLevel, PremiumDiscountZoneState, Candle, PineSignal } from './pine/PineTypes';
 import { priceStore } from '../market/MarketPriceStore';
@@ -218,6 +218,10 @@ export class PineLevelService {
     const { instrument, price, timestamp } = marketPrice;
     if (price <= 0 || !this.engines.has(instrument)) return;
 
+    if (instrument === "XAU/USD" && isXauWeekend(timestamp)) {
+      return;
+    }
+
     const engine = this.engines.get(instrument);
     if (!engine) return;
 
@@ -303,6 +307,10 @@ export class PineLevelService {
    */
   public async verifyMissedWickXAU(targetTimestamp?: string): Promise<void> {
     try {
+      if (isXauWeekend(targetTimestamp || new Date().toISOString())) {
+        return;
+      }
+
       const tdProvider = marketDataService.getTwelveDataProvider();
       if (!tdProvider || !tdProvider.isConfigured()) return;
 

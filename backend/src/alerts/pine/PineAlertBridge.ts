@@ -2,6 +2,17 @@ import { PineLiquidityEngine } from "./PineLiquidityEngine";
 import { PineAlertEvent, ActiveLevel, Candle } from "./PineTypes";
 import { sendTelegramMessage } from "../../alerts/telegram/TelegramClient";
 
+export function isXauWeekend(timestamp: string | Date): boolean {
+  try {
+    const dt = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
+    if (isNaN(dt.getTime())) return false;
+    const day = dt.getUTCDay(); // 0 = Sunday, 6 = Saturday
+    return day === 0 || day === 6;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Formats a UTC ISO timestamp as "DD MMM YYYY HH:mm IST" for display.
  */
@@ -79,7 +90,7 @@ export function formatLevelTouchedTelegramMessage(
  *     If previousPrice > level AND currentPrice <= level (or starting on level),
  *     emit LEVEL_TOUCHED alert.
  * - Duplicate protection: State machine per active level (`armed` vs `triggered`).
- *     Re-arms when price moves clearly away from level.
+ *     Re-arms when price moves clearly away from level in a subsequent minute.
  * - Dispatches Telegram notification immediately.
  */
 export class PineAlertBridge {
@@ -89,6 +100,26 @@ export class PineAlertBridge {
   private levelLastTriggeredTimeMap: Map<string, string> = new Map();
   private previousPriceMap: Map<string, number | null> = new Map();
   private onAlertCallback: ((alert: PineAlertEvent) => void) | null = null;
+
+  public static getLevelStateKey(instrument: string, levelOrId: ActiveLevel | string): string {
+    if (typeof levelOrId !== "string") {
+      return `${instrument}-${levelOrId.type}-${levelOrId.price.toFixed(2)}`;
+    }
+    const rawId = levelOrId;
+    if (rawId.startsWith(`${instrument}-`)) {
+      return rawId;
+    }
+    const parts = rawId.split("-");
+    if (parts.length >= 2) {
+      const typeUpper = parts[0].toUpperCase();
+      const priceStr = parts[parts.length - 1];
+      const priceNum = parseFloat(priceStr);
+      if (!isNaN(priceNum)) {
+        return `${instrument}-${typeUpper}-${priceNum.toFixed(2)}`;
+      }
+    }
+    return `${instrument}-${rawId}`;
+  }
 
   private getMinuteBucketIso(isoTimestamp: string): string {
     try {
@@ -110,8 +141,8 @@ export class PineAlertBridge {
   }
 
   public getLevelTouchState(instrument: string, levelId: string): "armed" | "triggered" {
-    const key = `${instrument}-${levelId}`;
-    return this.levelTouchStateMap.get(key) ?? "armed";
+    const stateKey = PineAlertBridge.getLevelStateKey(instrument, levelId);
+    return this.levelTouchStateMap.get(stateKey) ?? this.levelTouchStateMap.get(`${instrument}-${levelId}`) ?? "armed";
   }
 
   public resetState(): void {
@@ -129,17 +160,32 @@ export class PineAlertBridge {
     const engine = this.engineMap.get(instrument);
     if (!engine) return [];
 
+    // Weekend XAU suppression: XAU market is closed on Sat/Sun
+    if (instrument === "XAU/USD" && isXauWeekend(timestamp)) {
+      this.previousPriceMap.set(instrument, currentPrice);
+      return [];
+    }
+
     // READ-ONLY: engine state is never mutated here
     const activeLevels = engine.getActiveLevels();
     const pdState = engine.getPDZoneState();
     const previousPrice = this.previousPriceMap.get(instrument) ?? null;
     const generatedAlerts: PineAlertEvent[] = [];
 
-    // Clean up stale level states for levels no longer active
-    const currentLevelKeys = new Set(activeLevels.map((l) => `${instrument}-${l.id}`));
+    // Clean up stale level states for levels no longer active (keyed by stable state key)
+    const currentLevelStateKeys = new Set(
+      activeLevels.map((l) => PineAlertBridge.getLevelStateKey(instrument, l))
+    );
     for (const key of this.levelTouchStateMap.keys()) {
-      if (key.startsWith(`${instrument}-`) && !currentLevelKeys.has(key)) {
-        this.levelTouchStateMap.delete(key);
+      if (key.startsWith(`${instrument}-`)) {
+        if (!currentLevelStateKeys.has(key)) {
+          // Check if key is raw instrument-levelId or stateKey
+          const isRawKeyStillActive = activeLevels.some((l) => `${instrument}-${l.id}` === key);
+          if (!isRawKeyStillActive) {
+            this.levelTouchStateMap.delete(key);
+            this.levelLastTriggeredTimeMap.delete(key);
+          }
+        }
       }
     }
 
@@ -232,10 +278,12 @@ export class PineAlertBridge {
       }
     } else {
       // Horizontal liquidity level: EQH, EQL, PWH, PWL, SWH, SWL
-      const key = `${instrument}-${level.id}`;
-      const currentState = this.levelTouchStateMap.get(key) ?? "armed";
+      const stateKey = PineAlertBridge.getLevelStateKey(instrument, level);
+      const rawKey = `${instrument}-${level.id}`;
+      const currentState = this.levelTouchStateMap.get(stateKey) ?? this.levelTouchStateMap.get(rawKey) ?? "armed";
       const isResistance = level.type === "EQH" || level.type === "PWH" || level.type === "SWH";
       const levelPrice = level.price;
+      const currentMinuteIso = this.getMinuteBucketIso(timestamp);
 
       if (isResistance) {
         // Resistance semantics: previousPrice < levelPrice AND currentPrice >= levelPrice
@@ -244,8 +292,10 @@ export class PineAlertBridge {
         const isTouched = isTouchFromBelow || isExactStart;
 
         if (currentState === "armed" && isTouched) {
-          this.levelTouchStateMap.set(key, "triggered");
-          this.levelLastTriggeredTimeMap.set(key, this.getMinuteBucketIso(timestamp));
+          this.levelTouchStateMap.set(stateKey, "triggered");
+          this.levelTouchStateMap.set(rawKey, "triggered");
+          this.levelLastTriggeredTimeMap.set(stateKey, currentMinuteIso);
+          this.levelLastTriggeredTimeMap.set(rawKey, currentMinuteIso);
 
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(
@@ -279,8 +329,12 @@ export class PineAlertBridge {
             timestamp,
           });
         } else if (currentState === "triggered" && currentPrice < levelPrice) {
-          // Re-arm when price moves clearly below resistance level
-          this.levelTouchStateMap.set(key, "armed");
+          const lastTriggeredMinute = this.levelLastTriggeredTimeMap.get(stateKey) ?? this.levelLastTriggeredTimeMap.get(rawKey);
+          if (!lastTriggeredMinute || currentMinuteIso !== lastTriggeredMinute) {
+            // Re-arm when price moves clearly below resistance level in a subsequent minute
+            this.levelTouchStateMap.set(stateKey, "armed");
+            this.levelTouchStateMap.set(rawKey, "armed");
+          }
         }
       } else {
         // Support semantics: previousPrice > levelPrice AND currentPrice <= levelPrice
@@ -289,8 +343,10 @@ export class PineAlertBridge {
         const isTouched = isTouchFromAbove || isExactStart;
 
         if (currentState === "armed" && isTouched) {
-          this.levelTouchStateMap.set(key, "triggered");
-          this.levelLastTriggeredTimeMap.set(key, this.getMinuteBucketIso(timestamp));
+          this.levelTouchStateMap.set(stateKey, "triggered");
+          this.levelTouchStateMap.set(rawKey, "triggered");
+          this.levelLastTriggeredTimeMap.set(stateKey, currentMinuteIso);
+          this.levelLastTriggeredTimeMap.set(rawKey, currentMinuteIso);
 
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(
@@ -324,8 +380,12 @@ export class PineAlertBridge {
             timestamp,
           });
         } else if (currentState === "triggered" && currentPrice > levelPrice) {
-          // Re-arm when price moves clearly above support level
-          this.levelTouchStateMap.set(key, "armed");
+          const lastTriggeredMinute = this.levelLastTriggeredTimeMap.get(stateKey) ?? this.levelLastTriggeredTimeMap.get(rawKey);
+          if (!lastTriggeredMinute || currentMinuteIso !== lastTriggeredMinute) {
+            // Re-arm when price moves clearly above support level in a subsequent minute
+            this.levelTouchStateMap.set(stateKey, "armed");
+            this.levelTouchStateMap.set(rawKey, "armed");
+          }
         }
       }
     }
@@ -346,16 +406,26 @@ export class PineAlertBridge {
     const engine = this.engineMap.get(instrument);
     if (!engine) return [];
 
+    const targetTimestamp = candleMinuteTimestamp || candle.timestamp;
+    if (instrument === "XAU/USD" && isXauWeekend(targetTimestamp)) {
+      return [];
+    }
+
     const activeLevels = engine.getActiveLevels();
     const generatedAlerts: PineAlertEvent[] = [];
-    const targetMinuteIso = this.getMinuteBucketIso(candleMinuteTimestamp || candle.timestamp);
+    const targetMinuteIso = this.getMinuteBucketIso(targetTimestamp);
 
     // Clean up stale level states for levels no longer active
-    const currentLevelKeys = new Set(activeLevels.map((l) => `${instrument}-${l.id}`));
+    const currentLevelStateKeys = new Set(
+      activeLevels.map((l) => PineAlertBridge.getLevelStateKey(instrument, l))
+    );
     for (const key of this.levelTouchStateMap.keys()) {
-      if (key.startsWith(`${instrument}-`) && !currentLevelKeys.has(key)) {
-        this.levelTouchStateMap.delete(key);
-        this.levelLastTriggeredTimeMap.delete(key);
+      if (key.startsWith(`${instrument}-`)) {
+        const isRawKeyStillActive = activeLevels.some((l) => `${instrument}-${l.id}` === key);
+        if (!currentLevelStateKeys.has(key) && !isRawKeyStillActive) {
+          this.levelTouchStateMap.delete(key);
+          this.levelLastTriggeredTimeMap.delete(key);
+        }
       }
     }
 
@@ -368,8 +438,9 @@ export class PineAlertBridge {
         continue;
       }
 
-      const key = `${instrument}-${level.id}`;
-      const lastTriggeredMinuteIso = this.levelLastTriggeredTimeMap.get(key);
+      const stateKey = PineAlertBridge.getLevelStateKey(instrument, level);
+      const rawKey = `${instrument}-${level.id}`;
+      const lastTriggeredMinuteIso = this.levelLastTriggeredTimeMap.get(stateKey) ?? this.levelLastTriggeredTimeMap.get(rawKey);
 
       if (lastTriggeredMinuteIso && lastTriggeredMinuteIso === targetMinuteIso) {
         // Live tick already triggered an alert for this level during the exact same 1-minute bucket.
@@ -377,17 +448,31 @@ export class PineAlertBridge {
         continue;
       }
 
-      const currentState = this.levelTouchStateMap.get(key) ?? "armed";
+      let currentState = this.levelTouchStateMap.get(stateKey) ?? this.levelTouchStateMap.get(rawKey) ?? "armed";
       const isResistance = level.type === "EQH" || level.type === "PWH" || level.type === "SWH";
       const levelPrice = level.price;
+      const previousPrice = this.previousPriceMap.get(instrument) ?? null;
+
+      if (currentState === "triggered" && lastTriggeredMinuteIso && targetMinuteIso !== lastTriggeredMinuteIso) {
+        const openedOnNonTriggeredSide = isResistance
+          ? (candle.open < levelPrice || (previousPrice !== null && previousPrice < levelPrice))
+          : (candle.open > levelPrice || (previousPrice !== null && previousPrice > levelPrice));
+        if (openedOnNonTriggeredSide) {
+          currentState = "armed";
+          this.levelTouchStateMap.set(stateKey, "armed");
+          this.levelTouchStateMap.set(rawKey, "armed");
+        }
+      }
 
       if (isResistance) {
         // Resistance wick condition: candle.high >= levelPrice
         const isTouched = candle.high >= levelPrice;
 
         if (currentState === "armed" && isTouched) {
-          this.levelTouchStateMap.set(key, "triggered");
-          this.levelLastTriggeredTimeMap.set(key, targetMinuteIso);
+          this.levelTouchStateMap.set(stateKey, "triggered");
+          this.levelTouchStateMap.set(rawKey, "triggered");
+          this.levelLastTriggeredTimeMap.set(stateKey, targetMinuteIso);
+          this.levelLastTriggeredTimeMap.set(rawKey, targetMinuteIso);
 
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(
@@ -432,8 +517,10 @@ export class PineAlertBridge {
         const isTouched = candle.low <= levelPrice;
 
         if (currentState === "armed" && isTouched) {
-          this.levelTouchStateMap.set(key, "triggered");
-          this.levelLastTriggeredTimeMap.set(key, targetMinuteIso);
+          this.levelTouchStateMap.set(stateKey, "triggered");
+          this.levelTouchStateMap.set(rawKey, "triggered");
+          this.levelLastTriggeredTimeMap.set(stateKey, targetMinuteIso);
+          this.levelLastTriggeredTimeMap.set(rawKey, targetMinuteIso);
 
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(

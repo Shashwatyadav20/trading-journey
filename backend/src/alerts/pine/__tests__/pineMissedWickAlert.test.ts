@@ -174,8 +174,8 @@ describe("XAU/USD Missed-Wick Fallback Alert Test Suite (Requirements Audit Fixe
     expect(liveAlerts.length).toBe(1);
     expect(spyTelegram).toHaveBeenCalledTimes(1);
 
-    // 12:00:45 tick: Price pulls back below resistance (4348.40 < 4348.57) -> re-arms level!
-    const tick2Ts = "2026-09-07T13:15:45.000Z";
+    // 12:00:45 tick: Price pulls back below resistance in next minute (4348.40 < 4348.57 at 13:16) -> re-arms level!
+    const tick2Ts = "2026-09-07T13:16:05.000Z";
     bridge.checkLivePrice("XAU/USD", 4348.40, tick2Ts);
     expect(bridge.getLevelTouchState("XAU/USD", xauResistanceLevel.id)).toBe("armed"); // Re-armed!
 
