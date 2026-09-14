@@ -99,8 +99,8 @@ const pineRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /**
-   * POST /pine/telegram/test
-   * ========================
+   * GET & POST /pine/telegram/test
+   * ==============================
    * Sends a single connectivity test message to the configured Telegram chat.
    *
    * Security:
@@ -108,14 +108,9 @@ const pineRoutes: FastifyPluginAsync = async (fastify) => {
    *   - Never returns TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in the response.
    *   - Response contains only { sent: boolean, configured: boolean }.
    *
-   * Rate limiting:
-   *   - Guarded by approved-user authentication — not publicly accessible.
-   *
-   * Use this to verify Telegram connectivity after configuring credentials.
+   * Accepts both GET and POST requests. For POST, handles empty JSON body gracefully.
    */
-  fastify.post('/pine/telegram/test', {
-    preHandler: authenticateRequest,
-  }, async (_request, reply) => {
+  const handleTelegramTest = async (_request: any, reply: any) => {
     const configured = isTelegramConfigured();
     const result = await sendTelegramMessage(
       '🟢 *Trading Journey Telegram Test*\n\nTelegram alert delivery is connected successfully.'
@@ -125,7 +120,23 @@ const pineRoutes: FastifyPluginAsync = async (fastify) => {
       sent: result.sent,
       configured,
     });
+  };
+
+  fastify.setErrorHandler((error: any, request, reply) => {
+    if (error?.code === 'FST_ERR_CTP_EMPTY_JSON_BODY' && request.url.includes('/pine/telegram/test')) {
+      return handleTelegramTest(request, reply);
+    }
+    reply.send(error);
   });
+
+  fastify.get('/pine/telegram/test', {
+    preHandler: authenticateRequest,
+  }, handleTelegramTest);
+
+  fastify.post('/pine/telegram/test', {
+    preHandler: authenticateRequest,
+  }, handleTelegramTest);
+
 };
 
 export default pineRoutes;
