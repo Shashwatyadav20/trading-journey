@@ -34,6 +34,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { pineLevelService } from '../alerts/PineLevelService';
 import { authenticateRequest } from '../auth/middleware';
 import { sendTelegramMessage, isTelegramConfigured } from '../alerts/telegram/TelegramClient';
+import { pinePaperTracker } from '../alerts/pine/PinePaperTracker';
 
 const pineRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/pine/instruments', async (_request, _reply) => {
@@ -136,6 +137,22 @@ const pineRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/pine/telegram/test', {
     preHandler: authenticateRequest,
   }, handleTelegramTest);
+
+  /**
+   * GET /pine/paper-tracker
+   * =======================
+   * Returns live non-executing shadow paper tracking metrics comparing Baseline vs Variant B.
+   * Protected by authenticateRequest.
+   */
+  fastify.get('/pine/paper-tracker', {
+    preHandler: authenticateRequest,
+  }, async (_request, reply) => {
+    reply.status(200).send({
+      summary: pinePaperTracker.getSummary(),
+      records: pinePaperTracker.getRecords(),
+      timestamp: new Date().toISOString(),
+    });
+  });
 
 };
 

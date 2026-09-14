@@ -20,6 +20,7 @@ import { PineLiquidityEngine } from './pine/PineLiquidityEngine';
 import { PineSignalEngine } from './pine/PineSignalEngine';
 import { PineAlertBridge, isXauWeekend } from './pine/PineAlertBridge';
 import { pineAlertPipeline } from './pine/PineAlertPipeline';
+import { pinePaperTracker } from './pine/PinePaperTracker';
 import { ActiveLevel, PremiumDiscountZoneState, Candle, PineSignal } from './pine/PineTypes';
 import { priceStore } from '../market/MarketPriceStore';
 import { marketDataService } from '../market/MarketDataService';
@@ -267,10 +268,22 @@ export class PineLevelService {
       const prevCandle = history.length > 0 ? history[history.length - 1] : null;
       history.push(closedCandle);
 
+      // Update non-executing shadow paper tracker with closed candle price movement
+      pinePaperTracker.updatePriceTick(closedCandle);
+
       const signalEngine = this.signalEngines.get(instrument);
       if (signalEngine) {
         const newSignals = signalEngine.evaluateCandle(instrument, closedCandle, prevCandle, engine);
+        
+        // Calculate 50-period 15M SMA for shadow trend classification (from past bars only)
+        const recentCloses = history.slice(-50).map((c) => c.close);
+        const sma50 = recentCloses.length > 0
+          ? recentCloses.reduce((a, b) => a + b, 0) / recentCloses.length
+          : closedCandle.close;
+        const htfTrendState = closedCandle.close < sma50 ? "BEARISH" : "BULLISH";
+
         newSignals.forEach((sig) => {
+          pinePaperTracker.trackSignal(sig, closedCandle.close, htfTrendState);
           pineAlertPipeline.dispatchSignal(sig).catch(() => {});
         });
       }
