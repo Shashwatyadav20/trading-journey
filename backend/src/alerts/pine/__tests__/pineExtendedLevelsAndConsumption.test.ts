@@ -341,173 +341,144 @@ describe("Pine Extended Liquidity Levels & Level Consumption Test Suite", () => 
 // when a historical candle's wick crosses them, preventing already-broken levels
 // from appearing as ACTIVE after bootstrap.
 
-describe("Scalar Level Historical Invalidation — processCandle() step 4", () => {
+describe("Scalar Level Historical Replay — processCandle() does NOT consume scalar levels", () => {
   let eng: PineLiquidityEngine;
 
   beforeEach(() => {
     eng = new PineLiquidityEngine({}, 15);
   });
 
-  // ── GROUP A: HISTORICAL SCALAR SWEEP ──────────────────────────────────────
+  // ── GROUP A: HISTORICAL REPLAY DOES NOT PREMATURELY CONSUME SCALAR LEVELS ──────────────
 
-  it("A1. PWL swept by historical candle low — consumed and absent from getActiveLevels()", () => {
-    // Week 1 (Mon 10 Aug): high=2100, low=1800  → PWL will be 1800
+  it("A1. PWL historical replay — active scalar level is NOT consumed by historical candles", () => {
     const week1 = makeCandle("2026-08-10T00:00:00Z", 2100, 1800);
-    // Week 2 first candle (Mon 17 Aug): triggers evaluatePreviousWeek() → PWL = 1800
-    // This candle's low=1790 sweeps below PWL immediately
     const week2First = makeCandle("2026-08-17T00:00:00Z", 2050, 1790);
 
     eng.processCandle(week1);
     eng.processCandle(week2First);
 
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "PWL" && l.price === 1800)).toBe(false);
-    expect(eng.isConsumed({ id: "pwl-1800.00", type: "PWL", price: 1800 } as any)).toBe(true);
+    expect(levels.some((l) => l.type === "PWL" && l.price === 1800)).toBe(true);
+    expect(eng.isConsumed({ id: "pwl-1800.00", type: "PWL", price: 1800 } as any)).toBe(false);
   });
 
-  it("A2. PWH swept by historical candle high — consumed and absent from getActiveLevels()", () => {
-    // Week 1: high=2100, low=1800  → PWH = 2100
+  it("A2. PWH historical replay — active scalar level is NOT consumed by historical candles", () => {
     const week1 = makeCandle("2026-08-10T00:00:00Z", 2100, 1800);
-    // Week 2 first candle: high=2110 sweeps above PWH
     const week2First = makeCandle("2026-08-17T00:00:00Z", 2110, 1900);
 
     eng.processCandle(week1);
     eng.processCandle(week2First);
 
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "PWH" && l.price === 2100)).toBe(false);
-    expect(eng.isConsumed({ id: "pwh-2100.00", type: "PWH", price: 2100 } as any)).toBe(true);
+    expect(levels.some((l) => l.type === "PWH" && l.price === 2100)).toBe(true);
+    expect(eng.isConsumed({ id: "pwh-2100.00", type: "PWH", price: 2100 } as any)).toBe(false);
   });
 
-  it("A3. PDH swept by historical candle high — consumed and absent from getActiveLevels()", () => {
-    // Day 1: high=4348.57, low=4200  → PDH = 4348.57
+  it("A3. PDH historical replay — active scalar level is NOT consumed by historical candles", () => {
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4348.57, 4200);
-    // Day 2 first candle: high=4360 sweeps above PDH immediately
     const day2First = makeCandle("2026-09-02T00:00:00Z", 4360, 4250);
 
     eng.processCandle(day1);
     eng.processCandle(day2First);
 
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "PDH" && Math.abs(l.price - 4348.57) < 0.01)).toBe(false);
-    expect(eng.isConsumed({ id: "pdh-4348.57", type: "PDH", price: 4348.57 } as any)).toBe(true);
+    expect(levels.some((l) => l.type === "PDH" && Math.abs(l.price - 4348.57) < 0.01)).toBe(true);
+    expect(eng.isConsumed({ id: "pdh-4348.57", type: "PDH", price: 4348.57 } as any)).toBe(false);
   });
 
-  it("A4. PDL swept by historical candle low — consumed and absent from getActiveLevels()", () => {
-    // Day 1: high=4400, low=4300.00  → PDL = 4300
+  it("A4. PDL historical replay — active scalar level is NOT consumed by historical candles", () => {
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4400, 4300);
-    // Day 2 first candle: low=4295 sweeps below PDL
     const day2First = makeCandle("2026-09-02T00:00:00Z", 4380, 4295);
 
     eng.processCandle(day1);
     eng.processCandle(day2First);
 
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "PDL" && l.price === 4300)).toBe(false);
-    expect(eng.isConsumed({ id: "pdl-4300.00", type: "PDL", price: 4300 } as any)).toBe(true);
+    expect(levels.some((l) => l.type === "PDL" && l.price === 4300)).toBe(true);
+    expect(eng.isConsumed({ id: "pdl-4300.00", type: "PDL", price: 4300 } as any)).toBe(false);
   });
 
-  it("A5. PMH swept by historical candle high — consumed and absent from getActiveLevels()", () => {
-    // Month 1 (July): high=2150, low=1850  → PMH = 2150
+  it("A5. PMH historical replay — active scalar level is NOT consumed by historical candles", () => {
+    const pmEng = new PineLiquidityEngine({ showPD: false, showPW: false }, 15);
     const month1 = makeCandle("2026-07-01T00:00:00Z", 2150, 1850);
-    // Month 2 first candle (Aug): high=2160 sweeps above PMH
     const month2First = makeCandle("2026-08-01T00:00:00Z", 2160, 2000);
 
-    eng.processCandle(month1);
-    eng.processCandle(month2First);
+    pmEng.processCandle(month1);
+    pmEng.processCandle(month2First);
 
-    const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "PMH" && l.price === 2150)).toBe(false);
-    expect(eng.isConsumed({ id: "pmh-2150.00", type: "PMH", price: 2150 } as any)).toBe(true);
+    const levels = pmEng.getActiveLevels();
+    expect(levels.some((l) => l.type === "PMH" && l.price === 2150)).toBe(true);
+    expect(pmEng.isConsumed({ id: "pmh-2150.00", type: "PMH", price: 2150 } as any)).toBe(false);
   });
 
-  it("A6. PML swept by historical candle low — consumed and absent from getActiveLevels()", () => {
-    // Month 1: high=2150, low=1850  → PML = 1850
+  it("A6. PML historical replay — active scalar level is NOT consumed by historical candles", () => {
+    const pmEng = new PineLiquidityEngine({ showPD: false, showPW: false }, 15);
     const month1 = makeCandle("2026-07-01T00:00:00Z", 2150, 1850);
-    // Month 2 first candle: low=1840 sweeps below PML
     const month2First = makeCandle("2026-08-01T00:00:00Z", 2050, 1840);
 
-    eng.processCandle(month1);
-    eng.processCandle(month2First);
+    pmEng.processCandle(month1);
+    pmEng.processCandle(month2First);
 
-    const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "PML" && l.price === 1850)).toBe(false);
-    expect(eng.isConsumed({ id: "pml-1850.00", type: "PML", price: 1850 } as any)).toBe(true);
+    const levels = pmEng.getActiveLevels();
+    expect(levels.some((l) => l.type === "PML" && l.price === 1850)).toBe(true);
+    expect(pmEng.isConsumed({ id: "pml-1850.00", type: "PML", price: 1850 } as any)).toBe(false);
   });
 
-  it("A7. ASIA_H swept by a later session candle — consumed and absent from getActiveLevels()", () => {
-    // Build Asia session (00:00–08:59 UTC), peak high = 2040 at h=8
+  it("A7. ASIA_H historical replay — active session level is NOT consumed by historical candles", () => {
     for (let h = 0; h < 9; h++) {
       const ts = `2026-09-01T0${h}:00:00Z`;
       eng.processCandle(makeCandle(ts, 2000 + h * 5, 1990));
     }
-    // 09:00 UTC closes Asia → asiaHPrice = 2040
     eng.processCandle(makeCandle("2026-09-01T09:00:00Z", 1980, 1960));
-
-    // A later candle (same day) whose high = 2045 sweeps above asiaHPrice
     eng.processCandle(makeCandle("2026-09-01T10:00:00Z", 2045, 1970));
 
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "ASIA_H" && l.price === 2040)).toBe(false);
-    expect(eng.isConsumed({ id: "asia_h-2040.00", type: "ASIA_H", price: 2040 } as any)).toBe(true);
+    expect(levels.some((l) => l.type === "ASIA_H" && l.price === 2040)).toBe(true);
+    expect(eng.isConsumed({ id: "asia_h-2040.00", type: "ASIA_H", price: 2040 } as any)).toBe(false);
   });
 
-  it("A8. ASIA_L swept by a later session candle — consumed and absent from getActiveLevels()", () => {
-    // Asia session: at h=8 low = 1860
+  it("A8. ASIA_L historical replay — active session level is NOT consumed by historical candles", () => {
     for (let h = 0; h < 9; h++) {
       const ts = `2026-09-01T0${h}:00:00Z`;
       eng.processCandle(makeCandle(ts, 2000, 1900 - h * 5));
     }
-    // 09:00 closes Asia → asiaLPrice = 1860
     eng.processCandle(makeCandle("2026-09-01T09:00:00Z", 1980, 1930));
-
-    // Later candle with low = 1855 sweeps below asiaLPrice
     eng.processCandle(makeCandle("2026-09-01T11:00:00Z", 1975, 1855));
 
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "ASIA_L" && l.price === 1860)).toBe(false);
-    expect(eng.isConsumed({ id: "asia_l-1860.00", type: "ASIA_L", price: 1860 } as any)).toBe(true);
+    expect(levels.some((l) => l.type === "ASIA_L" && l.price === 1860)).toBe(true);
+    expect(eng.isConsumed({ id: "asia_l-1860.00", type: "ASIA_L", price: 1860 } as any)).toBe(false);
   });
 
-  it("A9. LONDON_H swept by a later candle — consumed and absent from getActiveLevels()", () => {
-    // London session 07:00–15:59 UTC, max high at h=15 → londonHPrice = 2130
+  it("A9. LONDON_H historical replay — active session level is NOT consumed by historical candles", () => {
     for (let h = 7; h < 16; h++) {
       const padH = String(h).padStart(2, "0");
       eng.processCandle(makeCandle(`2026-09-01T${padH}:00:00Z`, 2100 + h * 2, 1950));
     }
-    // 16:00 closes London → londonHPrice = 2130
     eng.processCandle(makeCandle("2026-09-01T16:00:00Z", 2000, 1900));
-
-    // Later candle with high = 2135 sweeps above londonHPrice
     eng.processCandle(makeCandle("2026-09-01T17:00:00Z", 2135, 2000));
 
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "LONDON_H" && l.price === 2130)).toBe(false);
-    expect(eng.isConsumed({ id: "london_h-2130.00", type: "LONDON_H", price: 2130 } as any)).toBe(true);
+    expect(levels.some((l) => l.type === "LONDON_H" && l.price === 2130)).toBe(true);
+    expect(eng.isConsumed({ id: "london_h-2130.00", type: "LONDON_H", price: 2130 } as any)).toBe(false);
   });
 
-  it("A10. NY_L swept by a later candle — consumed and absent from getActiveLevels()", () => {
-    // NY session 13:00–20:59 UTC, min low at h=20 → nyLPrice = 1980
+  it("A10. NY_L historical replay — active session level is NOT consumed by historical candles", () => {
     for (let h = 13; h < 21; h++) {
       eng.processCandle(makeCandle(`2026-09-01T${h}:00:00Z`, 2200, 2000 - h));
     }
-    // 21:00 closes NY → nyLPrice = 1980
     eng.processCandle(makeCandle("2026-09-01T21:00:00Z", 2100, 2000));
-
-    // Later candle with low = 1975 sweeps below nyLPrice
     eng.processCandle(makeCandle("2026-09-01T22:00:00Z", 2100, 1975));
 
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "NY_L" && l.price === 1980)).toBe(false);
-    expect(eng.isConsumed({ id: "ny_l-1980.00", type: "NY_L", price: 1980 } as any)).toBe(true);
+    expect(levels.some((l) => l.type === "NY_L" && l.price === 1980)).toBe(true);
+    expect(eng.isConsumed({ id: "ny_l-1980.00", type: "NY_L", price: 1980 } as any)).toBe(false);
   });
 
   // ── GROUP B: UNBROKEN SCALAR LEVELS REMAIN ACTIVE ─────────────────────────
 
   it("B1. PWL not swept — remains ACTIVE in getActiveLevels()", () => {
-    // Week 1: high=2100, low=1800  → PWL = 1800
     const week1 = makeCandle("2026-08-10T00:00:00Z", 2100, 1800);
-    // Week 2: low=1810, strictly above PWL — does NOT consume it
     const week2 = makeCandle("2026-08-17T00:00:00Z", 2050, 1810);
 
     eng.processCandle(week1);
@@ -518,9 +489,7 @@ describe("Scalar Level Historical Invalidation — processCandle() step 4", () =
   });
 
   it("B2. PDH not swept — remains ACTIVE in getActiveLevels()", () => {
-    // Day 1: high=4348.57, low=4200  → PDH = 4348.57
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4348.57, 4200);
-    // Day 2: high=4340, strictly below PDH — does NOT consume it
     const day2 = makeCandle("2026-09-02T00:00:00Z", 4340, 4250);
 
     eng.processCandle(day1);
@@ -531,9 +500,7 @@ describe("Scalar Level Historical Invalidation — processCandle() step 4", () =
   });
 
   it("B3. PDL not swept — remains ACTIVE in getActiveLevels()", () => {
-    // Day 1: high=4400, low=4300  → PDL = 4300
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4400, 4300);
-    // Day 2: low=4305, strictly above PDL — does NOT consume it
     const day2 = makeCandle("2026-09-02T00:00:00Z", 4380, 4305);
 
     eng.processCandle(day1);
@@ -544,9 +511,7 @@ describe("Scalar Level Historical Invalidation — processCandle() step 4", () =
   });
 
   it("B4. PWH not swept — remains ACTIVE in getActiveLevels()", () => {
-    // Week 1: high=2100, low=1800  → PWH = 2100
     const week1 = makeCandle("2026-08-10T00:00:00Z", 2100, 1800);
-    // Week 2: high=2090, strictly below PWH — does NOT consume it
     const week2 = makeCandle("2026-08-17T00:00:00Z", 2090, 1850);
 
     eng.processCandle(week1);
@@ -557,11 +522,8 @@ describe("Scalar Level Historical Invalidation — processCandle() step 4", () =
   });
 
   it("B5. PMH not swept — remains ACTIVE in getActiveLevels()", () => {
-    // Use showPD:false so PDH does not duplicate PMH at the same price (dedup would hide PMH)
     const pmEng = new PineLiquidityEngine({ showPD: false, showPW: false }, 15);
-    // Month 1: high=2150, low=1850  → PMH = 2150
     const month1 = makeCandle("2026-07-01T00:00:00Z", 2150, 1850);
-    // Month 2: high=2140, strictly below PMH — does NOT consume it
     const month2 = makeCandle("2026-08-01T00:00:00Z", 2140, 2000);
 
     pmEng.processCandle(month1);
@@ -572,21 +534,17 @@ describe("Scalar Level Historical Invalidation — processCandle() step 4", () =
   });
 
   it("B6. ASIA_H not swept — remains ACTIVE in getActiveLevels()", () => {
-    // Asia session, peak high = 2040
     for (let h = 0; h < 9; h++) {
       eng.processCandle(makeCandle(`2026-09-01T0${h}:00:00Z`, 2000 + h * 5, 1990));
     }
-    // 09:00 closes Asia → asiaHPrice = 2040
     eng.processCandle(makeCandle("2026-09-01T09:00:00Z", 1980, 1960));
-
-    // Later candle: high = 2035, strictly below asiaHPrice — does NOT consume it
     eng.processCandle(makeCandle("2026-09-01T10:00:00Z", 2035, 1970));
 
     const levels = eng.getActiveLevels();
     expect(levels.some((l) => l.type === "ASIA_H" && l.price === 2040)).toBe(true);
   });
 
-  // ── GROUP C: LIVE-TOUCH REGRESSION — EXISTING TESTS UNAFFECTED ────────────
+  // ── GROUP C: LIVE-TOUCH REGRESSION — ACTIVE SCALAR LEVELS REMAIN AVAILABLE AFTER BOOTSTRAP ────────────
 
   it("C1. Live touch on an unbroken PDH still produces exactly one alert", () => {
     vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
@@ -594,55 +552,45 @@ describe("Scalar Level Historical Invalidation — processCandle() step 4", () =
     const bridge = new PineAlertBridge();
     bridge.registerEngine("XAU/USD", eng);
 
-    // Day 1: high=4348.57, low=4200  → PDH = 4348.57
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4348.57, 4200);
-    // Day 2: high=4340, DOES NOT sweep PDH historically
     const day2 = makeCandle("2026-09-02T00:00:00Z", 4340, 4250);
     eng.processCandle(day1);
     eng.processCandle(day2);
 
-    // PDH must still be active before the live tick
     const levelsBefore = eng.getActiveLevels();
     expect(levelsBefore.some((l) => l.type === "PDH")).toBe(true);
 
-    // Live tick touches PDH → exactly one alert
     const alerts1 = bridge.checkLivePrice("XAU/USD", 4348.57, "2026-09-02T12:00:00Z");
     expect(alerts1.length).toBe(1);
 
-    // Second live tick at same price → no alert (consumed)
     const alerts2 = bridge.checkLivePrice("XAU/USD", 4348.57, "2026-09-02T12:00:01Z");
     expect(alerts2.length).toBe(0);
 
-    // PDH absent from active levels
     const levelsAfter = eng.getActiveLevels();
     expect(levelsAfter.some((l) => l.type === "PDH")).toBe(false);
   });
 
-  it("C2. Live-example regression: PWL=4368.53 broken historically — absent from active levels at live startup", () => {
-    // Week 1 (Mon 10 Aug): high=4400, low=4368.53  → PWL = 4368.53
+  it("C2. Historical bootstrap preserves PWL=4368.53 active for live alert bridge", () => {
     const week1 = makeCandle("2026-08-10T00:00:00Z", 4400, 4368.53);
-    // Week 2 first candle: low=4350.00 — historically sweeps below PWL
     const week2First = makeCandle("2026-08-17T00:00:00Z", 4380, 4350.00);
 
     eng.processCandle(week1);
     eng.processCandle(week2First);
 
-    // At the time the live system starts, PWL must NOT appear as ACTIVE
+    // Active level remains present at live startup
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "PWL" && Math.abs(l.price - 4368.53) < 0.01)).toBe(false);
+    expect(levels.some((l) => l.type === "PWL" && Math.abs(l.price - 4368.53) < 0.01)).toBe(true);
   });
 
-  it("C3. Live-example regression: PDH=4348.57 broken historically — absent from active levels at live startup", () => {
-    // Day 1: high=4348.57, low=4200  → PDH = 4348.57
+  it("C3. Historical bootstrap preserves PDH=4348.57 active for live alert bridge", () => {
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4348.57, 4200);
-    // Day 2: high=4360 — historically sweeps above PDH
     const day2First = makeCandle("2026-09-02T00:00:00Z", 4360, 4280);
 
     eng.processCandle(day1);
     eng.processCandle(day2First);
 
-    // At the time the live system starts, PDH must NOT appear as ACTIVE
+    // Active level remains present at live startup
     const levels = eng.getActiveLevels();
-    expect(levels.some((l) => l.type === "PDH" && Math.abs(l.price - 4348.57) < 0.01)).toBe(false);
+    expect(levels.some((l) => l.type === "PDH" && Math.abs(l.price - 4348.57) < 0.01)).toBe(true);
   });
 });

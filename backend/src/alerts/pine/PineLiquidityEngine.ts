@@ -57,22 +57,36 @@ export class PineLiquidityEngine {
   // PWH / PWL state
   private pwhPrice: number | null = null;
   private pwlPrice: number | null = null;
+  private pwhTimestampMs: number | null = null;
+  private pwlTimestampMs: number | null = null;
 
   // PDH / PDL state (Previous Day High / Low)
   private pdhPrice: number | null = null;
   private pdlPrice: number | null = null;
+  private pdhTimestampMs: number | null = null;
+  private pdlTimestampMs: number | null = null;
 
   // PMH / PML state (Previous Month High / Low)
   private pmhPrice: number | null = null;
   private pmlPrice: number | null = null;
+  private pmhTimestampMs: number | null = null;
+  private pmlTimestampMs: number | null = null;
 
   // Session High / Low state (Asia, London, New York)
   private asiaHPrice: number | null = null;
   private asiaLPrice: number | null = null;
+  private asiaHTimestampMs: number | null = null;
+  private asiaLTimestampMs: number | null = null;
+
   private londonHPrice: number | null = null;
   private londonLPrice: number | null = null;
+  private londonHTimestampMs: number | null = null;
+  private londonLTimestampMs: number | null = null;
+
   private nyHPrice: number | null = null;
   private nyLPrice: number | null = null;
+  private nyHTimestampMs: number | null = null;
+  private nyLTimestampMs: number | null = null;
 
   // Active session tracking buffers
   private currentAsiaHigh: number | null = null;
@@ -179,6 +193,20 @@ export class PineLiquidityEngine {
 
   public resetConsumedLevels(): void {
     this.consumedLevelKeys.clear();
+  }
+
+  public clearConsumedKeysForType(levelType: string): void {
+    const target = levelType.toUpperCase();
+    for (const key of Array.from(this.consumedLevelKeys)) {
+      const keyUpper = key.toUpperCase();
+      if (
+        keyUpper.startsWith(`${target}-`) ||
+        keyUpper.includes(`-${target}-`) ||
+        keyUpper.startsWith(`${target.toLowerCase()}-`)
+      ) {
+        this.consumedLevelKeys.delete(key);
+      }
+    }
   }
 
   // ─── PINE HELPER FUNCTIONS ────────────────────────────────────────────────
@@ -294,54 +322,6 @@ export class PineLiquidityEngine {
     this.f_removeBroken(this.eqlPrices, this.eqlTexts, false, candle.high, candle.low, "EQL");
     this.f_removeBroken(this.swhPrices, this.swhTexts, true, candle.high, candle.low, "SWH");
     this.f_removeBroken(this.swlPrices, this.swlTexts, false, candle.high, candle.low, "SWL");
-
-    // 4. Wick-Based Consumption for scalar HTF & Session levels.
-    //
-    // Chronological safety: aggregateTimeframes() and evaluateSessions() have already
-    // run above and set these scalar prices only from *completed* prior periods
-    // (previous week, previous day, previous month, or a closed session). Therefore
-    // the candle currently being processed is always chronologically AFTER the level
-    // became valid, making these checks safe to apply on the current candle.
-    //
-    // Resistance: consumed when candle.high reaches or exceeds the level.
-    if (this.pwhPrice !== null && candle.high >= this.pwhPrice) {
-      this.consumeLevel(`PWH-${this.pwhPrice.toFixed(2)}`);
-    }
-    if (this.pdhPrice !== null && candle.high >= this.pdhPrice) {
-      this.consumeLevel(`PDH-${this.pdhPrice.toFixed(2)}`);
-    }
-    if (this.pmhPrice !== null && candle.high >= this.pmhPrice) {
-      this.consumeLevel(`PMH-${this.pmhPrice.toFixed(2)}`);
-    }
-    if (this.asiaHPrice !== null && candle.high >= this.asiaHPrice) {
-      this.consumeLevel(`ASIA_H-${this.asiaHPrice.toFixed(2)}`);
-    }
-    if (this.londonHPrice !== null && candle.high >= this.londonHPrice) {
-      this.consumeLevel(`LONDON_H-${this.londonHPrice.toFixed(2)}`);
-    }
-    if (this.nyHPrice !== null && candle.high >= this.nyHPrice) {
-      this.consumeLevel(`NY_H-${this.nyHPrice.toFixed(2)}`);
-    }
-    //
-    // Support: consumed when candle.low reaches or falls below the level.
-    if (this.pwlPrice !== null && candle.low <= this.pwlPrice) {
-      this.consumeLevel(`PWL-${this.pwlPrice.toFixed(2)}`);
-    }
-    if (this.pdlPrice !== null && candle.low <= this.pdlPrice) {
-      this.consumeLevel(`PDL-${this.pdlPrice.toFixed(2)}`);
-    }
-    if (this.pmlPrice !== null && candle.low <= this.pmlPrice) {
-      this.consumeLevel(`PML-${this.pmlPrice.toFixed(2)}`);
-    }
-    if (this.asiaLPrice !== null && candle.low <= this.asiaLPrice) {
-      this.consumeLevel(`ASIA_L-${this.asiaLPrice.toFixed(2)}`);
-    }
-    if (this.londonLPrice !== null && candle.low <= this.londonLPrice) {
-      this.consumeLevel(`LONDON_L-${this.londonLPrice.toFixed(2)}`);
-    }
-    if (this.nyLPrice !== null && candle.low <= this.nyLPrice) {
-      this.consumeLevel(`NY_L-${this.nyLPrice.toFixed(2)}`);
-    }
   }
 
   // ─── TIMEFRAME AGGREGATION & HTF PROCESSING ────────────────────────────────
@@ -672,8 +652,17 @@ export class PineLiquidityEngine {
     if (!this.inputs.showPW) return;
     const prevWeekCandle = this.tfWeeklyCandles[this.tfWeeklyCandles.length - 2];
     if (prevWeekCandle) {
-      this.pwhPrice = prevWeekCandle.high;
-      this.pwlPrice = prevWeekCandle.low;
+      const prevWeekMs = new Date(prevWeekCandle.timestamp).getTime();
+      if (this.pwhPrice !== prevWeekCandle.high) {
+        this.pwhPrice = prevWeekCandle.high;
+        this.pwhTimestampMs = prevWeekMs;
+        this.clearConsumedKeysForType("PWH");
+      }
+      if (this.pwlPrice !== prevWeekCandle.low) {
+        this.pwlPrice = prevWeekCandle.low;
+        this.pwlTimestampMs = prevWeekMs;
+        this.clearConsumedKeysForType("PWL");
+      }
     }
   }
 
@@ -681,8 +670,17 @@ export class PineLiquidityEngine {
     if (!this.inputs.showPD) return;
     const prevDayCandle = this.tfDailyCandles[this.tfDailyCandles.length - 2];
     if (prevDayCandle) {
-      this.pdhPrice = prevDayCandle.high;
-      this.pdlPrice = prevDayCandle.low;
+      const prevDayMs = new Date(prevDayCandle.timestamp).getTime();
+      if (this.pdhPrice !== prevDayCandle.high) {
+        this.pdhPrice = prevDayCandle.high;
+        this.pdhTimestampMs = prevDayMs;
+        this.clearConsumedKeysForType("PDH");
+      }
+      if (this.pdlPrice !== prevDayCandle.low) {
+        this.pdlPrice = prevDayCandle.low;
+        this.pdlTimestampMs = prevDayMs;
+        this.clearConsumedKeysForType("PDL");
+      }
     }
   }
 
@@ -690,8 +688,17 @@ export class PineLiquidityEngine {
     if (!this.inputs.showPM) return;
     const prevMonthCandle = this.tfMonthlyCandles[this.tfMonthlyCandles.length - 2];
     if (prevMonthCandle) {
-      this.pmhPrice = prevMonthCandle.high;
-      this.pmlPrice = prevMonthCandle.low;
+      const prevMonthMs = new Date(prevMonthCandle.timestamp).getTime();
+      if (this.pmhPrice !== prevMonthCandle.high) {
+        this.pmhPrice = prevMonthCandle.high;
+        this.pmhTimestampMs = prevMonthMs;
+        this.clearConsumedKeysForType("PMH");
+      }
+      if (this.pmlPrice !== prevMonthCandle.low) {
+        this.pmlPrice = prevMonthCandle.low;
+        this.pmlTimestampMs = prevMonthMs;
+        this.clearConsumedKeysForType("PML");
+      }
     }
   }
 
@@ -701,6 +708,7 @@ export class PineLiquidityEngine {
     if (!this.inputs.showSessions) return;
     const d = new Date(candle.timestamp);
     const hour = d.getUTCHours();
+    const candleMs = d.getTime();
 
     // Asia session: 00:00 - 08:59 UTC
     if (hour >= 0 && hour < 9) {
@@ -714,6 +722,10 @@ export class PineLiquidityEngine {
     } else if (hour === 9 && this.currentAsiaHigh !== null) {
       this.asiaHPrice = this.currentAsiaHigh;
       this.asiaLPrice = this.currentAsiaLow;
+      this.asiaHTimestampMs = candleMs;
+      this.asiaLTimestampMs = candleMs;
+      this.clearConsumedKeysForType("ASIA_H");
+      this.clearConsumedKeysForType("ASIA_L");
       this.currentAsiaHigh = null;
       this.currentAsiaLow = null;
     }
@@ -730,6 +742,10 @@ export class PineLiquidityEngine {
     } else if (hour === 16 && this.currentLondonHigh !== null) {
       this.londonHPrice = this.currentLondonHigh;
       this.londonLPrice = this.currentLondonLow;
+      this.londonHTimestampMs = candleMs;
+      this.londonLTimestampMs = candleMs;
+      this.clearConsumedKeysForType("LONDON_H");
+      this.clearConsumedKeysForType("LONDON_L");
       this.currentLondonHigh = null;
       this.currentLondonLow = null;
     }
@@ -746,6 +762,10 @@ export class PineLiquidityEngine {
     } else if (hour === 21 && this.currentNYHigh !== null) {
       this.nyHPrice = this.currentNYHigh;
       this.nyLPrice = this.currentNYLow;
+      this.nyHTimestampMs = candleMs;
+      this.nyLTimestampMs = candleMs;
+      this.clearConsumedKeysForType("NY_H");
+      this.clearConsumedKeysForType("NY_L");
       this.currentNYHigh = null;
       this.currentNYLow = null;
     }

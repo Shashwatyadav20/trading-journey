@@ -541,7 +541,7 @@ describe("PineLiquidityEngine — 1:1 Pine Script Unit Tests", () => {
     expect(pwl?.price).toBe(80);  // week 1 low (min of mon1=80, wed1=85)
   });
 
-  it("I: PWH/PWL ARE consumed when a historical wick crosses the level (new correct behavior)", () => {
+  it("I: PWH/PWL are NOT consumed by historical candles during replay", () => {
     // week 1 candle
     const w1 = makeCandle("2026-08-24T00:00:00Z", 120, 80);
     // week 2 first candle: high=110 < PWH=120, low=85 > PWL=80 → does NOT cross either level
@@ -550,21 +550,20 @@ describe("PineLiquidityEngine — 1:1 Pine Script Unit Tests", () => {
     engine.processCandle(w1);
     engine.processCandle(w2);
 
-    // Verify levels exist after w2 (w2 itself does not cross them)
+    // Verify levels exist after w2
     const levelsBeforeWick = engine.getActiveLevels();
     expect(levelsBeforeWick.some((l) => l.type === "PWH" && l.price === 120)).toBe(true);
     expect(levelsBeforeWick.some((l) => l.type === "PWL" && l.price === 80)).toBe(true);
 
-    // Send candle that wicks ABOVE PWH and BELOW PWL — scalar levels are NOW consumed
+    // Historical candle — historical replay must NOT mark active scalar levels as consumed
     const wickCandle = makeCandle("2026-08-31T01:00:00Z", 125, 75);
     engine.processCandle(wickCandle);
 
     const levelsAfterWick = engine.getActiveLevels();
-    // PWH and PWL have been crossed by this candle's wick — they must be consumed
-    expect(levelsAfterWick.some((l) => l.type === "PWH" && l.price === 120)).toBe(false);
-    expect(levelsAfterWick.some((l) => l.type === "PWL" && l.price === 80)).toBe(false);
-    expect(engine.isConsumed({ id: "pwh-120.00", type: "PWH", price: 120 } as any)).toBe(true);
-    expect(engine.isConsumed({ id: "pwl-80.00", type: "PWL", price: 80 } as any)).toBe(true);
+    expect(levelsAfterWick.some((l) => l.type === "PWH" && l.price === 120)).toBe(true);
+    expect(levelsAfterWick.some((l) => l.type === "PWL" && l.price === 80)).toBe(true);
+    expect(engine.isConsumed({ id: "pwh-120.00", type: "PWH", price: 120 } as any)).toBe(false);
+    expect(engine.isConsumed({ id: "pwl-80.00", type: "PWL", price: 80 } as any)).toBe(false);
   });
 
   // ─── TEST: Premium/Discount Zones Are NOT Present ───────────────────────
