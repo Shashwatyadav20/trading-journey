@@ -228,11 +228,12 @@ export class PineAlertPipeline {
     }
 
     // ── 3. Deduplication guard ────────────────────────────────────────────
+    const levelPrice = extractLevelPrice(signal);
     const dedupeKey = telegramDedupeGuard.buildKey(
       signal.instrument,
       signal.strategy,
       signal.referenceLevelType,
-      signal.triggerPrice,
+      levelPrice,
       signal.direction
     );
 

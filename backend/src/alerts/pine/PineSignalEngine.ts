@@ -61,13 +61,13 @@ export class PineSignalEngine {
     prevCandle: Candle | null,
     engine: PineLiquidityEngine
   ): PineSignal[] {
-    const activeLevels = engine.getActiveLevels();
+    const activeLevels = engine.getActiveLevels(instrument);
     const timeframe = `${engine.getChartTF() < 15 ? 15 : engine.getChartTF()}M`;
     const detected: PineSignal[] = [];
 
     // 1. Evaluate Liquidity Sweep, Swing, EQH/EQL, PWH/PWL Signals
     for (const level of activeLevels) {
-      if (engine.isConsumed(level)) continue;
+      if (engine.isConsumed(level, instrument)) continue;
 
       // Check level interaction (high reached for resistance, low for support)
       const isUpsideTouch = candle.high >= level.price;
@@ -75,6 +75,8 @@ export class PineSignalEngine {
 
       const isResistance = ["EQH", "PWH", "SWH", "PDH", "PMH", "ASIA_H", "LONDON_H", "NY_H"].includes(level.type);
       const isSupport = ["EQL", "PWL", "SWL", "PDL", "PML", "ASIA_L", "LONDON_L", "NY_L"].includes(level.type);
+
+      let levelConsumedBySignal = false;
 
       // ─── A. General Liquidity Sweep ──────────────────────────────────────
       if (isUpsideTouch && isResistance) {
@@ -90,7 +92,10 @@ export class PineSignalEngine {
           referenceLevelType: level.type,
           notes: `Upside sweep of ${level.label} @ ${level.price.toFixed(2)}`,
         });
-        if (sig) detected.push(sig);
+        if (sig) {
+          detected.push(sig);
+          levelConsumedBySignal = true;
+        }
       } else if (isDownsideTouch && isSupport) {
         const sig = this.createSignal({
           instrument,
@@ -104,7 +109,10 @@ export class PineSignalEngine {
           referenceLevelType: level.type,
           notes: `Downside sweep of ${level.label} @ ${level.price.toFixed(2)}`,
         });
-        if (sig) detected.push(sig);
+        if (sig) {
+          detected.push(sig);
+          levelConsumedBySignal = true;
+        }
       }
 
       // ─── B. Swing High / Swing Low Specific Strategy ─────────────────────
@@ -121,7 +129,10 @@ export class PineSignalEngine {
           referenceLevelType: "SWH",
           notes: `Major Swing High liquidity interaction @ ${level.price.toFixed(2)}`,
         });
-        if (sig) detected.push(sig);
+        if (sig) {
+          detected.push(sig);
+          levelConsumedBySignal = true;
+        }
       } else if (level.type === "SWL" && isDownsideTouch) {
         const sig = this.createSignal({
           instrument,
@@ -135,7 +146,10 @@ export class PineSignalEngine {
           referenceLevelType: "SWL",
           notes: `Major Swing Low liquidity interaction @ ${level.price.toFixed(2)}`,
         });
-        if (sig) detected.push(sig);
+        if (sig) {
+          detected.push(sig);
+          levelConsumedBySignal = true;
+        }
       }
 
       // ─── C. EQH / EQL Specific Strategy ──────────────────────────────────
@@ -152,7 +166,10 @@ export class PineSignalEngine {
           referenceLevelType: "EQH",
           notes: `HTF EQH liquidity interaction (${level.timeframe}) @ ${level.price.toFixed(2)}`,
         });
-        if (sig) detected.push(sig);
+        if (sig) {
+          detected.push(sig);
+          levelConsumedBySignal = true;
+        }
       } else if (level.type === "EQL" && isDownsideTouch) {
         const sig = this.createSignal({
           instrument,
@@ -166,7 +183,10 @@ export class PineSignalEngine {
           referenceLevelType: "EQL",
           notes: `HTF EQL liquidity interaction (${level.timeframe}) @ ${level.price.toFixed(2)}`,
         });
-        if (sig) detected.push(sig);
+        if (sig) {
+          detected.push(sig);
+          levelConsumedBySignal = true;
+        }
       }
 
       // ─── D. PWH / PWL Specific Strategy ──────────────────────────────────
@@ -183,7 +203,10 @@ export class PineSignalEngine {
           referenceLevelType: "PWH",
           notes: `Previous Week High (PWH) interaction @ ${level.price.toFixed(2)}`,
         });
-        if (sig) detected.push(sig);
+        if (sig) {
+          detected.push(sig);
+          levelConsumedBySignal = true;
+        }
       } else if (level.type === "PWL" && isDownsideTouch) {
         const sig = this.createSignal({
           instrument,
@@ -197,7 +220,10 @@ export class PineSignalEngine {
           referenceLevelType: "PWL",
           notes: `Previous Week Low (PWL) interaction @ ${level.price.toFixed(2)}`,
         });
-        if (sig) detected.push(sig);
+        if (sig) {
+          detected.push(sig);
+          levelConsumedBySignal = true;
+        }
       }
 
       // ─── E. Sweep + Engulfing Strategy ───────────────────────────────────
@@ -223,7 +249,10 @@ export class PineSignalEngine {
               referenceLevelType: level.type,
               notes: `Bullish Sweep + Engulfing pattern on ${level.label}`,
             });
-            if (sig) detected.push(sig);
+            if (sig) {
+              detected.push(sig);
+              levelConsumedBySignal = true;
+            }
           }
         }
 
@@ -247,9 +276,16 @@ export class PineSignalEngine {
               referenceLevelType: level.type,
               notes: `Bearish Sweep + Engulfing pattern on ${level.label}`,
             });
-            if (sig) detected.push(sig);
+            if (sig) {
+              detected.push(sig);
+              levelConsumedBySignal = true;
+            }
           }
         }
+      }
+
+      if (levelConsumedBySignal) {
+        engine.consumeLevel(level, instrument);
       }
     }
 

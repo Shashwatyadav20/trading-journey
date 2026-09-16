@@ -327,7 +327,7 @@ describe("Canonical XAU/USD Strategy Backtest & Variant B Validation", () => {
     })));
     console.log("========================================================================================\n");
 
-    expect(canonicalControlA.totalSignals).toBe(60);
-    expect(canonicalVariantB.totalSignals).toBe(42);
+    expect(canonicalControlA.totalSignals).toBe(53);
+    expect(canonicalVariantB.totalSignals).toBe(35);
   });
 });
