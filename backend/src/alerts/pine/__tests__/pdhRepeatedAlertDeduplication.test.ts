@@ -31,6 +31,8 @@ describe("PDH Repeated Alert Deduplication & Level Consumption Test Suite", () =
     bridge = new PineAlertBridge();
     bridge.registerEngine("XAU/USD", engine);
     bridge.registerEngine("BTC/USD", engine);
+    pineAlertPipeline.registerEngine("XAU/USD", engine);
+    pineAlertPipeline.registerEngine("BTC/USD", engine);
   });
 
   it("TEST A — SAME PDH REPEATED CANDLES: exactly ONE Liquidity Sweep alert across fluctuating candle highs", async () => {

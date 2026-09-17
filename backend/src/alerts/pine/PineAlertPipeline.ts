@@ -152,10 +152,15 @@ export class WhatsAppNotificationAdapter implements NotificationAdapter {
 export class PineAlertPipeline {
   private adapters: NotificationAdapter[] = [];
   private alertHistory: NotificationAlertEvent[] = [];
+  private engineMap: Map<string, import("./PineLiquidityEngine").PineLiquidityEngine> = new Map();
 
   constructor() {
     this.adapters.push(new TelegramNotificationAdapter());
     this.adapters.push(new WhatsAppNotificationAdapter());
+  }
+
+  public registerEngine(instrument: string, engine: import("./PineLiquidityEngine").PineLiquidityEngine): void {
+    this.engineMap.set(instrument, engine);
   }
 
   /**
@@ -247,7 +252,15 @@ export class PineAlertPipeline {
       // Fire-and-forget: errors are caught inside each adapter.
       // The pipeline never awaits adapter results in a way that could
       // stall market-data processing.
-      adapter.sendAlert(alertEvent).catch((err) => {
+      adapter.sendAlert(alertEvent).then((sent) => {
+        if (sent && signal.referenceLevelType) {
+          const engine = this.engineMap.get(signal.instrument);
+          if (engine) {
+            const key = `${signal.referenceLevelType}-${levelPrice.toFixed(2)}`;
+            engine.consumeLevel(key, signal.instrument);
+          }
+        }
+      }).catch((err) => {
         console.error(`[PineAlertPipeline] Adapter ${adapter.name} uncaught error:`, err);
       });
     }

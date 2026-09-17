@@ -1,6 +1,6 @@
 import { PineLiquidityEngine } from "./PineLiquidityEngine";
 import { PineAlertEvent, ActiveLevel, Candle } from "./PineTypes";
-import { sendTelegramMessage } from "../../alerts/telegram/TelegramClient";
+import { sendTelegramMessage, isTelegramConfigured } from "../../alerts/telegram/TelegramClient";
 
 export function isXauWeekend(timestamp: string | Date): boolean {
   try {
@@ -272,8 +272,19 @@ export class PineAlertBridge {
 
         sendTelegramMessage(alertMessage).then((res) => {
           console.log(`[PINE-TOUCH]\ntelegram sent=${res.sent}`);
+          if (!res.sent && isTelegramConfigured()) {
+            console.warn(`[PINE-TOUCH] Telegram dispatch failed for level ${level.id}. Reverting level consumption.`);
+            engine.unconsumeLevel(level, instrument);
+            this.levelTouchStateMap.delete(stateKey);
+            this.levelTouchStateMap.delete(rawKey);
+          }
         }).catch((err) => {
           console.error(`[PINE-TOUCH]\ntelegram sent=false`, err);
+          if (isTelegramConfigured()) {
+            engine.unconsumeLevel(level, instrument);
+            this.levelTouchStateMap.delete(stateKey);
+            this.levelTouchStateMap.delete(rawKey);
+          }
         });
 
         results.push({
@@ -322,8 +333,19 @@ export class PineAlertBridge {
 
         sendTelegramMessage(alertMessage).then((res) => {
           console.log(`[PINE-TOUCH]\ntelegram sent=${res.sent}`);
+          if (!res.sent && isTelegramConfigured()) {
+            console.warn(`[PINE-TOUCH] Telegram dispatch failed for level ${level.id}. Reverting level consumption.`);
+            engine.unconsumeLevel(level, instrument);
+            this.levelTouchStateMap.delete(stateKey);
+            this.levelTouchStateMap.delete(rawKey);
+          }
         }).catch((err) => {
           console.error(`[PINE-TOUCH]\ntelegram sent=false`, err);
+          if (isTelegramConfigured()) {
+            engine.unconsumeLevel(level, instrument);
+            this.levelTouchStateMap.delete(stateKey);
+            this.levelTouchStateMap.delete(rawKey);
+          }
         });
 
         results.push({
@@ -441,8 +463,19 @@ export class PineAlertBridge {
 
           sendTelegramMessage(alertMessage).then((res) => {
             console.log(`[PINE-TOUCH-WICK]\ntelegram sent=${res.sent}`);
+            if (!res.sent && isTelegramConfigured()) {
+              console.warn(`[PINE-TOUCH-WICK] Telegram dispatch failed for level ${level.id}. Reverting level consumption.`);
+              engine.unconsumeLevel(level, instrument);
+              this.levelTouchStateMap.delete(stateKey);
+              this.levelTouchStateMap.delete(rawKey);
+            }
           }).catch((err) => {
             console.error(`[PINE-TOUCH-WICK]\ntelegram sent=false`, err);
+            if (isTelegramConfigured()) {
+              engine.unconsumeLevel(level, instrument);
+              this.levelTouchStateMap.delete(stateKey);
+              this.levelTouchStateMap.delete(rawKey);
+            }
           });
 
           const alertEvent: PineAlertEvent = {
@@ -489,8 +522,19 @@ export class PineAlertBridge {
 
           sendTelegramMessage(alertMessage).then((res) => {
             console.log(`[PINE-TOUCH-WICK]\ntelegram sent=${res.sent}`);
+            if (!res.sent && isTelegramConfigured()) {
+              console.warn(`[PINE-TOUCH-WICK] Telegram dispatch failed for level ${level.id}. Reverting level consumption.`);
+              engine.unconsumeLevel(level, instrument);
+              this.levelTouchStateMap.delete(stateKey);
+              this.levelTouchStateMap.delete(rawKey);
+            }
           }).catch((err) => {
             console.error(`[PINE-TOUCH-WICK]\ntelegram sent=false`, err);
+            if (isTelegramConfigured()) {
+              engine.unconsumeLevel(level, instrument);
+              this.levelTouchStateMap.delete(stateKey);
+              this.levelTouchStateMap.delete(rawKey);
+            }
           });
 
           const alertEvent: PineAlertEvent = {

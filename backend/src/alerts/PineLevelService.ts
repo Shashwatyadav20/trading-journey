@@ -55,6 +55,7 @@ export class PineLevelService {
     this.engines.set(instrument, engine);
     this.signalEngines.set(instrument, new PineSignalEngine());
     this.alertBridge.registerEngine(instrument, engine);
+    pineAlertPipeline.registerEngine(instrument, engine);
     this.openCandles.delete(instrument);
     this.isBootstrapped.set(instrument, false);
   }

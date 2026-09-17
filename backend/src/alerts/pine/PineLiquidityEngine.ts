@@ -174,6 +174,29 @@ export class PineLiquidityEngine {
     }
   }
 
+  public unconsumeLevel(levelOrKey: ActiveLevel | string, instrument?: string): void {
+    if (typeof levelOrKey === "string") {
+      const cleanKey = levelOrKey.trim();
+      this.consumedLevelKeys.delete(cleanKey);
+      const parts = cleanKey.split("-");
+      if (parts.length >= 2) {
+        const typeStr = parts[parts.length - 2] || parts[0];
+        const priceNum = parseFloat(parts[parts.length - 1]);
+        if (!isNaN(priceNum)) {
+          this.consumedLevelKeys.delete(`${typeStr.toUpperCase()}-${priceNum.toFixed(2)}`);
+        }
+      }
+    } else {
+      const type = levelOrKey.type;
+      const priceStr = levelOrKey.price.toFixed(2);
+      this.consumedLevelKeys.delete(`${type}-${priceStr}`);
+      this.consumedLevelKeys.delete(`${levelOrKey.id}`);
+      if (instrument) {
+        this.consumedLevelKeys.delete(`${instrument}-${type}-${priceStr}`);
+      }
+    }
+  }
+
   public isConsumed(level: ActiveLevel, instrument?: string): boolean {
     const priceStr = level.price.toFixed(2);
     const key1 = `${level.type}-${priceStr}`;
