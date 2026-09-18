@@ -1068,14 +1068,11 @@ export class PineLiquidityEngine {
       });
     }
 
-    // 1. FILTER CONSUMED LEVELS
-    const activeNonConsumed = rawLevels.filter((lvl) => !this.isConsumed(lvl, instrument));
-
-    // 2. OVERLAP / DUPLICATE FILTERING (avoid visual duplicate lines at effectively same price)
+    // OVERLAP / DUPLICATE FILTERING (avoid visual duplicate lines at effectively same price)
     const filteredLevels: ActiveLevel[] = [];
     const tolPct = this.inputs.overlapTolPct;
 
-    for (const lvl of activeNonConsumed) {
+    for (const lvl of rawLevels) {
       const isOverlap = filteredLevels.some((existing) => {
         const maxP = Math.max(lvl.price, existing.price);
         return maxP > 0 && (Math.abs(lvl.price - existing.price) / maxP) * 100 <= tolPct;

@@ -35,7 +35,7 @@ describe("PDH Repeated Alert Deduplication & Level Consumption Test Suite", () =
     pineAlertPipeline.registerEngine("BTC/USD", engine);
   });
 
-  it("TEST A — SAME PDH REPEATED CANDLES: exactly ONE Liquidity Sweep alert across fluctuating candle highs", async () => {
+  it("TEST A — SAME PDH REPEATED CANDLES: exactly ONE Liquidity Sweep alert across fluctuating candle highs within dedup TTL", async () => {
     const telegramSpy = vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     // Day 1: High = 4317.60, Low = 4200.00 -> sets PDH = 4317.60 for Day 2
@@ -57,11 +57,10 @@ describe("PDH Repeated Alert Deduplication & Level Consumption Test Suite", () =
     }
     expect(telegramSpy).toHaveBeenCalledTimes(1);
 
-    // Verify PDH 4317.60 is now consumed & absent from active levels
-    expect(engine.isConsumed({ id: "pdh-4317.60", type: "PDH", price: 4317.60 }, "XAU/USD")).toBe(true);
-    expect(engine.getActiveLevels("XAU/USD").some((l) => l.type === "PDH" && l.price === 4317.60)).toBe(false);
+    // Verify PDH 4317.60 remains present in active levels for future re-tests
+    expect(engine.getActiveLevels("XAU/USD").some((l) => l.type === "PDH" && l.price === 4317.60)).toBe(true);
 
-    // Subsequent candles with fluctuating highs touching/sweeping 4317.60
+    // Subsequent candles with fluctuating highs touching/sweeping 4317.60 within dedup TTL
     const fluctuatingHighs = [4317.70, 4317.82, 4317.68, 4317.90];
     for (let i = 0; i < fluctuatingHighs.length; i++) {
       const ts = `2026-09-02T12:0${i + 2}:00Z`;
@@ -72,7 +71,7 @@ describe("PDH Repeated Alert Deduplication & Level Consumption Test Suite", () =
       }
     }
 
-    // Total Telegram alerts MUST remain exactly 1!
+    // Total Telegram alerts MUST remain exactly 1 during single continuous sweep within TTL!
     expect(telegramSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -87,7 +86,7 @@ describe("PDH Repeated Alert Deduplication & Level Consumption Test Suite", () =
     expect(telegramDedupeGuard.shouldSend(key2)).toBe(false);
   });
 
-  it("TEST C — NEW PDH: A genuinely new day's PDH can alert once after old PDH was consumed", async () => {
+  it("TEST C — NEW PDH: A genuinely new day's PDH alerts once old PDH is replaced by new day's high", async () => {
     const telegramSpy = vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     // Day 1: High = 4317.60 -> PDH for Day 2 = 4317.60
@@ -101,13 +100,12 @@ describe("PDH Repeated Alert Deduplication & Level Consumption Test Suite", () =
       await pineAlertPipeline.dispatchSignal(sig);
     }
     expect(telegramSpy).toHaveBeenCalledTimes(1);
-    expect(engine.isConsumed({ id: "pdh-4317.60", type: "PDH", price: 4317.60 }, "XAU/USD")).toBe(true);
 
     // Day 3 starts (2026-09-03): New PDH is 4350.00 (from Day 2)
     const day3Candle1 = makeCandle("2026-09-03T00:00:00Z", 4340.00, 4300.00);
     engine.processCandle(day3Candle1);
 
-    // Verify old PDH (4317.60) is NOT active, but new PDH (4350.00) IS active
+    // Verify old PDH (4317.60) is replaced by new PDH (4350.00)
     const activeDay3 = engine.getActiveLevels("XAU/USD");
     expect(activeDay3.some((l) => l.type === "PDH" && l.price === 4317.60)).toBe(false);
     expect(activeDay3.some((l) => l.type === "PDH" && l.price === 4350.00)).toBe(true);
@@ -124,24 +122,35 @@ describe("PDH Repeated Alert Deduplication & Level Consumption Test Suite", () =
     expect(telegramSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("TEST D — LIVE TOUCH REGRESSION: PineAlertBridge live touch generates 1 alert & consumes level", async () => {
+  it("TEST D — LIVE TOUCH REGRESSION: PineAlertBridge live touch generates 1 alert on touch, keeps level active, and re-alerts after pullback", async () => {
     const telegramSpy = vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     engine.processCandle(makeCandle("2026-09-01T00:00:00Z", 4317.60, 4200.00));
     engine.processCandle(makeCandle("2026-09-02T00:00:00Z", 4310.00, 4250.00));
 
+    // Touch 1 at 12:00:00
     const alerts1 = bridge.checkLivePrice("XAU/USD", 4317.60, "2026-09-02T12:00:00Z");
     expect(alerts1.length).toBe(1);
     expect(telegramSpy).toHaveBeenCalledTimes(1);
 
+    // Consecutive tick at 12:00:05 while staying at level -> suppressed (0 alerts)
     const alerts2 = bridge.checkLivePrice("XAU/USD", 4317.60, "2026-09-02T12:00:05Z");
     expect(alerts2.length).toBe(0);
     expect(telegramSpy).toHaveBeenCalledTimes(1);
 
-    expect(engine.getActiveLevels("XAU/USD").some((l) => l.price === 4317.60)).toBe(false);
+    // Level remains active in getActiveLevels()
+    expect(engine.getActiveLevels("XAU/USD").some((l) => l.price === 4317.60)).toBe(true);
+
+    // Price retreats below level in next minute (12:01:00) -> re-arms level
+    bridge.checkLivePrice("XAU/USD", 4310.00, "2026-09-02T12:01:00Z");
+
+    // Touch 2 at 12:05:00 (price touches 4317.60 again after pullback) -> generates new alert!
+    const alerts3 = bridge.checkLivePrice("XAU/USD", 4317.60, "2026-09-02T12:05:00Z");
+    expect(alerts3.length).toBe(1);
+    expect(telegramSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("TEST E — MISSED WICK REGRESSION: Completed 1M candle wick touch generates 1 alert & consumes level", async () => {
+  it("TEST E — MISSED WICK REGRESSION: Completed 1M candle wick touch generates 1 alert and keeps level active", async () => {
     const telegramSpy = vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     engine.processCandle(makeCandle("2026-09-01T00:00:00Z", 4317.60, 4200.00));
@@ -152,7 +161,7 @@ describe("PDH Repeated Alert Deduplication & Level Consumption Test Suite", () =
 
     expect(alerts.length).toBe(1);
     expect(telegramSpy).toHaveBeenCalledTimes(1);
-    expect(engine.getActiveLevels("XAU/USD").some((l) => l.price === 4317.60)).toBe(false);
+    expect(engine.getActiveLevels("XAU/USD").some((l) => l.price === 4317.60)).toBe(true);
   });
 
   it("TEST F — WEEKEND REGRESSION: XAU weekend suppression suppresses live touch alerts", () => {

@@ -86,12 +86,12 @@ describe("Scalar Level Bootstrap & Live Alert Verification", () => {
     expect(alerts2.length).toBe(0);
     expect(telegramSpy).toHaveBeenCalledTimes(1);
 
-    // Level removed from activeLevels
+    // Level remains active in activeLevels
     const levelsAfter = engine.getActiveLevels("XAU/USD");
-    expect(levelsAfter.some((l) => l.type === "PDH" && l.price === 2500.00)).toBe(false);
+    expect(levelsAfter.some((l) => l.type === "PDH" && l.price === 2500.00)).toBe(true);
   });
 
-  it("D. Missed wick: Completed 1M candle touching an active scalar level generates exactly ONE alert and consumes level", async () => {
+  it("D. Missed wick: Completed 1M candle touching an active scalar level generates exactly ONE alert and retains level active", async () => {
     const telegramSpy = vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     // Day 1: High=2500, Low=2400 -> PDH=2500
@@ -108,9 +108,9 @@ describe("Scalar Level Bootstrap & Live Alert Verification", () => {
     expect(alerts[0].levelPrice).toBe(2500.00);
     expect(telegramSpy).toHaveBeenCalledTimes(1);
 
-    // Level is now consumed
+    // Level remains active
     const levelsAfter = engine.getActiveLevels("XAU/USD");
-    expect(levelsAfter.some((l) => l.type === "PDH" && l.price === 2500.00)).toBe(false);
+    expect(levelsAfter.some((l) => l.type === "PDH" && l.price === 2500.00)).toBe(true);
   });
 
   it("E. Duplicate protection: Repeated ticks within same minute do not generate duplicate alerts", async () => {

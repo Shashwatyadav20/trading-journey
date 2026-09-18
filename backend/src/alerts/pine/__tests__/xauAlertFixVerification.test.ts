@@ -84,8 +84,8 @@ describe("XAU/USD End-To-End Telegram Alert Fix Verification", () => {
     expect(spySend).toHaveBeenCalledTimes(1);
   });
 
-  // 3. LEVEL CONSUMPTION
-  it("3. LEVEL CONSUMPTION: After successful alert -> level is consumed -> absent from getActiveLevels('XAU/USD')", async () => {
+  // 3. LEVEL RETENTION
+  it("3. LEVEL RETENTION: After successful alert -> level remains present in getActiveLevels('XAU/USD')", async () => {
     vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     (xauEngine as any).pdhPrice = 2700.00;
@@ -98,7 +98,7 @@ describe("XAU/USD End-To-End Telegram Alert Fix Verification", () => {
     // Wait microtask for promise resolution if async
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(xauEngine.getActiveLevels("XAU/USD").some((l) => l.price === 2700.00)).toBe(false);
+    expect(xauEngine.getActiveLevels("XAU/USD").some((l) => l.price === 2700.00)).toBe(true);
   });
 
   // 4. TELEGRAM FAILURE

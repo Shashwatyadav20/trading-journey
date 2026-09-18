@@ -253,9 +253,6 @@ export class PineAlertBridge {
         this.levelLastTriggeredTimeMap.set(stateKey, currentMinuteIso);
         this.levelLastTriggeredTimeMap.set(rawKey, currentMinuteIso);
 
-        // CONSUME LEVEL IMMEDIATELY ON TOUCH
-        engine.consumeLevel(level, instrument);
-
         const typeDisplay = getLevelTypeDisplay(level);
         const alertMessage = formatLevelTouchedTelegramMessage(
           instrument,
@@ -273,17 +270,15 @@ export class PineAlertBridge {
         sendTelegramMessage(alertMessage).then((res) => {
           console.log(`[PINE-TOUCH]\ntelegram sent=${res.sent}`);
           if (!res.sent && isTelegramConfigured()) {
-            console.warn(`[PINE-TOUCH] Telegram dispatch failed for level ${level.id}. Reverting level consumption.`);
-            engine.unconsumeLevel(level, instrument);
-            this.levelTouchStateMap.delete(stateKey);
-            this.levelTouchStateMap.delete(rawKey);
+            console.warn(`[PINE-TOUCH] Telegram dispatch failed for level ${level.id}. Reverting level touch state.`);
+            this.levelTouchStateMap.set(stateKey, "armed");
+            this.levelTouchStateMap.set(rawKey, "armed");
           }
         }).catch((err) => {
           console.error(`[PINE-TOUCH]\ntelegram sent=false`, err);
           if (isTelegramConfigured()) {
-            engine.unconsumeLevel(level, instrument);
-            this.levelTouchStateMap.delete(stateKey);
-            this.levelTouchStateMap.delete(rawKey);
+            this.levelTouchStateMap.set(stateKey, "armed");
+            this.levelTouchStateMap.set(rawKey, "armed");
           }
         });
 
@@ -314,9 +309,6 @@ export class PineAlertBridge {
         this.levelLastTriggeredTimeMap.set(stateKey, currentMinuteIso);
         this.levelLastTriggeredTimeMap.set(rawKey, currentMinuteIso);
 
-        // CONSUME LEVEL IMMEDIATELY ON TOUCH
-        engine.consumeLevel(level, instrument);
-
         const typeDisplay = getLevelTypeDisplay(level);
         const alertMessage = formatLevelTouchedTelegramMessage(
           instrument,
@@ -334,17 +326,15 @@ export class PineAlertBridge {
         sendTelegramMessage(alertMessage).then((res) => {
           console.log(`[PINE-TOUCH]\ntelegram sent=${res.sent}`);
           if (!res.sent && isTelegramConfigured()) {
-            console.warn(`[PINE-TOUCH] Telegram dispatch failed for level ${level.id}. Reverting level consumption.`);
-            engine.unconsumeLevel(level, instrument);
-            this.levelTouchStateMap.delete(stateKey);
-            this.levelTouchStateMap.delete(rawKey);
+            console.warn(`[PINE-TOUCH] Telegram dispatch failed for level ${level.id}. Reverting level touch state.`);
+            this.levelTouchStateMap.set(stateKey, "armed");
+            this.levelTouchStateMap.set(rawKey, "armed");
           }
         }).catch((err) => {
           console.error(`[PINE-TOUCH]\ntelegram sent=false`, err);
           if (isTelegramConfigured()) {
-            engine.unconsumeLevel(level, instrument);
-            this.levelTouchStateMap.delete(stateKey);
-            this.levelTouchStateMap.delete(rawKey);
+            this.levelTouchStateMap.set(stateKey, "armed");
+            this.levelTouchStateMap.set(rawKey, "armed");
           }
         });
 
@@ -443,9 +433,6 @@ export class PineAlertBridge {
           this.levelLastTriggeredTimeMap.set(stateKey, targetMinuteIso);
           this.levelLastTriggeredTimeMap.set(rawKey, targetMinuteIso);
 
-          // CONSUME LEVEL IMMEDIATELY ON WICK TOUCH
-          engine.consumeLevel(level, instrument);
-
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(
             instrument,
@@ -464,17 +451,15 @@ export class PineAlertBridge {
           sendTelegramMessage(alertMessage).then((res) => {
             console.log(`[PINE-TOUCH-WICK]\ntelegram sent=${res.sent}`);
             if (!res.sent && isTelegramConfigured()) {
-              console.warn(`[PINE-TOUCH-WICK] Telegram dispatch failed for level ${level.id}. Reverting level consumption.`);
-              engine.unconsumeLevel(level, instrument);
-              this.levelTouchStateMap.delete(stateKey);
-              this.levelTouchStateMap.delete(rawKey);
+              console.warn(`[PINE-TOUCH-WICK] Telegram dispatch failed for level ${level.id}. Reverting level touch state.`);
+              this.levelTouchStateMap.set(stateKey, "armed");
+              this.levelTouchStateMap.set(rawKey, "armed");
             }
           }).catch((err) => {
             console.error(`[PINE-TOUCH-WICK]\ntelegram sent=false`, err);
             if (isTelegramConfigured()) {
-              engine.unconsumeLevel(level, instrument);
-              this.levelTouchStateMap.delete(stateKey);
-              this.levelTouchStateMap.delete(rawKey);
+              this.levelTouchStateMap.set(stateKey, "armed");
+              this.levelTouchStateMap.set(rawKey, "armed");
             }
           });
 
@@ -502,9 +487,6 @@ export class PineAlertBridge {
           this.levelLastTriggeredTimeMap.set(stateKey, targetMinuteIso);
           this.levelLastTriggeredTimeMap.set(rawKey, targetMinuteIso);
 
-          // CONSUME LEVEL IMMEDIATELY ON WICK TOUCH
-          engine.consumeLevel(level, instrument);
-
           const typeDisplay = getLevelTypeDisplay(level);
           const alertMessage = formatLevelTouchedTelegramMessage(
             instrument,
@@ -523,17 +505,15 @@ export class PineAlertBridge {
           sendTelegramMessage(alertMessage).then((res) => {
             console.log(`[PINE-TOUCH-WICK]\ntelegram sent=${res.sent}`);
             if (!res.sent && isTelegramConfigured()) {
-              console.warn(`[PINE-TOUCH-WICK] Telegram dispatch failed for level ${level.id}. Reverting level consumption.`);
-              engine.unconsumeLevel(level, instrument);
-              this.levelTouchStateMap.delete(stateKey);
-              this.levelTouchStateMap.delete(rawKey);
+              console.warn(`[PINE-TOUCH-WICK] Telegram dispatch failed for level ${level.id}. Reverting level touch state.`);
+              this.levelTouchStateMap.set(stateKey, "armed");
+              this.levelTouchStateMap.set(rawKey, "armed");
             }
           }).catch((err) => {
             console.error(`[PINE-TOUCH-WICK]\ntelegram sent=false`, err);
             if (isTelegramConfigured()) {
-              engine.unconsumeLevel(level, instrument);
-              this.levelTouchStateMap.delete(stateKey);
-              this.levelTouchStateMap.delete(rawKey);
+              this.levelTouchStateMap.set(stateKey, "armed");
+              this.levelTouchStateMap.set(rawKey, "armed");
             }
           });
 

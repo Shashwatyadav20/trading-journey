@@ -252,15 +252,7 @@ export class PineAlertPipeline {
       // Fire-and-forget: errors are caught inside each adapter.
       // The pipeline never awaits adapter results in a way that could
       // stall market-data processing.
-      adapter.sendAlert(alertEvent).then((sent) => {
-        if (sent && signal.referenceLevelType) {
-          const engine = this.engineMap.get(signal.instrument);
-          if (engine) {
-            const key = `${signal.referenceLevelType}-${levelPrice.toFixed(2)}`;
-            engine.consumeLevel(key, signal.instrument);
-          }
-        }
-      }).catch((err) => {
+      adapter.sendAlert(alertEvent).catch((err) => {
         console.error(`[PineAlertPipeline] Adapter ${adapter.name} uncaught error:`, err);
       });
     }

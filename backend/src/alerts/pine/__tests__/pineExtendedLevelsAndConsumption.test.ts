@@ -159,8 +159,8 @@ describe("Pine Extended Liquidity Levels & Level Consumption Test Suite", () => 
     expect(alerts2.length).toBe(0);
   });
 
-  // 8. Touched level becomes CONSUMED
-  it("8. Touched level becomes CONSUMED upon price touch", () => {
+  // 8. Touched level remains active in getActiveLevels()
+  it("8. Touched level remains active in getActiveLevels() for future re-tests", () => {
     vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4348.50, 4200.00);
@@ -172,11 +172,11 @@ describe("Pine Extended Liquidity Levels & Level Consumption Test Suite", () => 
     const nowIso = "2026-09-02T12:00:00Z";
     bridge.checkLivePrice("XAU/USD", 4348.50, nowIso);
 
-    expect(engine.isConsumed({ id: "pdh-4348.50", type: "PDH", price: 4348.50 } as any, "XAU/USD")).toBe(true);
+    expect(engine.getActiveLevels().some((l) => l.price === 4348.50)).toBe(true);
   });
 
-  // 9. Consumed level disappears from active chart data
-  it("9. Consumed level disappears from getActiveLevels()", () => {
+  // 9. Touched level remains present in getActiveLevels()
+  it("9. Touched level remains present in getActiveLevels()", () => {
     vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4348.50, 4200.00);
@@ -191,11 +191,11 @@ describe("Pine Extended Liquidity Levels & Level Consumption Test Suite", () => 
     bridge.checkLivePrice("XAU/USD", 4348.50, "2026-09-02T12:00:00Z");
 
     const levelsAfter = engine.getActiveLevels();
-    expect(levelsAfter.some((l) => l.price === 4348.50)).toBe(false);
+    expect(levelsAfter.some((l) => l.price === 4348.50)).toBe(true);
   });
 
-  // 10. Consumed level is removed from alert candidates
-  it("10. Consumed level is removed from alert candidates and cannot alert again", () => {
+  // 10. Repeated intra-minute ticks do not send duplicate alerts
+  it("10. Repeated intra-minute ticks do not send duplicate alerts", () => {
     vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4348.50, 4200.00);
@@ -206,13 +206,13 @@ describe("Pine Extended Liquidity Levels & Level Consumption Test Suite", () => 
 
     bridge.checkLivePrice("XAU/USD", 4348.50, "2026-09-02T12:00:00Z");
 
-    // Second check hours later
-    const laterAlerts = bridge.checkLivePrice("XAU/USD", 4348.50, "2026-09-02T15:00:00Z");
+    // Second check within same minute / stayed at level
+    const laterAlerts = bridge.checkLivePrice("XAU/USD", 4348.50, "2026-09-02T12:00:05Z");
     expect(laterAlerts.length).toBe(0);
   });
 
-  // 11. Same consumed level does not alert again after level recalculation
-  it("11. Same consumed level does not alert again after level recalculation", () => {
+  // 11. Level remains present in getActiveLevels() after level recalculation
+  it("11. Level remains present in getActiveLevels() after level recalculation", () => {
     vi.spyOn(TelegramClient, "sendTelegramMessage").mockResolvedValue({ sent: true });
 
     const day1 = makeCandle("2026-09-01T00:00:00Z", 4348.50, 4200.00);
@@ -226,12 +226,9 @@ describe("Pine Extended Liquidity Levels & Level Consumption Test Suite", () => 
     // Recalculate engine by processing new candles
     engine.processCandle(makeCandle("2026-09-02T13:00:00Z", 4340.00, 4300.00));
 
-    // Must still remain consumed
+    // Level remains active
     const levels = engine.getActiveLevels();
-    expect(levels.some((l) => l.price === 4348.50)).toBe(false);
-
-    const alerts = bridge.checkLivePrice("XAU/USD", 4348.50, "2026-09-02T14:00:00Z");
-    expect(alerts.length).toBe(0);
+    expect(levels.some((l) => l.price === 4348.50)).toBe(true);
   });
 
   // 12. Dynamic level-index changes do not reset consumed state
@@ -567,7 +564,7 @@ describe("Scalar Level Historical Replay — processCandle() does NOT consume sc
     expect(alerts2.length).toBe(0);
 
     const levelsAfter = eng.getActiveLevels();
-    expect(levelsAfter.some((l) => l.type === "PDH")).toBe(false);
+    expect(levelsAfter.some((l) => l.type === "PDH")).toBe(true);
   });
 
   it("C2. Historical bootstrap preserves PWL=4368.53 active for live alert bridge", () => {

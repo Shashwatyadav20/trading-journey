@@ -284,6 +284,9 @@ export class PineSignalEngine {
         }
       }
 
+      if (levelConsumedBySignal) {
+        engine.consumeLevel(level, instrument);
+      }
     }
 
     // ─── F. Order Block Strategy (NOT IMPLEMENTED) ───────────────────────────

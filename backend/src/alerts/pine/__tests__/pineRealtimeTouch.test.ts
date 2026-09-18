@@ -182,8 +182,8 @@ describe("Real-Time Pine Level Touch Alerts (Requirement 10 Test Suite)", () => 
     expect(alert.length).toBe(0);
   });
 
-  // ─── TEST I: Level Touch Consumes Active Level ──────────────────────────────────
-  it("I: touch detection marks level as consumed and removes it from getActiveLevels()", () => {
+  // ─── TEST I: Level Touch Retains Active Level ──────────────────────────────────
+  it("I: touch detection emits alert while keeping level active in getActiveLevels() for repeated touches", () => {
     const originalEqhPrices = [100.0];
     const originalEqhTexts = ["HTF EQH (15M)"];
     const originalSwhPrices = [105.0];
@@ -200,7 +200,7 @@ describe("Real-Time Pine Level Touch Alerts (Requirement 10 Test Suite)", () => 
     bridge.checkLivePrice("BTC/USD", 100.0, nowIso);
 
     const levelsAfter = btcEngine.getActiveLevels();
-    expect(levelsAfter.some((l) => l.price === 100.0)).toBe(false);
+    expect(levelsAfter.some((l) => l.price === 100.0)).toBe(true);
   });
 
   // ─── TEST J: No Auto Trading ───────────────────────────────────────────────
