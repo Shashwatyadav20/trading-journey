@@ -22,6 +22,24 @@ export class GenuineDataValidator {
     this.forcedMarketSession = session;
   }
 
+  public validateOperationalGate(): {
+    canTradePaper: boolean;
+    status: string;
+    checks: any[];
+    blockedReasons: string[];
+    dataHealth: any;
+  } {
+    const marketState = this.forcedMarketSession ?? this.getMarketSessionState();
+    const canTrade = marketState === "MARKET_OPEN";
+    return {
+      canTradePaper: canTrade,
+      status: canTrade ? "GATE_OPEN" : "GATE_BLOCKED",
+      checks: [],
+      blockedReasons: canTrade ? [] : [`Market session is ${marketState}`],
+      dataHealth: {},
+    };
+  }
+
   /**
    * Phase 18: Operational session gate evaluating all 7 strict criteria.
    */
@@ -30,10 +48,20 @@ export class GenuineDataValidator {
     const p17Health = await niftyMarketProvider.getPhase17DataHealth();
     const providerHealth = nseIndiaOptionChainProvider.getProviderHealth();
 
-    // Check lot size from provider
-    let providerLotSize: number | null = null;
-    if (providerHealth.status === "OK" && providerHealth.lastSuccessMs > 0) {
-      providerLotSize = 75; // Or current provider lot size
+    // Dynamically resolve lot size from provider / instrument master.
+    // NEVER use a hardcoded fallback — if provider does not return a lot size
+    // and instrument master has no verified provider lot size, it remains null -> LOT_SIZE_UNVERIFIED -> NO_TRADE.
+    let providerLotSize: number | null = instrumentMasterResolver.getCurrentProviderLotSize();
+    if (providerLotSize === null && providerHealth.status === "OK" && providerHealth.lastSuccessMs > 0) {
+      // Request the live option chain to extract the lot size embedded in NSE response
+      const spotRes = await niftyMarketProvider.getSpotPrice();
+      const chainResult = await nseIndiaOptionChainProvider.fetchOptionChain(
+        spotRes.spotPrice ?? 24500
+      );
+      if (chainResult.success && chainResult.lotSize != null && chainResult.lotSize > 0) {
+        providerLotSize = chainResult.lotSize;
+      }
+      // If chain fetch fails or lotSize is absent: providerLotSize remains null → UNVERIFIED
     }
     const lotVerification = instrumentMasterResolver.verifyLotSizeFromProvider(providerLotSize);
 
@@ -113,10 +141,19 @@ export class GenuineDataValidator {
 
     // Check lot size from NSE provider if health OK
     const providerHealth = nseIndiaOptionChainProvider.getProviderHealth();
-    let lotSizeFromProvider: number | null = null;
-    if (providerHealth.status === "OK") {
-      // In real environment, lot size comes from NSE chain metadata
-      lotSizeFromProvider = 75; // Or parsed from response
+    // Dynamically resolve lot size from provider / instrument master.
+    // NEVER use a hardcoded fallback — if provider does not return a lot size
+    // and instrument master has no verified provider lot size, it remains null -> LOT_SIZE_UNVERIFIED -> NO_TRADE.
+    let lotSizeFromProvider: number | null = instrumentMasterResolver.getCurrentProviderLotSize();
+    if (lotSizeFromProvider === null && providerHealth.status === "OK") {
+      const spotRes = await niftyMarketProvider.getSpotPrice();
+      const chainResult = await nseIndiaOptionChainProvider.fetchOptionChain(
+        spotRes.spotPrice ?? 24500
+      );
+      if (chainResult.success && chainResult.lotSize != null && chainResult.lotSize > 0) {
+        lotSizeFromProvider = chainResult.lotSize;
+      }
+      // If chain fetch fails or lotSize is absent: lotSizeFromProvider remains null → UNVERIFIED
     }
 
     const lotVerification = instrumentMasterResolver.verifyLotSizeFromProvider(lotSizeFromProvider);

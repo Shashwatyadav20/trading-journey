@@ -9,7 +9,12 @@ export class SystemHealthService {
   private lastTradeEventIso: string = new Date().toISOString();
   private lastProviderRequestIso: string = new Date().toISOString();
   private lastPaperOrderIso: string = new Date().toISOString();
+  private lastPaperExitIso: string = new Date().toISOString();
   private lastReconciliationIso: string = new Date().toISOString();
+  private lastDhanConnectionIso: string = new Date().toISOString();
+  private lastDhanQuoteIso: string = new Date().toISOString();
+  private lastDhanPositionSyncIso: string = new Date().toISOString();
+  private lastDhanOrderSyncIso: string = new Date().toISOString();
 
   public recordSpotUpdate() {
     this.lastSpotUpdateIso = new Date().toISOString();
@@ -36,8 +41,59 @@ export class SystemHealthService {
     this.lastPaperOrderIso = new Date().toISOString();
   }
 
+  public recordPaperExit() {
+    this.lastPaperExitIso = new Date().toISOString();
+  }
+
   public recordReconciliation() {
     this.lastReconciliationIso = new Date().toISOString();
+  }
+
+  public recordDhanSync(type: "connection" | "quote" | "position" | "order" = "connection") {
+    const now = new Date().toISOString();
+    if (type === "connection") this.lastDhanConnectionIso = now;
+    if (type === "quote") this.lastDhanQuoteIso = now;
+    if (type === "position") this.lastDhanPositionSyncIso = now;
+    if (type === "order") this.lastDhanOrderSyncIso = now;
+  }
+
+  public recordDhanConnection() {
+    this.lastDhanConnectionIso = new Date().toISOString();
+  }
+
+  public recordDhanQuote() {
+    this.lastDhanQuoteIso = new Date().toISOString();
+  }
+
+  public recordDhanPositionSync() {
+    this.lastDhanPositionSyncIso = new Date().toISOString();
+  }
+
+  public recordDhanOrderSync() {
+    this.lastDhanOrderSyncIso = new Date().toISOString();
+  }
+
+  public getPhase21Heartbeat() {
+    const health = niftyMarketProvider.getDataHealth();
+    const nowMs = Date.now();
+    const latencyMs = Math.max(5, Math.floor(nowMs - health.lastUpdateTimestamp));
+
+    return {
+      lastNseSpot: this.lastSpotUpdateIso,
+      lastNseOptionChain: this.lastOptionChainUpdateIso,
+      lastNseOptionPrice: this.lastOptionPriceUpdateIso,
+      lastDhanConnection: this.lastDhanConnectionIso,
+      lastDhanQuote: this.lastDhanQuoteIso,
+      lastDhanPositionSync: this.lastDhanPositionSyncIso,
+      lastDhanOrderSync: this.lastDhanOrderSyncIso,
+      lastStrategyEvaluation: this.lastSignalEvalIso,
+      lastPaperOrder: this.lastPaperOrderIso,
+      lastPaperExit: this.lastPaperExitIso,
+      lastReconciliation: this.lastReconciliationIso,
+      latencyMs,
+      overallState: health.isStale ? "DEGRADED" : "HEALTHY",
+      evaluatedAt: new Date().toISOString(),
+    };
   }
 
   public getPhase18Heartbeat() {

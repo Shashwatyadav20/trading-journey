@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
-import Sidebar, { NavTabId } from "./Sidebar";
+import React, { useState, useEffect } from "react";
+import Sidebar, { NavTabId, MarketMode } from "./Sidebar";
 import Header from "./Header";
+
+// ── Forex / Global views ──────────────────────────────────────────────────────
 import DashboardView from "../views/DashboardView";
 import JournalView from "../views/JournalView";
 import LiveChartsView from "../views/LiveChartsView";
@@ -11,19 +13,68 @@ import AnalyticsView from "../views/AnalyticsView";
 import CalendarView from "../views/CalendarView";
 import MonthlyReviewView from "../views/MonthlyReviewView";
 import SettingsView from "../views/SettingsView";
+
+// ── Indian Market views ───────────────────────────────────────────────────────
+import IMOverviewView from "../indian-market/IMOverviewView";
+import { IMPaperTradingView } from "../indian-market/IMPaperTradingView";
+import IMOptionChain from "../indian-market/IMOptionChain";
+import IMStrategy from "../indian-market/IMStrategy";
+import IMPositions from "../indian-market/IMPositions";
+import IMBacktestView from "../indian-market/IMBacktestView";
+
+// ── Providers ─────────────────────────────────────────────────────────────────
 import { TradeProvider, useTrades } from "../../context/TradeContext";
 import { AuthProvider, useAuth } from "../../context/AuthContext";
+import { MarketDataProvider } from "../../context/MarketDataContext";
 import AuthModal from "../auth/AuthModal";
 import MigrationModal from "../auth/MigrationModal";
 import PendingApprovalScreen from "../auth/PendingApprovalScreen";
 import { Loader2, TrendingUp } from "lucide-react";
 
+// ─── LocalStorage persistence keys ───────────────────────────────────────────
+const MARKET_MODE_KEY = "tj-market-mode";
+const ACTIVE_TAB_KEY  = "tj-active-tab";
+
+// ─── Helper: safely load persisted value from localStorage ───────────────────
+function loadPersisted<T extends string>(key: string, fallback: T, allowed: T[]): T {
+  if (typeof window === "undefined") return fallback;
+  const saved = localStorage.getItem(key) as T | null;
+  return saved && allowed.includes(saved) ? saved : fallback;
+}
+
+// ─── All valid tab IDs per mode (used to validate persisted value) ────────────
+const FOREX_TABS: NavTabId[]  = ["dashboard","journal","live-charts","strategies","analytics","calendar","monthly-review","settings"];
+const INDIAN_TABS: NavTabId[] = ["im-overview","im-paper-trading","im-option-chain","im-strategy","im-positions","im-backtest","settings"];
+
 function MainContent() {
   const { user, loading, approved, approvalLoading } = useAuth();
   const { refreshCloudData } = useTrades();
-  const [activeTab, setActiveTab] = useState<NavTabId>("dashboard");
+
+  // ── Persistent market mode ─────────────────────────────────────────────────
+  const [marketMode, setMarketMode] = useState<MarketMode>(() =>
+    loadPersisted<MarketMode>(MARKET_MODE_KEY, "forex", ["indian", "forex"])
+  );
+
+  // ── Persistent active tab ──────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<NavTabId>(() => {
+    const mode = loadPersisted<MarketMode>(MARKET_MODE_KEY, "forex", ["indian", "forex"]);
+    const allowed = mode === "indian" ? INDIAN_TABS : FOREX_TABS;
+    return loadPersisted<NavTabId>(ACTIVE_TAB_KEY, mode === "indian" ? "im-overview" : "dashboard", allowed);
+  });
+
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
   const [collapsed, setCollapsed] = useState<boolean>(false);
+
+  // Persist selections whenever they change
+  useEffect(() => {
+    localStorage.setItem(MARKET_MODE_KEY, marketMode);
+  }, [marketMode]);
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_TAB_KEY, activeTab);
+  }, [activeTab]);
+
+  // ── Auth guards ────────────────────────────────────────────────────────────
 
   // STEP 1: Auth session is still resolving → show spinner
   if (loading) {
@@ -66,29 +117,16 @@ function MainContent() {
     return <PendingApprovalScreen />;
   }
 
-  // STEP 5: approved === true → render full trading application
-  const renderActiveView = () => {
-    switch (activeTab) {
-      case "dashboard":
-        return <DashboardView />;
-      case "journal":
-        return <JournalView />;
-      case "live-charts":
-        return <LiveChartsView />;
-      case "strategies":
-        return <StrategiesView />;
-      case "analytics":
-        return <AnalyticsView />;
-      case "calendar":
-        return <CalendarView />;
-      case "monthly-review":
-        return <MonthlyReviewView />;
-      case "settings":
-        return <SettingsView />;
-      default:
-        return <DashboardView />;
-    }
-  };
+  // ── STEP 5: approved === true → render full trading application ────────────
+  //
+  // IMPORTANT: Views are always mounted and never unmounted on tab switch.
+  // We use CSS visibility (display:none / display:contents) to show/hide views
+  // instead of conditional rendering. This prevents:
+  //   • WebSocket reconnections on every tab change
+  //   • data re-fetching useEffects re-firing
+  //   • animation flicker caused by unmount+remount cycles
+
+  const show = (tab: NavTabId) => ({ style: { display: activeTab === tab ? undefined : "none" } as React.CSSProperties });
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
@@ -97,6 +135,8 @@ function MainContent() {
 
       {/* Sidebar Component */}
       <Sidebar
+        marketMode={marketMode}
+        onSelectMarketMode={(mode) => setMarketMode(mode)}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         mobileOpen={mobileOpen}
@@ -114,14 +154,35 @@ function MainContent() {
       >
         {/* Header Top Bar Component */}
         <Header
+          marketMode={marketMode}
           activeTab={activeTab}
           onOpenMobileMenu={() => setMobileOpen(true)}
           collapsed={collapsed}
         />
 
-        {/* Main Content View */}
+        {/* ── Main Content Views (persistently mounted) ── */}
         <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6">
-          {renderActiveView()}
+
+          {/* ── Forex / Global views ──────────────────── */}
+          <div {...show("dashboard")}><DashboardView /></div>
+          <div {...show("journal")}><JournalView /></div>
+          <div {...show("live-charts")}><LiveChartsView /></div>
+          <div {...show("strategies")}><StrategiesView /></div>
+          <div {...show("analytics")}><AnalyticsView /></div>
+          <div {...show("calendar")}><CalendarView /></div>
+          <div {...show("monthly-review")}><MonthlyReviewView /></div>
+
+          {/* ── Indian Market views ───────────────────── */}
+          <div {...show("im-overview")}><IMOverviewView /></div>
+          <div {...show("im-paper-trading")}><IMPaperTradingView /></div>
+          <div {...show("im-option-chain")}><IMOptionChain /></div>
+          <div {...show("im-strategy")}><IMStrategy /></div>
+          <div {...show("im-positions")}><IMPositions /></div>
+          <div {...show("im-backtest")}><IMBacktestView /></div>
+
+          {/* Settings is shared across both modes */}
+          <div {...show("settings")}><SettingsView /></div>
+
         </main>
 
         {/* Status Footer */}
@@ -132,15 +193,18 @@ function MainContent() {
             <span className="text-cyan-400/80">• Cloud Synced</span>
           </div>
           <div>
-            Active Tab: <span className="text-cyan-400 capitalize">{activeTab.replace("-", " ")}</span>
+            Mode:{" "}
+            <span className={`capitalize font-semibold ${marketMode === "indian" ? "text-orange-400" : "text-cyan-400"}`}>
+              {marketMode === "indian" ? "🇮🇳 Indian Market" : "🌐 Forex / Global"}
+            </span>
+            {" "}·{" "}
+            Tab: <span className="text-cyan-400 capitalize">{activeTab.replace("im-", "").replace(/-/g, " ")}</span>
           </div>
         </footer>
       </div>
     </div>
   );
 }
-
-import { MarketDataProvider } from "../../context/MarketDataContext";
 
 export default function MainLayout() {
   return (

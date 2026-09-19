@@ -15,15 +15,17 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { useTrades } from "@/context/TradeContext";
 import { LogOut, User as UserIcon, Loader2, AlertCircle } from "lucide-react";
-import { NavTabId, NAV_ITEMS } from "./Sidebar";
+import { NavTabId, MarketMode, NAV_ITEMS } from "./Sidebar";
 
 interface HeaderProps {
+  marketMode: MarketMode;
   activeTab: NavTabId;
   onOpenMobileMenu: () => void;
   collapsed: boolean;
 }
 
 export default function Header({
+  marketMode,
   activeTab,
   onOpenMobileMenu,
   collapsed,
@@ -70,10 +72,18 @@ export default function Header({
         </button>
 
         <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 font-mono hidden sm:inline">
-              Terminal /
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Market mode badge */}
+            <span
+              className={`hidden sm:inline text-[10px] px-2 py-0.5 rounded-md font-mono font-semibold border ${
+                marketMode === "indian"
+                  ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
+                  : "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
+              }`}
+            >
+              {marketMode === "indian" ? "🇮🇳 Indian" : "🌐 Global"}
             </span>
+            <span className="text-xs text-slate-600 font-mono hidden sm:inline">/</span>
             <h1 className="text-base font-bold text-slate-100 tracking-tight">
               {currentNav?.label || "Dashboard"}
             </h1>

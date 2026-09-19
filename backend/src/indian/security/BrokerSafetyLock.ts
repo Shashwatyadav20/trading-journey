@@ -24,6 +24,18 @@ export class BrokerSafetyLock {
   private liveBrokerOrderCount = 0;
   private killSwitchState: KillSwitchState = "DISABLED";
 
+  public isPaperTrading(): boolean {
+    return this.PAPER_TRADING;
+  }
+
+  public isLiveTrading(): boolean {
+    return this.LIVE_TRADING;
+  }
+
+  public isBrokerExecutionEnabled(): boolean {
+    return this.BROKER_EXECUTION_ENABLED;
+  }
+
   /**
    * Evaluates all independent safety layers before allowing any order execution request.
    * Fails CLOSED if any lock or dependency fails.

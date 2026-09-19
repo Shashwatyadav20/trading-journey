@@ -27,6 +27,10 @@ import { nseIndiaOptionChainProvider } from "../indian/market/NseIndiaOptionChai
 import { phase17PaperSessionTracker } from "../indian/lifecycle/Phase17PaperSessionTracker";
 import { phase18DataFreshnessMonitor } from "../indian/market/Phase18DataFreshnessMonitor";
 import { operationalAlertLogger } from "../indian/audit/OperationalAlertLogger";
+import { phase19GenuineValidationEngine } from "../indian/validation/Phase19GenuineValidationEngine";
+import { brokerManager } from "../indian/broker/BrokerManager";
+import { dhanBrokerAdapter } from "../indian/broker/DhanBrokerAdapter";
+import { phase21OperationalMonitor } from "../indian/validation/Phase21OperationalMonitor";
 
 
 
@@ -356,12 +360,16 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   server.get("/api/indian/data-health", async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const health = niftyMarketProvider.getDataHealth();
+      const phase17Health = await niftyMarketProvider.getPhase17DataHealth();
+      const gate = await genuineDataValidator.evaluatePhase17Gate();
       const spotRes = await niftyMarketProvider.getSpotPrice();
       const componentHealth = niftyMarketProvider.getDataComponentHealthMap();
 
       return reply.send({
         success: true,
         health,
+        phase17Health,
+        gate,
         componentHealth,
         isRealData: spotRes.isReal,
         spotPrice: spotRes.spotPrice,
@@ -1003,25 +1011,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
     }
   });
 
-  /**
-   * GET /api/indian/data-health
-   * Extended data health summary incorporating Phase 17 health details.
-   */
-  server.get("/api/indian/data-health", async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const legacyHealth = niftyMarketProvider.getDataHealth();
-      const phase17Health = await niftyMarketProvider.getPhase17DataHealth();
-      const gate = await genuineDataValidator.evaluatePhase17Gate();
-      return reply.send({
-        success: true,
-        health: legacyHealth,
-        phase17Health,
-        gate,
-      });
-    } catch (err: any) {
-      return reply.status(500).send({ success: false, error: err.message });
-    }
-  });
 
   // ── PHASE 18: GENUINE LIVE PAPER TRADING OPERATIONS & DATA RELIABILITY ENDPOINTS
 
@@ -1088,7 +1077,471 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.status(500).send({ success: false, error: err.message });
     }
   });
+
+  // ── PHASE 19: GENUINE PAPER TRADING SAMPLE COLLECTION & VALIDATION ENDPOINTS ─
+
+  /**
+   * GET /api/indian/phase19/summary
+   * Returns comprehensive Phase 19 Genuine Validation report.
+   */
+  server.get("/api/indian/phase19/summary", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = await phase19GenuineValidationEngine.generateSummaryReport();
+      return reply.send({
+        success: true,
+        report,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase19/scorecard
+   * Returns validation status, sample thresholds, and sample sufficiency.
+   */
+  server.get("/api/indian/phase19/scorecard", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = await phase19GenuineValidationEngine.generateSummaryReport();
+      return reply.send({
+        success: true,
+        validationStatus: report.validationStatus,
+        finalStatus: report.finalStatus,
+        genuineSample: report.genuineSample,
+        confidence: report.confidence,
+        safetyLocks: report.safetyLocks,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase19/daily
+   * Returns daily P&L distribution, ₹1,000 target analysis, and session breakdown.
+   */
+  server.get("/api/indian/phase19/daily", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = await phase19GenuineValidationEngine.generateSummaryReport();
+      return reply.send({
+        success: true,
+        dailyDistribution: report.dailyDistribution,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase19/strategies
+   * Returns factual performance breakdown for BULL_PUT, BEAR_CALL, and IRON_CONDOR (unranked).
+   */
+  server.get("/api/indian/phase19/strategies", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = await phase19GenuineValidationEngine.generateSummaryReport();
+      return reply.send({
+        success: true,
+        strategies: report.strategies,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase19/regimes
+   * Returns market regime breakdown (BULLISH, BEARISH, RANGE, NO_TRADE).
+   */
+  server.get("/api/indian/phase19/regimes", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = await phase19GenuineValidationEngine.generateSummaryReport();
+      return reply.send({
+        success: true,
+        regimes: report.regimes,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase19/exits
+   * Returns exit reason analysis breakdown.
+   */
+  server.get("/api/indian/phase19/exits", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = await phase19GenuineValidationEngine.generateSummaryReport();
+      return reply.send({
+        success: true,
+        exits: report.exits,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase19/risk
+   * Returns risk audit statistics and execution quality verification.
+   */
+  server.get("/api/indian/phase19/risk", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = await phase19GenuineValidationEngine.generateSummaryReport();
+      return reply.send({
+        success: true,
+        riskAudit: report.riskAudit,
+        executionQuality: report.executionQuality,
+        drawdown: report.drawdown,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase19/data-quality
+   * Returns data reliability statistics and no-trade reason analysis.
+   */
+  server.get("/api/indian/phase19/data-quality", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = await phase19GenuineValidationEngine.generateSummaryReport();
+      return reply.send({
+        success: true,
+        dataReliability: report.dataReliability,
+        noTradeReasons: report.noTradeReasons,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase19/export
+   * Exports sanitized genuine validation records (trades and daily sessions).
+   */
+  server.get("/api/indian/phase19/export", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exportData = phase19GenuineValidationEngine.exportGenuineValidationData();
+      return reply.send({
+        success: true,
+        export: exportData,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * PHASE 20 — BROKER API INTEGRATION & PAPER EXECUTION CONNECTIVITY
+   * READ-ONLY BROKER INTEGRATION WITH PERMANENT FAIL-CLOSED SAFETY LOCKS
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+
+  /**
+   * GET /api/indian/broker/status
+   * Safe diagnostics, connection status, permanent safety flags, and scorecard.
+   */
+  server.get("/api/indian/broker/status", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const diagnostics = brokerManager.getDiagnostics();
+      const scorecard = brokerManager.getReadinessScorecard();
+      const isConnected = diagnostics.connectionStatus === "CONNECTED";
+      const isConfigured = diagnostics.providerNeutralConfig.isConfigured;
+
+      const statusBanner = !isConfigured
+        ? "BROKER CONNECTIVITY NOT CONFIGURED"
+        : isConnected
+        ? "BROKER CONNECTIVITY READY — LIVE EXECUTION DISABLED"
+        : diagnostics.connectionStatus === "AUTH_FAILED"
+        ? "BROKER CONNECTIVITY BLOCKED"
+        : "BROKER CONNECTIVITY NOT CONFIGURED";
+
+      return reply.send({
+        success: true,
+        statusBanner,
+        diagnostics,
+        scorecard,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/indian/broker/connect
+   * Initiates read-only connection verification with the configured broker.
+   */
+  server.post("/api/indian/broker/connect", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = await brokerManager.connectBroker();
+      return reply.send({
+        success: true,
+        status,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/broker/account
+   * Read-only account margin and fund retrieval (no credentials exposed).
+   */
+  server.get("/api/indian/broker/account", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const adapter = brokerManager.getBrokerAdapter();
+      const account = await adapter.getAccount();
+      return reply.send({
+        success: true,
+        account,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "BROKER_ACCOUNT_DATA_UNAVAILABLE",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/indian/broker/positions
+   * Read-only broker open positions.
+   */
+  server.get("/api/indian/broker/positions", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const adapter = brokerManager.getBrokerAdapter();
+      const positions = await adapter.getPositions();
+      return reply.send({
+        success: true,
+        positions,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "BROKER_POSITION_DATA_UNAVAILABLE",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/indian/broker/orders
+   * Read-only broker order history.
+   */
+  server.get("/api/indian/broker/orders", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const adapter = brokerManager.getBrokerAdapter();
+      const orders = await adapter.getOrders();
+      return reply.send({
+        success: true,
+        orders,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "BROKER_ORDER_DATA_UNAVAILABLE",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/indian/broker/instruments
+   * Broker-resolved NIFTY option instruments.
+   */
+  server.get("/api/indian/broker/instruments", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const adapter = brokerManager.getBrokerAdapter();
+      const sampleInstrument = await adapter.getInstrument("NIFTY2692424500CE");
+      return reply.send({
+        success: true,
+        instruments: sampleInstrument ? [sampleInstrument] : [],
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "BROKER_INSTRUMENT_DATA_UNAVAILABLE",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/indian/broker/reconciliation
+   * Observational reconciliation between internal paper trading and broker API state.
+   */
+  server.get("/api/indian/broker/reconciliation", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = await brokerManager.runReconciliation();
+      return reply.send({
+        success: true,
+        reconciliation: report,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "BROKER_RECONCILIATION_ERROR",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * PHASE 21 ENDPOINTS
+   */
+
+  /**
+   * GET /api/indian/phase21/operational-status
+   * Full 3-source telemetry (NSE, Dhan, Paper), systemStatus, heartbeat, market session, safety state.
+   */
+  server.get("/api/indian/phase21/operational-status", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = await phase21OperationalMonitor.getOperationalChainStatus();
+      return reply.send({
+        success: true,
+        data: status,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "OPERATIONAL_STATUS_ERROR",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase21/quote-comparison
+   * Observational quote comparison between NSE and Dhan for a contract.
+   */
+  server.get("/api/indian/phase21/quote-comparison", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = request.query as any;
+      const symbol = query.symbol || "NIFTY";
+      const expiry = query.expiry || "";
+      const strike = query.strike ? Number(query.strike) : 24500;
+      const optionType = (query.optionType as "CE" | "PE") || "CE";
+
+      const comparison = await phase21OperationalMonitor.compareQuotes({
+        symbol,
+        expiry,
+        strike,
+        optionType,
+        customNseLtp: query.customNseLtp ? Number(query.customNseLtp) : undefined,
+        customDhanLtp: query.customDhanLtp ? Number(query.customDhanLtp) : undefined,
+      });
+
+      return reply.send({
+        success: true,
+        comparison,
+        history: phase21OperationalMonitor.getRecentQuoteComparisons(),
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "QUOTE_COMPARISON_ERROR",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase21/instrument-reconciliation
+   * Cross-source instrument verification across NSE and Dhan.
+   */
+  server.get("/api/indian/phase21/instrument-reconciliation", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = request.query as any;
+      const symbol = query.symbol || "NIFTY";
+      const expiry = query.expiry || "26924";
+      const strike = query.strike ? Number(query.strike) : 24500;
+      const optionType = (query.optionType as "CE" | "PE") || "CE";
+
+      const result = await phase21OperationalMonitor.reconcileInstruments({
+        symbol,
+        expiry,
+        strike,
+        optionType,
+        customNseLotSize: query.customNseLotSize ? Number(query.customNseLotSize) : undefined,
+        customDhanLotSize: query.customDhanLotSize ? Number(query.customDhanLotSize) : undefined,
+      });
+
+      return reply.send({
+        success: true,
+        reconciliation: result,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "INSTRUMENT_RECONCILIATION_ERROR",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase21/heartbeat
+   * 11-point heartbeat timestamp array and latency.
+   */
+  server.get("/api/indian/phase21/heartbeat", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const heartbeat = systemHealthService.getPhase21Heartbeat();
+      return reply.send({
+        success: true,
+        heartbeat,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "HEARTBEAT_ERROR",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase21/session-monitor
+   * Market session metrics and uptime percentages.
+   */
+  server.get("/api/indian/phase21/session-monitor", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = await phase21OperationalMonitor.getOperationalChainStatus();
+      return reply.send({
+        success: true,
+        marketSession: status.marketSession,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "SESSION_MONITOR_ERROR",
+        message: err.message,
+      });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase21/alerts
+   * Operational alerts feed for Phase 21.
+   */
+  server.get("/api/indian/phase21/alerts", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const alerts = operationalAlertLogger.getOperationalAlerts(50);
+      return reply.send({
+        success: true,
+        alerts,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "ALERTS_ERROR",
+        message: err.message,
+      });
+    }
+  });
 }
+
 
 
 

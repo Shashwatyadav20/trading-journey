@@ -258,13 +258,20 @@ export function TradeProvider({ children }: { children: React.ReactNode }) {
     refreshCloudData();
   }, [refreshCloudData]);
 
-  // Reconciliation on tab focus, network reconnect, or visibility change
+  // Reconciliation on tab focus, network reconnect, or visibility change.
+  // Debounced to 30 s so rapid focus/visibility events don't cascade into
+  // simultaneous state updates that cause a perceived "page reload".
   useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
     const handleReconcile = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState !== "visible") return;
+      if (debounceTimer) return; // already scheduled — skip duplicate
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
         console.log("[RECONCILIATION] Tab active or network online — refreshing authoritative cloud data...");
         refreshCloudData();
-      }
+      }, 30_000); // 30-second debounce — prevents cascade re-renders on tab switch
     };
 
     window.addEventListener("focus", handleReconcile);
@@ -272,6 +279,7 @@ export function TradeProvider({ children }: { children: React.ReactNode }) {
     document.addEventListener("visibilitychange", handleReconcile);
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener("focus", handleReconcile);
       window.removeEventListener("online", handleReconcile);
       document.removeEventListener("visibilitychange", handleReconcile);

@@ -99,6 +99,22 @@ export class DailyRiskController {
     return { allowed: true, reason: null };
   }
 
+  public recordDailyTrade(netPnl: number): void {
+    this.recordTradeClosed(netPnl);
+  }
+
+  public getDailyMetrics() {
+    this.checkDateRollover();
+    return {
+      tradesCount: this.state.tradesCountToday,
+      dailyPnl: this.state.dailyPnl,
+    };
+  }
+
+  public isTradingAllowed(): boolean {
+    return this.canTrade().allowed;
+  }
+
   public resetLocks(): void {
     this.state = this.getInitialState();
     paperPersistenceManager.persistDailyRisk(this.state);

@@ -422,3 +422,5 @@ export class SimulatedBrokerAdapter implements IBrokerAdapter {
     return res.instrument || null;
   }
 }
+
+export const simulatedBrokerAdapter = new SimulatedBrokerAdapter();

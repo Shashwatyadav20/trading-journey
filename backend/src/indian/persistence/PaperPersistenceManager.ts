@@ -78,6 +78,10 @@ export class PaperPersistenceManager {
     };
   }
 
+  public getCurrentState(): SystemPersistedState {
+    return this.getFullSnapshot();
+  }
+
   public clearAllData(): void {
     this.inMemoryStore.clear();
     this.inMemoryStore.set("version", this.version);

@@ -6,6 +6,7 @@ import {
 } from "../broker/IBrokerAdapter";
 import { NiftySpreadPosition } from "../types";
 import { paperBrokerAdapter } from "../broker/PaperBrokerAdapter";
+import { dhanBrokerAdapter } from "../broker/DhanBrokerAdapter";
 
 export interface PositionReconciliationItem {
   key: string;
@@ -262,6 +263,24 @@ export class BrokerReconciliationEngine {
 
   public getLastReport(): FullBrokerReconciliationReport | null {
     return this.lastReport;
+  }
+
+  public async reconcileAll(adapter: IBrokerAdapter = dhanBrokerAdapter) {
+    const full = await this.reconcile(adapter);
+    const paperPositions = paperBrokerAdapter.getOpenPositions();
+    const brokerPositions = await adapter.getPositions();
+    const hasMissingInternal = full.positionReconciliation.some((p) => p.status === "MISSING_INTERNAL");
+    const status = full.criticalMismatchDetected
+      ? (hasMissingInternal ? "BROKER_ONLY_POSITION" : "MISMATCH")
+      : "MATCHED";
+
+    return {
+      status,
+      paperPositions,
+      brokerPositions,
+      reconciledAt: full.timestamp,
+      fullReport: full,
+    };
   }
 }
 

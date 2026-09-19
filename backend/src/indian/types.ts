@@ -863,3 +863,272 @@ export interface Phase18OperationalGateResult {
   evaluatedAt: string;
 }
 
+// ── PHASE 19: GENUINE PAPER TRADING SAMPLE COLLECTION & STATISTICAL VALIDATION ──
+
+export type Phase19ValidationStatus = "INSUFFICIENT_SAMPLE" | "FULL_VALIDATION_AVAILABLE";
+export type Phase19FinalStatus =
+  | "GENUINE SAMPLE COLLECTION ACTIVE"
+  | "FULL STATISTICAL VALIDATION AVAILABLE"
+  | "VALIDATION BLOCKED";
+
+export interface Phase19SampleGateResult {
+  sampleType: SampleClassification;
+  realSpot: boolean;
+  realOptionChain: boolean;
+  realOptionPrices: boolean;
+  dataNotStale: boolean;
+  lotSizeVerified: boolean;
+  marketSessionValid: boolean;
+  safetyLocksValid: boolean;
+  gateStatus: "READY" | "BLOCKED";
+  blockedReason: string | null;
+  evaluatedAt: string;
+}
+
+export interface Phase19ImmutableTrade {
+  tradeId: string;
+  sessionId: string;
+  timestamp: string;
+  decisionTimestamp: string;
+  dataTimestamp: string;
+  entryTimestamp: string;
+  exitTimestamp: string;
+  dataSource: string;
+  spot: number;
+  expiry: string;
+  strikes: { sellStrike: number; buyStrike: number };
+  optionTypes: { sellType: "CE" | "PE"; buyType: "CE" | "PE" };
+  lotSize: number;
+  entryPrices: { buyPrice: number; sellPrice: number };
+  exitPrices: { buyExitPrice: number; sellExitPrice: number };
+  initialCredit: number;
+  finalDebitCredit: number;
+  charges: number;
+  slippage: number;
+  grossPnl: number;
+  netPnl: number;
+  strategy: StrategyType;
+  regime: RegimeType;
+  exitReason: string;
+  maxLoss: number;
+  maximumAdverseExcursion?: number;
+  dataQualityState: string;
+  sampleType: SampleClassification;
+}
+
+export type Phase19DayClassification = "ACTIVE" | "NO_TRADE" | "BLOCKED" | "INVALID";
+
+export interface Phase19DailySession {
+  sessionDate: string;
+  sessionStart: string;
+  sessionEnd: string;
+  marketSessionValid: boolean;
+  dataGateReadyDurationSeconds: number;
+  numberOfSignals: number;
+  numberOfTrades: number;
+  numberOfNoTrades: number;
+  numberOfBlockedSignals: number;
+  grossPnL: number;
+  charges: number;
+  slippage: number;
+  netPnL: number;
+  maxDrawdown: number;
+  riskViolations: number;
+  reconciliationStatus: "OK" | "MISMATCH" | "PENDING";
+  classification: Phase19DayClassification;
+  sampleType: SampleClassification;
+}
+
+export interface Phase19TradeMetrics {
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  breakevenTrades: number;
+  winRate: number;
+  lossRate: number;
+  grossProfit: number;
+  grossLoss: number;
+  netPnL: number;
+  averageNetTrade: number;
+  medianNetTrade: number;
+  profitFactor: number | "NOT_AVAILABLE";
+  largestWin: number;
+  largestLoss: number;
+  averageWin: number;
+  averageLoss: number;
+}
+
+export interface Phase19DailyPnLDistribution {
+  profitableDays: number;
+  losingDays: number;
+  zeroDays: number;
+  noTradeDays: number;
+  blockedDays: number;
+  averageDailyNetPnL: number;
+  medianDailyNetPnL: number;
+  bestDay: number;
+  worstDay: number;
+  dailyStandardDeviation: number;
+  daysAbove1000: number;
+  days0To999: number;
+  daysNegative: number;
+}
+
+export interface Phase19DrawdownMetrics {
+  peakEquity: number;
+  currentEquity: number;
+  drawdown: number;
+  maximumDrawdown: number;
+  maximumDrawdownPercent: number;
+  drawdownDuration: number;
+}
+
+export interface Phase19StrategyMetrics {
+  strategy: "BULL_PUT" | "BEAR_CALL" | "IRON_CONDOR";
+  tradeCount: number;
+  winRate: number;
+  grossPnL: number;
+  netPnL: number;
+  averageNetTrade: number;
+  profitFactor: number | "NOT_AVAILABLE";
+  maxDrawdownContribution: number;
+  targetExits: number;
+  stopLossExits: number;
+  otherExits: number;
+}
+
+export interface Phase19RegimeMetrics {
+  regime: "BULLISH" | "BEARISH" | "RANGE" | "NO_TRADE";
+  tradeCount: number;
+  netPnL: number;
+  winRate: number;
+  averageTrade: number;
+}
+
+export interface Phase19ExitMetrics {
+  reason:
+    | "TARGET"
+    | "STOP_LOSS"
+    | "STRUCTURE_INVALIDATION"
+    | "GREEK_RISK"
+    | "DATA_FAILURE"
+    | "RISK_LOCK"
+    | "OTHER_EXISTING_REASON";
+  count: number;
+  netPnL: number;
+  averagePnL: number;
+}
+
+export interface Phase19RiskAuditMetrics {
+  maxLossViolations: number;
+  dailyLossViolations: number;
+  dailyProfitLockActivations: number;
+  maxTradesViolations: number;
+  consecutiveLossViolations: number;
+  lotSizeFailures: number;
+  staleDataTradeAttempts: number;
+  nakedShortAttempts: number;
+  duplicateTradeAttempts: number;
+  reconciliationFailures: number;
+  executedViolations: number;
+  blockedRiskEvents: number;
+}
+
+export interface Phase19ExecutionQuality {
+  hedgeFirstSuccessRate: number;
+  hedgeFailures: number;
+  partialFills: number;
+  shortLegFailures: number;
+  duplicateSignalAttempts: number;
+  paperExecutionErrors: number;
+  reconciliationErrors: number;
+  nakedShortCount: number;
+}
+
+export interface Phase19DataReliability {
+  spotAvailability: number;
+  optionChainAvailability: number;
+  optionPriceAvailability: number;
+  dataGateReadyTime: number;
+  staleEvents: number;
+  providerErrors: number;
+  providerReconnects: number;
+  rateLimitEvents: number;
+  authenticationFailures: number;
+  percentageOfMarketSessionWithGenuineData: number;
+}
+
+export interface Phase19NoTradeItem {
+  reason: string;
+  count: number;
+  percentage: number;
+}
+
+export interface Phase19RollingMetrics {
+  windowSize: 10 | 20 | 30;
+  status: "CALCULATED" | "INSUFFICIENT_ROLLING_SAMPLE";
+  tradeCount: number;
+  winRate?: number;
+  averageNetPnL?: number;
+  profitFactor?: number | "NOT_AVAILABLE";
+  drawdown?: number;
+}
+
+export interface Phase19HistoricalComparison {
+  historicalBacktest: SideBySideMetric;
+  genuinePaperTrading: SideBySideMetric;
+}
+
+export interface Phase19ConfidenceMetrics {
+  sampleSize: number;
+  sampleSufficiency: "INSUFFICIENT" | "SUFFICIENT";
+  observedWinRate: number;
+  observedAverageTrade: number;
+  observedProfitFactor: number | "NOT_AVAILABLE";
+  observedMaxDrawdown: number;
+  confidenceIntervalWinRate?: { lower: number; upper: number };
+  methodologyNote: string;
+  isUncertain: boolean;
+}
+
+export interface Phase19SummaryReport {
+  validationStatus: Phase19ValidationStatus;
+  finalStatus: Phase19FinalStatus;
+  genuineSample: {
+    totalSessions: number;
+    minRequiredSessions: number;
+    sessionsMet: boolean;
+    activeSessions: number;
+    minRequiredActiveSessions: number;
+    activeSessionsMet: boolean;
+    noTradeSessions: number;
+    totalTrades: number;
+    minRequiredTrades: number;
+    tradesMet: boolean;
+    simulatedTradesExcluded: number;
+  };
+  tradeMetrics: Phase19TradeMetrics;
+  dailyDistribution: Phase19DailyPnLDistribution;
+  drawdown: Phase19DrawdownMetrics;
+  strategies: Phase19StrategyMetrics[];
+  regimes: Phase19RegimeMetrics[];
+  exits: Phase19ExitMetrics[];
+  riskAudit: Phase19RiskAuditMetrics;
+  executionQuality: Phase19ExecutionQuality;
+  dataReliability: Phase19DataReliability;
+  noTradeReasons: Phase19NoTradeItem[];
+  rollingMetrics: Phase19RollingMetrics[];
+  confidence: Phase19ConfidenceMetrics;
+  historicalComparison: Phase19HistoricalComparison;
+  safetyLocks: {
+    paperTrading: boolean;
+    liveTrading: boolean;
+    brokerExecutionEnabled: boolean;
+  };
+  sampleImmutabilityVerified: boolean;
+  antiHindsightVerified: boolean;
+  dataSeparationEnforced: boolean;
+  generatedAt: string;
+}
+
+

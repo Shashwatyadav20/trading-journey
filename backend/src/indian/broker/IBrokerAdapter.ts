@@ -1,7 +1,12 @@
+
 export type BrokerConnectionState =
-  | "DISCONNECTED"
+  | "NOT_CONFIGURED"
   | "CONNECTING"
   | "CONNECTED"
+  | "AUTH_FAILED"
+  | "DISCONNECTED"
+  | "ERROR"
+  | "DISABLED"
   | "DEGRADED"
   | "RECONNECTING"
   | "FAILED";
