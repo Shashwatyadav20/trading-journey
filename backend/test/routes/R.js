@@ -1,0 +1,1 @@
+const s = require('../market/S'); exports.set = function() { s.s.v = 2; };

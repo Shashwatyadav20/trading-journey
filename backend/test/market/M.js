@@ -1,0 +1,1 @@
+const s = require('./S'); exports.get = function() { return s.s.v; };

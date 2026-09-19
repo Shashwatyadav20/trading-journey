@@ -1,0 +1,1 @@
+class S { constructor() { this.v = 1; } }; exports.s = new S();

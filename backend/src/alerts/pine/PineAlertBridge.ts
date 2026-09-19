@@ -150,6 +150,10 @@ export class PineAlertBridge {
     this.onAlertCallback = callback;
   }
 
+  public setPreviousPrice(instrument: string, price: number): void {
+    this.previousPriceMap.set(instrument, price);
+  }
+
   public getLevelTouchState(instrument: string, levelId: string): "armed" | "triggered" {
     const stateKey = PineAlertBridge.getLevelStateKey(instrument, levelId);
     return this.levelTouchStateMap.get(stateKey) ?? this.levelTouchStateMap.get(`${instrument}-${levelId}`) ?? "armed";

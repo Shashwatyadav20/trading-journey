@@ -15,6 +15,7 @@ import { tradingStateRecovery } from './trading/TradingStateRecovery';
 // (Market data only starts after recovery completes in the start() function.)
 import './trading/TradingEngine';
 import pineRoutes from './routes/pine';
+import indianTradingRoutes from './routes/indianTrading';
 import { pineLevelService } from './alerts/PineLevelService';
 
 const server = Fastify({
@@ -78,6 +79,7 @@ server.register(marketRoutes);
 server.register(tradingRoutes);
 server.register(websocketRoutes);
 server.register(pineRoutes);
+server.register(indianTradingRoutes);
 
 // Graceful shutdown
 const closeListeners = ['SIGINT', 'SIGTERM'];

@@ -173,6 +173,11 @@ export class PineLevelService {
           prev = candle;
         }
 
+        if (history.length > 0) {
+          const lastCandle = history[history.length - 1];
+          this.alertBridge.setPreviousPrice(instrument, lastCandle.close);
+        }
+
         this.isBootstrapped.set(instrument, true);
 
         const activeCount = engine.getActiveLevels().length;
@@ -288,6 +293,9 @@ export class PineLevelService {
           pineAlertPipeline.dispatchSignal(sig).catch(() => {});
         });
       }
+
+      // Evaluate candle wick level touch on completed 1-minute candle for ALL instruments (BTC/USD, XAU/USD)
+      this.alertBridge.evaluateCandleWick(instrument, closedCandle, closedCandle.timestamp);
 
       if (instrument === "XAU/USD") {
         this.verifyMissedWickXAU(closedCandle.timestamp).catch((err) => {
