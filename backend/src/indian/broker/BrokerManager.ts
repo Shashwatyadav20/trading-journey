@@ -91,6 +91,7 @@ export class BrokerManager {
 
     return {
       ...dhanDiag,
+      realOrdersSent: dhanBrokerAdapter.getRealOrdersSent(),
       provider: this.getProviderType(),
       paperBrokerOperational: true,
       providerNeutralConfig: {

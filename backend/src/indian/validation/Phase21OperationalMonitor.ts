@@ -243,10 +243,10 @@ export class Phase21OperationalMonitor {
     if (!params.customDhanLtp) {
       try {
         const securityId = `NIFTY_${expiry}_${strike}_${optionType}`;
-        const quote = await dhanBrokerAdapter.getLtp(securityId);
-        dhanLtp = quote.ltp;
-        dhanBid = quote.bidPrice || (dhanLtp - 0.5);
-        dhanAsk = quote.askPrice || (dhanLtp + 0.5);
+        const ltp = await dhanBrokerAdapter.getLtp(securityId);
+        dhanLtp = ltp;
+        dhanBid = params.customDhanBid ?? (dhanLtp > 0 ? dhanLtp - 0.5 : 0);
+        dhanAsk = params.customDhanAsk ?? (dhanLtp > 0 ? dhanLtp + 0.5 : 0);
         systemHealthService.recordDhanQuote();
       } catch (err: any) {
         // Dhan may be offline or test mock

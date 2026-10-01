@@ -1080,7 +1080,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
     }
   });
 
-<<<<<<< HEAD
   // ── PHASE 19: GENUINE PAPER TRADING SAMPLE COLLECTION & VALIDATION ENDPOINTS ─
 
   /**
@@ -1093,7 +1092,12 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         report,
-=======
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
   // ── PHASE 23: HARD REALITY AUDIT ENDPOINTS ───────────────────────────────────
 
   /**
@@ -1133,7 +1137,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         dashboard,
->>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
@@ -1141,7 +1144,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
-<<<<<<< HEAD
    * GET /api/indian/phase19/scorecard
    * Returns validation status, sample thresholds, and sample sufficiency.
    */
@@ -1155,7 +1157,13 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
         genuineSample: report.genuineSample,
         confidence: report.confidence,
         safetyLocks: report.safetyLocks,
-=======
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/indian/signal/proof
    * Returns signal evidence / proof record.
    */
@@ -1201,7 +1209,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         evidence,
->>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
@@ -1209,7 +1216,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
-<<<<<<< HEAD
    * GET /api/indian/phase19/daily
    * Returns daily P&L distribution, ₹1,000 target analysis, and session breakdown.
    */
@@ -1219,11 +1225,15 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         dailyDistribution: report.dailyDistribution,
-=======
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET & POST /api/indian/dhan/auth
    * Phase 26A — Dhan API Authentication & Read-Only Profile Verification Endpoint.
-   * Returns expected safe result:
-   * { provider: "DHAN", connected: true, authentication: "VALID", dataAccess: true, executionEnabled: false }
    */
   server.get("/api/indian/dhan/auth", async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -1269,7 +1279,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         result,
->>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
@@ -1277,7 +1286,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
-<<<<<<< HEAD
    * GET /api/indian/phase19/strategies
    * Returns factual performance breakdown for BULL_PUT, BEAR_CALL, and IRON_CONDOR (unranked).
    */
@@ -1287,7 +1295,13 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         strategies: report.strategies,
-=======
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/indian/deployment-audit
    * Returns environment configuration diagnostic across local, backend, frontend, Render, and Vercel.
    */
@@ -1318,7 +1332,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         audit,
->>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
@@ -1326,7 +1339,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
-<<<<<<< HEAD
    * GET /api/indian/phase19/regimes
    * Returns market regime breakdown (BULLISH, BEARISH, RANGE, NO_TRADE).
    */
@@ -1439,7 +1451,14 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
         success: true,
         statusBanner,
         diagnostics,
-=======
+        scorecard,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/indian/reality-scorecard
    * Returns machine-generated reality scorecard percentages.
    */
@@ -1491,7 +1510,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
 
       return reply.send({
         success: true,
->>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
         scorecard,
       });
     } catch (err: any) {
@@ -1500,7 +1518,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
-<<<<<<< HEAD
    * POST /api/indian/broker/connect
    * Initiates read-only connection verification with the configured broker.
    */
@@ -1510,7 +1527,13 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         status,
-=======
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/indian/phase24/proof
    * Executes Phase 24 Live Runtime Proof Diagnostic Suite.
    */
@@ -1520,13 +1543,11 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         proof,
->>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }
   });
-<<<<<<< HEAD
 
   /**
    * GET /api/indian/broker/account
@@ -1784,10 +1805,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       });
     }
   });
-=======
->>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
 }
-
 
 
 
