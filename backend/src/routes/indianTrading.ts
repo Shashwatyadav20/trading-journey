@@ -24,13 +24,15 @@ import { paperSampleSimulator } from "../indian/validation/PaperSampleSimulator"
 import { genuineDataValidator } from "../indian/validation/GenuineDataValidator";
 import { genuinePaperValidationEngine } from "../indian/validation/GenuinePaperValidationEngine";
 import { nseIndiaOptionChainProvider } from "../indian/market/NseIndiaOptionChainProvider";
+import { dhanBrokerAdapter } from "../indian/broker/DhanBrokerAdapter";
+import { dhanAuthService } from "../indian/broker/DhanAuthService";
 import { phase17PaperSessionTracker } from "../indian/lifecycle/Phase17PaperSessionTracker";
 import { phase18DataFreshnessMonitor } from "../indian/market/Phase18DataFreshnessMonitor";
 import { operationalAlertLogger } from "../indian/audit/OperationalAlertLogger";
 import { phase19GenuineValidationEngine } from "../indian/validation/Phase19GenuineValidationEngine";
 import { brokerManager } from "../indian/broker/BrokerManager";
-import { dhanBrokerAdapter } from "../indian/broker/DhanBrokerAdapter";
 import { phase21OperationalMonitor } from "../indian/validation/Phase21OperationalMonitor";
+import { phase24RuntimeProofEngine } from "../indian/validation/Phase24RuntimeProofEngine";
 
 
 
@@ -1078,6 +1080,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
     }
   });
 
+<<<<<<< HEAD
   // ── PHASE 19: GENUINE PAPER TRADING SAMPLE COLLECTION & VALIDATION ENDPOINTS ─
 
   /**
@@ -1090,6 +1093,47 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         report,
+=======
+  // ── PHASE 23: HARD REALITY AUDIT ENDPOINTS ───────────────────────────────────
+
+  /**
+   * GET /api/indian/data-reality
+   * Returns complete Indian Data Reality Dashboard status.
+   */
+  server.get("/api/indian/data-reality", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const spotRes = await niftyMarketProvider.getSpotPrice();
+      const p17Health = await niftyMarketProvider.getPhase17DataHealth();
+      const nseHealth = nseIndiaOptionChainProvider.getProviderHealth();
+      const dhanHealth = dhanBrokerAdapter.getProviderHealth();
+      const opGate = await genuineDataValidator.evaluatePhase18OperationalGate();
+
+      const dashboard = {
+        niftySpot: spotRes.isReal ? "REAL" : "SYNTHETIC",
+        optionChain: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "SYNTHETIC",
+        optionPrices: p17Health.optionPrices.sourceType === "REAL" ? "REAL" : "SYNTHETIC",
+        greeks: p17Health.optionChain.sourceType === "REAL" ? "DERIVED" : "SYNTHETIC",
+        iv: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "SYNTHETIC",
+        dhanApi: dhanHealth.isConfigured ? (dhanHealth.status === "OK" ? "CONNECTED" : "FAILED") : "NOT_CONFIGURED",
+        nseApi: nseHealth.status === "OK" ? "CONNECTED" : "FAILED",
+        instrument: opGate.lotSizeVerified ? "VERIFIED" : "FAILED",
+        lotSize: opGate.lotSizeVerified ? "VERIFIED" : "FAILED",
+        dataAgeMs: p17Health.ageMs,
+        strategyInput: spotRes.isReal && p17Health.optionChain.sourceType === "REAL" ? "REAL" : "SYNTHETIC",
+        paperPrices: spotRes.isReal ? "REAL" : "SYNTHETIC",
+        paperPnl: spotRes.isReal ? "REAL" : "SYNTHETIC",
+        lastDhanSuccess: dhanHealth.lastSuccessMs ? new Date(dhanHealth.lastSuccessMs).toISOString() : null,
+        lastNseSuccess: nseHealth.lastSuccessMs ? new Date(nseHealth.lastSuccessMs).toISOString() : null,
+        lastOptionChainUpdate: p17Health.timestamps.optionChainMs ? new Date(p17Health.timestamps.optionChainMs).toISOString() : null,
+        lastOptionPriceUpdate: p17Health.timestamps.optionChainMs ? new Date(p17Health.timestamps.optionChainMs).toISOString() : null,
+        lastSignalTimestamp: new Date().toISOString(),
+        lastSignalSource: p17Health.dataSource,
+      };
+
+      return reply.send({
+        success: true,
+        dashboard,
+>>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
@@ -1097,6 +1141,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
+<<<<<<< HEAD
    * GET /api/indian/phase19/scorecard
    * Returns validation status, sample thresholds, and sample sufficiency.
    */
@@ -1110,6 +1155,53 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
         genuineSample: report.genuineSample,
         confidence: report.confidence,
         safetyLocks: report.safetyLocks,
+=======
+   * GET /api/indian/signal/proof
+   * Returns signal evidence / proof record.
+   */
+  server.get("/api/indian/signal/proof", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const spotRes = await niftyMarketProvider.getSpotPrice();
+      const chainRes = await niftyMarketProvider.getOptionChain(spotRes.spotPrice);
+      const signal = hedgingStrategyEngine.generateSignal(spotRes.spotPrice, [], [], chainRes.chain);
+
+      const evidence = {
+        signalId: signal.signalId || `SIG_${Date.now()}`,
+        timestamp: signal.timestamp,
+        dataSources: {
+          spot: signal.spotSource || (spotRes.isReal ? "TWELVEDATA" : "SYNTHETIC"),
+          optionChain: signal.optionChainSource || (chainRes.isReal ? "NSE" : "SYNTHETIC"),
+          optionPrices: signal.optionPriceSource || (chainRes.isReal ? "NSE" : "SYNTHETIC"),
+          greeks: signal.greeksSource || "DERIVED",
+          iv: signal.ivSource || "REAL",
+          instrument: "NFO_NIFTY",
+        },
+        freshness: {
+          spotAgeMs: Date.now() - spotRes.timestamp,
+          optionChainAgeMs: chainRes.chain.timestamp ? Date.now() - new Date(chainRes.chain.timestamp).getTime() : 0,
+        },
+        masterInput: {
+          spot: signal.spotPrice,
+          vwap: signal.regime_details?.vwap ?? 0,
+          rsi: 50,
+          atr: signal.regime_details?.atr ?? 0,
+          support: 0,
+          resistance: 0,
+          trend15M: signal.regime_details?.trend15M ?? "NEUTRAL",
+          trend1H: signal.regime_details?.trend1H ?? "NEUTRAL",
+          swing: "NEUTRAL",
+          delta: signal.sellLeg?.delta ?? 0,
+          gamma: 0,
+          iv: signal.sellLeg?.iv ?? 0,
+        },
+        decision: signal.action,
+        rejectionReason: signal.reasons.length > 0 ? signal.reasons[0] : null,
+      };
+
+      return reply.send({
+        success: true,
+        evidence,
+>>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
@@ -1117,6 +1209,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
+<<<<<<< HEAD
    * GET /api/indian/phase19/daily
    * Returns daily P&L distribution, ₹1,000 target analysis, and session breakdown.
    */
@@ -1126,6 +1219,57 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         dailyDistribution: report.dailyDistribution,
+=======
+   * GET & POST /api/indian/dhan/auth
+   * Phase 26A — Dhan API Authentication & Read-Only Profile Verification Endpoint.
+   * Returns expected safe result:
+   * { provider: "DHAN", connected: true, authentication: "VALID", dataAccess: true, executionEnabled: false }
+   */
+  server.get("/api/indian/dhan/auth", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const result = await dhanAuthService.authenticateAndVerify();
+      return reply.send(dhanAuthService.sanitizeOutput(result));
+    } catch (err: any) {
+      return reply.status(500).send({
+        provider: "DHAN",
+        connected: false,
+        authentication: "FAILED",
+        dataAccess: false,
+        executionEnabled: false,
+        errorCode: "SERVER_ERROR",
+        errorMessage: err.message,
+      });
+    }
+  });
+
+  server.post("/api/indian/dhan/auth", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const result = await dhanAuthService.authenticateAndVerify();
+      return reply.send(dhanAuthService.sanitizeOutput(result));
+    } catch (err: any) {
+      return reply.status(500).send({
+        provider: "DHAN",
+        connected: false,
+        authentication: "FAILED",
+        dataAccess: false,
+        executionEnabled: false,
+        errorCode: "SERVER_ERROR",
+        errorMessage: err.message,
+      });
+    }
+  });
+
+  /**
+   * POST /api/indian/dhan/connectivity-test
+   * Runs read-only Dhan connectivity diagnostic test.
+   */
+  server.post("/api/indian/dhan/connectivity-test", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const result = await dhanBrokerAdapter.runConnectivityTest();
+      return reply.send({
+        success: true,
+        result,
+>>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
@@ -1133,6 +1277,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
+<<<<<<< HEAD
    * GET /api/indian/phase19/strategies
    * Returns factual performance breakdown for BULL_PUT, BEAR_CALL, and IRON_CONDOR (unranked).
    */
@@ -1142,6 +1287,38 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         strategies: report.strategies,
+=======
+   * GET /api/indian/deployment-audit
+   * Returns environment configuration diagnostic across local, backend, frontend, Render, and Vercel.
+   */
+  server.get("/api/indian/deployment-audit", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const provider = process.env.NIFTY_DATA_PROVIDER || "NSE_INDIA";
+      const dhanConfigured = dhanBrokerAdapter.isConfigured() ? "CONFIGURED" : "NOT_CONFIGURED";
+      const nseConfigured = nseIndiaOptionChainProvider.isConfigured() ? "CONFIGURED" : "NOT_CONFIGURED";
+      const realDataOnly = process.env.INDIAN_REAL_DATA_ONLY === "true" ? "ENABLED" : "DISABLED";
+
+      const audit = {
+        environment: process.env.NODE_ENV || "development",
+        niftyDataProvider: provider,
+        dhan: {
+          configured: dhanConfigured,
+          authValid: dhanBrokerAdapter.getProviderHealth().isAuthenticated ? "VALID" : "NOT_CONFIGURED",
+        },
+        nse: {
+          configured: nseConfigured,
+          status: nseIndiaOptionChainProvider.getProviderHealth().status,
+        },
+        realDataOnly,
+        syntheticFallbackEnabled: realDataOnly === "ENABLED" ? "DISABLED" : "ENABLED",
+        paperTradingEnabled: "ENABLED",
+        liveTradingDisabled: "PERMANENTLY_LOCKED",
+      };
+
+      return reply.send({
+        success: true,
+        audit,
+>>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
@@ -1149,6 +1326,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
+<<<<<<< HEAD
    * GET /api/indian/phase19/regimes
    * Returns market regime breakdown (BULLISH, BEARISH, RANGE, NO_TRADE).
    */
@@ -1261,6 +1439,59 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
         success: true,
         statusBanner,
         diagnostics,
+=======
+   * GET /api/indian/reality-scorecard
+   * Returns machine-generated reality scorecard percentages.
+   */
+  server.get("/api/indian/reality-scorecard", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const spotRes = await niftyMarketProvider.getSpotPrice();
+      const p17Health = await niftyMarketProvider.getPhase17DataHealth();
+
+      const items = [
+        { name: "NIFTY SPOT", status: spotRes.isReal ? "REAL" : "SYNTHETIC", type: spotRes.isReal ? "REAL" : "SYNTHETIC" },
+        { name: "OPTION CHAIN", status: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "SYNTHETIC", type: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "SYNTHETIC" },
+        { name: "OPTION PRICES", status: p17Health.optionPrices.sourceType === "REAL" ? "REAL" : "SYNTHETIC", type: p17Health.optionPrices.sourceType === "REAL" ? "REAL" : "SYNTHETIC" },
+        { name: "BID/ASK", status: p17Health.optionPrices.sourceType === "REAL" ? "REAL" : "SYNTHETIC", type: p17Health.optionPrices.sourceType === "REAL" ? "REAL" : "SYNTHETIC" },
+        { name: "OI", status: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "SYNTHETIC", type: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "SYNTHETIC" },
+        { name: "VOLUME", status: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "SYNTHETIC", type: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "SYNTHETIC" },
+        { name: "IV", status: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "UNAVAILABLE", type: p17Health.optionChain.sourceType === "REAL" ? "REAL" : "UNAVAILABLE" },
+        { name: "DELTA", status: "PROVIDER_DERIVED", type: "DERIVED_REAL" },
+        { name: "GAMMA", status: "UNAVAILABLE", type: "UNAVAILABLE" },
+        { name: "VWAP", status: "DERIVED_FROM_REAL", type: "DERIVED_REAL" },
+        { name: "RSI", status: "DERIVED_FROM_REAL", type: "DERIVED_REAL" },
+        { name: "ATR", status: "DERIVED_FROM_REAL", type: "DERIVED_REAL" },
+        { name: "SUPPORT/RESISTANCE", status: "DERIVED_FROM_REAL", type: "DERIVED_REAL" },
+        { name: "TREND", status: "DERIVED_FROM_REAL", type: "DERIVED_REAL" },
+        { name: "STRATEGY", status: "REAL LOGIC", type: "REAL" },
+        { name: "STRIKE SELECTION", status: "REAL LOGIC", type: "REAL" },
+        { name: "RISK ENGINE", status: "REAL LOGIC", type: "REAL" },
+        { name: "PAPER EXECUTION", status: spotRes.isReal ? "REAL DATA" : "SYNTHETIC", type: spotRes.isReal ? "REAL" : "SYNTHETIC" },
+        { name: "PAPER P&L", status: spotRes.isReal ? "REAL DATA" : "SYNTHETIC", type: spotRes.isReal ? "REAL" : "SYNTHETIC" },
+        { name: "DHAN API", status: dhanBrokerAdapter.isConfigured() ? "VERIFIED" : "NOT_CONFIGURED", type: dhanBrokerAdapter.isConfigured() ? "REAL" : "SYNTHETIC" },
+        { name: "NSE API", status: nseIndiaOptionChainProvider.getProviderHealth().status === "OK" ? "VERIFIED" : "FAILED", type: nseIndiaOptionChainProvider.getProviderHealth().status === "OK" ? "REAL" : "SYNTHETIC" },
+      ];
+
+      const totalDenominator = items.length;
+      const realCount = items.filter((i) => i.type === "REAL").length;
+      const derivedCount = items.filter((i) => i.type === "DERIVED_REAL").length;
+      const syntheticCount = items.filter((i) => i.type === "SYNTHETIC").length;
+      const mockCount = items.filter((i) => i.type === "MOCK").length;
+      const unknownCount = items.filter((i) => i.type === "UNAVAILABLE").length;
+
+      const scorecard = {
+        denominator: totalDenominator,
+        realDirectDataPct: Number(((realCount / totalDenominator) * 100).toFixed(1)),
+        derivedFromRealPct: Number(((derivedCount / totalDenominator) * 100).toFixed(1)),
+        syntheticPct: Number(((syntheticCount / totalDenominator) * 100).toFixed(1)),
+        mockPct: Number(((mockCount / totalDenominator) * 100).toFixed(1)),
+        unknownPct: Number(((unknownCount / totalDenominator) * 100).toFixed(1)),
+        breakdown: items,
+      };
+
+      return reply.send({
+        success: true,
+>>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
         scorecard,
       });
     } catch (err: any) {
@@ -1269,6 +1500,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
+<<<<<<< HEAD
    * POST /api/indian/broker/connect
    * Initiates read-only connection verification with the configured broker.
    */
@@ -1278,11 +1510,23 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         status,
+=======
+   * GET /api/indian/phase24/proof
+   * Executes Phase 24 Live Runtime Proof Diagnostic Suite.
+   */
+  server.get("/api/indian/phase24/proof", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const proof = await phase24RuntimeProofEngine.runFullRuntimeProof();
+      return reply.send({
+        success: true,
+        proof,
+>>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }
   });
+<<<<<<< HEAD
 
   /**
    * GET /api/indian/broker/account
@@ -1540,6 +1784,8 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       });
     }
   });
+=======
+>>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
 }
 
 

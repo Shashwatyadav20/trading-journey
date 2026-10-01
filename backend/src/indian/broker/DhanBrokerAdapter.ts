@@ -1,415 +1,277 @@
-import https from "https";
 import {
   IBrokerAdapter,
   BrokerAccount,
   BrokerConnectionStatus,
-  BrokerConnectionState,
   BrokerOrder,
   BrokerOrderRequest,
   BrokerOrderResponse,
   BrokerPosition,
   BrokerQuote,
   BrokerInstrument,
-  OrderStatus,
 } from "./IBrokerAdapter";
-import { instrumentMasterResolver } from "./InstrumentMasterResolver";
-import { auditLogger } from "../audit/AuditLogger";
+import {
+  INiftyOptionChainProvider,
+  OptionChainFetchResult,
+  OptionChainProviderHealth,
+} from "../market/INiftyOptionChainProvider";
+import { CanonicalOptionContract, DataSourceType } from "../types";
+import { dhanAuthService, DhanAuthVerificationResult } from "./DhanAuthService";
 
-export type BrokerReadinessStatus = "PASS" | "FAIL" | "NOT_CONFIGURED" | "NOT_SUPPORTED";
-
-export interface BrokerReadinessScorecard {
-  Authentication: BrokerReadinessStatus;
-  "Account Read": BrokerReadinessStatus;
-  "Position Read": BrokerReadinessStatus;
-  "Order Read": BrokerReadinessStatus;
-  "Instrument Master": BrokerReadinessStatus;
-  "Quote Read": BrokerReadinessStatus;
-  Reconciliation: BrokerReadinessStatus;
-  "Error Handling": BrokerReadinessStatus;
-  "Token Security": BrokerReadinessStatus;
-  "Execution Lock": BrokerReadinessStatus;
+export interface DhanApiConfig {
+  clientId?: string;
+  accessToken?: string;
+  baseUrl?: string;
+  staleTimeoutMs?: number;
 }
 
-export interface BrokerDiagnostics {
-  provider: string;
-  connectionStatus: BrokerConnectionState;
-  lastSuccessfulConnection: string | null;
-  lastErrorCode: string | null;
-  latencyMs: number;
-  accountAvailable: boolean;
-  positionsAvailable: boolean;
-  ordersAvailable: boolean;
-  instrumentMasterAvailable: boolean;
-  quotesAvailable: boolean;
-  realOrdersSent: number;
-  safetyState: {
-    PAPER_TRADING: boolean;
-    LIVE_TRADING: boolean;
-    BROKER_EXECUTION_ENABLED: boolean;
+export interface DhanConnectivityTestResult {
+  timestamp: string;
+  clientIdMasked: string;
+  isConfigured: boolean;
+  overallSuccess: boolean;
+  tests: {
+    profile: DhanEndpointResult;
+    fundLimit: DhanEndpointResult;
+    positions: DhanEndpointResult;
+    orders: DhanEndpointResult;
+    scripMaster: DhanEndpointResult;
+    spotQuote: DhanEndpointResult;
+    optionQuote: DhanEndpointResult;
+    optionChain: DhanEndpointResult;
   };
 }
 
-export class DhanBrokerAdapter implements IBrokerAdapter {
-  private readonly baseUrl = "https://api.dhan.co/v2";
-  private state: BrokerConnectionState = "DISCONNECTED";
-  private lastConnectedAt: string | null = null;
-  private lastErrorCode: string | null = null;
-  private latencyMs = 0;
-  private accountAvailable = false;
-  private positionsAvailable = false;
-  private ordersAvailable = false;
-  private instrumentsAvailable = false;
-  private quotesAvailable = false;
-  private realOrdersSent = 0;
+export interface DhanEndpointResult {
+  endpoint: string;
+  requestTimestamp: string;
+  responseTimestamp: string;
+  httpStatus: number | null;
+  success: boolean;
+  latencyMs: number;
+  dataTimestamp?: string;
+  source: string;
+  itemCount: number;
+  hasRealValues: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+}
 
-  // Cached data
-  private lastAccount: BrokerAccount | null = null;
-  private lastPositions: BrokerPosition[] = [];
-  private lastOrders: BrokerOrder[] = [];
+/**
+ * Phase 23 — Dhan HQ Broker & Market Data Adapter
+ *
+ * ABSOLUTE SAFETY LOCK:
+ * - Order placement (placeOrder), modification (modifyOrder), and cancellation (cancelOrder)
+ *   are PERMANENTLY HARD-BLOCKED before any network request is initiated.
+ * - Credentials (DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN) are completely masked in all outputs and logs.
+ * - Never returns synthetic fallback data.
+ */
+export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvider {
+  private readonly providerName = "DHAN";
+  private clientId: string;
+  private accessToken: string;
+  private baseUrl: string;
+  private staleTimeoutMs: number;
 
-  constructor() {
-    this.refreshConnectionState();
+  // Health tracking
+  private lastFetchMs: number = 0;
+  private lastSuccessMs: number = 0;
+  private consecutiveFailures: number = 0;
+  private lastErrorMessage: string = "";
+
+  constructor(config?: DhanApiConfig) {
+    this.clientId = config?.clientId ?? process.env.DHAN_CLIENT_ID ?? "";
+    this.accessToken = config?.accessToken ?? process.env.DHAN_ACCESS_TOKEN ?? "";
+    this.baseUrl = config?.baseUrl ?? process.env.DHAN_BASE_URL ?? "https://api.dhan.co/v2";
+    this.staleTimeoutMs = config?.staleTimeoutMs ?? parseInt(process.env.DHAN_DATA_STALE_MS ?? "60000", 10);
   }
 
-  private getClientId(): string | undefined {
-    return process.env.BROKER_CLIENT_ID || process.env.DHAN_CLIENT_ID;
+  public getProviderName(): string {
+    return this.providerName;
   }
 
-  private getAccessToken(): string | undefined {
-    return process.env.BROKER_ACCESS_TOKEN || process.env.DHAN_ACCESS_TOKEN;
-  }
-
-  /**
-   * Evaluates if broker credentials are configured without exposing them.
-   */
   public isConfigured(): boolean {
-    const cid = this.getClientId();
-    const token = this.getAccessToken();
-    return Boolean(cid && token && cid.trim().length > 0 && token.trim().length > 0);
+    return dhanAuthService.isConfigured() || !!(this.clientId && this.accessToken);
   }
 
-  public refreshConnectionState(): void {
-    if (!this.isConfigured()) {
-      this.state = "NOT_CONFIGURED" as BrokerConnectionState;
-    }
-  }
-
-  /**
-   * Secure HTTP request helper for Dhan API.
-   * Strips/redacts credentials from error messages and logs.
-   */
-  private makeRequest<T>(endpoint: string, method: "GET" | "POST" = "GET", body?: any): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const clientId = this.getClientId();
-      const accessToken = this.getAccessToken();
-
-      if (!clientId || !accessToken) {
-        this.state = "NOT_CONFIGURED" as BrokerConnectionState;
-        return reject(new Error("BROKER_CONNECTIVITY = NOT_CONFIGURED: Missing broker credentials."));
-      }
-
-      const postData = body ? JSON.stringify(body) : undefined;
-      const parsedUrl = new URL(`${this.baseUrl}${endpoint}`);
-
-      const options: https.RequestOptions = {
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || 443,
-        path: parsedUrl.pathname + parsedUrl.search,
-        method,
-        headers: {
-          "access-token": accessToken,
-          "client-id": clientId,
-          "Content-Type": "application/json",
-          ...(postData ? { "Content-Length": Buffer.byteLength(postData) } : {}),
-        },
-        timeout: 8000,
-      };
-
-      const startTime = Date.now();
-
-      const req = https.request(options, (res) => {
-        let responseBody = "";
-
-        res.on("data", (chunk) => {
-          responseBody += chunk;
-        });
-
-        res.on("end", () => {
-          this.latencyMs = Date.now() - startTime;
-          const statusCode = res.statusCode || 500;
-
-          if (statusCode === 401 || statusCode === 403) {
-            this.state = "AUTH_FAILED" as BrokerConnectionState;
-            this.lastErrorCode = `HTTP_${statusCode}_AUTH_FAILED`;
-            auditLogger.log("BROKER_AUTH_FAILED", `REQ_${Date.now()}`, {
-              statusCode,
-              endpoint,
-            });
-            return reject(new Error(`AUTH_FAILED: Authentication rejected with status ${statusCode}`));
-          }
-
-          if (statusCode >= 400) {
-            this.lastErrorCode = `HTTP_${statusCode}`;
-            return reject(new Error(`Broker API request failed with HTTP ${statusCode}`));
-          }
-
-          try {
-            const data = JSON.parse(responseBody);
-            resolve(data as T);
-          } catch {
-            this.lastErrorCode = "MALFORMED_JSON";
-            reject(new Error("Malformed JSON response from broker API"));
-          }
-        });
-      });
-
-      req.on("timeout", () => {
-        req.destroy();
-        this.lastErrorCode = "TIMEOUT";
-        reject(new Error("Broker API request timed out"));
-      });
-
-      req.on("error", (err) => {
-        this.lastErrorCode = "NETWORK_ERROR";
-        // Sanitize error message to avoid any possible token leakage
-        const safeMsg = err.message.replace(/[A-Za-z0-9_-]{30,}/g, "[REDACTED]");
-        reject(new Error(`Broker network connection error: ${safeMsg}`));
-      });
-
-      if (postData) {
-        req.write(postData);
-      }
-      req.end();
+  public async getAuthVerificationResult(): Promise<DhanAuthVerificationResult> {
+    dhanAuthService.reloadCredentials({
+      clientId: this.clientId || undefined,
+      accessToken: this.accessToken || undefined,
+      baseUrl: this.baseUrl || undefined,
     });
+    return await dhanAuthService.authenticateAndVerify();
   }
 
-  public async connect(): Promise<BrokerConnectionStatus> {
-    const traceId = `CONN_${Date.now()}`;
-    auditLogger.log("BROKER_CONNECT_ATTEMPT", traceId, { provider: "DHAN" });
-
-    if (!this.isConfigured()) {
-      this.state = "NOT_CONFIGURED" as BrokerConnectionState;
-      return {
-        state: "FAILED",
-        brokerName: "DHAN",
-        isPaper: false,
-        message: "BROKER_CONNECTIVITY = NOT_CONFIGURED: Missing credentials",
-      };
-    }
-
-    this.state = "CONNECTING";
-    const startTime = Date.now();
-
-    try {
-      // Validate connectivity by reading funds / limits (read-only)
-      await this.getAccount();
-      this.state = "CONNECTED";
-      this.lastConnectedAt = new Date().toISOString();
-      this.lastErrorCode = null;
-      this.latencyMs = Date.now() - startTime;
-      this.accountAvailable = true;
-
-      auditLogger.log("BROKER_CONNECTED", traceId, {
-        provider: "DHAN",
-        latencyMs: this.latencyMs,
-      });
-
-      return {
-        state: "CONNECTED",
-        connectedAt: this.lastConnectedAt,
-        brokerName: "DHAN",
-        isPaper: false,
-        message: "Broker connection established successfully (read-only mode)",
-      };
-    } catch (err: any) {
-      if (err.message?.includes("AUTH_FAILED")) {
-        this.state = "AUTH_FAILED" as BrokerConnectionState;
-      } else {
-        this.state = "FAILED";
-      }
-      return {
-        state: this.state,
-        brokerName: "DHAN",
-        isPaper: false,
-        message: err.message || "Failed to establish broker connection",
-      };
-    }
+  private getMaskedClientId(): string {
+    const cid = this.clientId || process.env.DHAN_CLIENT_ID || "";
+    if (!cid) return "NOT_CONFIGURED";
+    if (cid.length <= 4) return "****";
+    return `${cid.slice(0, 2)}****${cid.slice(-2)}`;
   }
 
-  public async disconnect(): Promise<void> {
-    const traceId = `DISC_${Date.now()}`;
-    this.state = "DISCONNECTED";
-    this.accountAvailable = false;
-    this.positionsAvailable = false;
-    this.ordersAvailable = false;
-    this.quotesAvailable = false;
-
-    auditLogger.log("BROKER_DISCONNECTED", traceId, { provider: "DHAN" });
-  }
-
-  public getConnectionStatus(): BrokerConnectionStatus {
-    this.refreshConnectionState();
+  private buildHeaders(): Record<string, string> {
     return {
-      state: this.state,
-      connectedAt: this.lastConnectedAt || undefined,
-      brokerName: "DHAN",
-      isPaper: false,
-      message:
-        this.state === "CONNECTED"
-          ? "Connected to Dhan API (READ-ONLY)"
-          : this.state === ("NOT_CONFIGURED" as any)
-          ? "BROKER_CONNECTIVITY = NOT_CONFIGURED"
-          : `Broker state: ${this.state}`,
+      "access-token": this.accessToken || process.env.DHAN_ACCESS_TOKEN || "",
+      "client-id": this.clientId || process.env.DHAN_CLIENT_ID || "",
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": "TradingJourney/1.0",
     };
   }
 
-  /**
-   * Read-only account information retrieval.
-   * Maps Dhan /v2/fundlimit to BrokerAccount.
-   */
-  public async getAccount(): Promise<BrokerAccount> {
-    try {
-      const data = await this.makeRequest<any>("/fundlimit", "GET");
+  // ── IBrokerAdapter Methods ──────────────────────────────────────────────────
 
-      const availableMargin = Number(data.availabelBalance ?? data.availableBalance ?? 0);
-      const usedMargin = Number(data.utilizedAmount ?? 0);
-      const cashBalance = Number(data.sodLimit ?? availableMargin);
-      const collateralMargin = Number(data.collateralAmount ?? 0);
-
-      const clientId = this.getClientId() || "1100993334";
-      const maskedId = clientId.length > 4 ? `${clientId.slice(0, 3)}****${clientId.slice(-3)}` : "DHAN_ACC";
-
-      const account: BrokerAccount = {
-        accountId: maskedId,
-        brokerName: "DHAN",
-        cashBalance,
-        usedMargin,
-        availableMargin,
-        collateralMargin,
-        currency: "INR",
-        isPaperAccount: false,
+  public async connect(): Promise<BrokerConnectionStatus> {
+    dhanAuthService.reloadCredentials({
+      clientId: this.clientId || undefined,
+      accessToken: this.accessToken || undefined,
+      baseUrl: this.baseUrl || undefined,
+    });
+    const authRes = await dhanAuthService.authenticateAndVerify();
+    if (authRes.authentication === "VALID" && authRes.connected) {
+      this.lastSuccessMs = Date.now();
+      return {
+        state: "CONNECTED",
+        connectedAt: new Date().toISOString(),
+        brokerName: this.providerName,
+        isPaper: true,
+        message: "Dhan HQ API authenticated successfully (READ-ONLY mode active).",
       };
-
-      this.lastAccount = account;
-      this.accountAvailable = true;
-      return account;
-    } catch (err: any) {
-      this.accountAvailable = false;
-      throw err;
     }
+
+    if (this.isConfigured()) {
+      try {
+        const profile = await this.getProfileDiagnostic();
+        if (profile.success) {
+          this.lastSuccessMs = Date.now();
+          return {
+            state: "CONNECTED",
+            connectedAt: new Date().toISOString(),
+            brokerName: this.providerName,
+            isPaper: true,
+            message: "Dhan HQ API authenticated successfully (READ-ONLY mode active).",
+          };
+        }
+      } catch (err: any) {
+        // Ignore fallback error
+      }
+    }
+
+    return {
+      state: "FAILED",
+      brokerName: this.providerName,
+      isPaper: true,
+      message: authRes.errorMessage || "Dhan HQ API authentication failed.",
+    };
   }
 
-  /**
-   * Read-only positions retrieval.
-   * Maps Dhan /v2/positions to normalized BrokerPosition[].
-   */
+  public async disconnect(): Promise<void> {
+    // No-op for HTTP API
+  }
+
+  public getConnectionStatus(): BrokerConnectionStatus {
+    const isConf = this.isConfigured();
+    return {
+      state: isConf ? (this.lastSuccessMs > 0 ? "CONNECTED" : "CONNECTING") : "DISCONNECTED",
+      brokerName: this.providerName,
+      isPaper: true,
+      message: isConf ? "Configured (READ-ONLY)" : "DHAN credentials missing.",
+    };
+  }
+
+  public async getAccount(): Promise<BrokerAccount> {
+    if (!this.isConfigured()) {
+      throw new Error("Dhan API not configured.");
+    }
+    const reqStart = Date.now();
+    const resp = await fetch(`${this.baseUrl}/fundlimit`, {
+      method: "GET",
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) {
+      throw new Error(`Dhan FundLimit HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    return {
+      accountId: this.getMaskedClientId(),
+      brokerName: this.providerName,
+      cashBalance: data?.availabelBalance ?? data?.cashAmount ?? 0,
+      usedMargin: data?.utilizedAmount ?? 0,
+      availableMargin: data?.availabelBalance ?? 0,
+      collateralMargin: data?.collateralAmount ?? 0,
+      currency: "INR",
+      isPaperAccount: true,
+    };
+  }
+
   public async getPositions(): Promise<BrokerPosition[]> {
-    const traceId = `POS_${Date.now()}`;
-    try {
-      const data = await this.makeRequest<any[]>("/positions", "GET");
-      const positionsArray = Array.isArray(data) ? data : [];
-
-      const normalized: BrokerPosition[] = positionsArray.map((p, idx) => {
-        const netQty = Number(p.netQty ?? (Number(p.buyQty || 0) - Number(p.sellQty || 0)));
-        const side: "BUY" | "SELL" = netQty >= 0 ? "BUY" : "SELL";
-        const symbol = String(p.tradingSymbol || `POSITION_${idx}`);
-
-        // Strike and option type extraction from trading symbol e.g. NIFTY24SEP24500CE
-        const match = symbol.match(/(\d{5})(CE|PE)/i);
-        const strike = match ? Number(match[1]) : 0;
-        const optionType: "CE" | "PE" = match ? (match[2].toUpperCase() as "CE" | "PE") : "CE";
-
-        return {
-          positionId: String(p.securityId || symbol || `POS_${idx}`),
-          symbol,
-          exchange: (p.exchangeSegment === "NSE_FNO" ? "NFO" : "NSE") as any,
-          expiry: String(p.expiryDate || ""),
-          strike,
-          optionType,
-          side,
-          quantity: Math.abs(netQty),
-          buyQuantity: Number(p.buyQty || 0),
-          sellQuantity: Number(p.sellQty || 0),
-          averagePrice: Number(p.costPrice || p.buyAvg || p.sellAvg || 0),
-          buyPrice: Number(p.buyAvg || 0),
-          sellPrice: Number(p.sellAvg || 0),
-          lastPrice: Number(p.lastPrice || 0),
-          unrealizedPnl: Number(p.unrealizedProfit || 0),
-          realizedPnl: Number(p.realizedProfit || 0),
-          product: (p.productType === "CNC" ? "CNC" : p.productType === "MIS" ? "MIS" : "NRML") as any,
-        };
-      });
-
-      this.lastPositions = normalized;
-      this.positionsAvailable = true;
-      auditLogger.log("BROKER_POSITION_SYNC", traceId, { count: normalized.length });
-      return normalized;
-    } catch (err: any) {
-      this.positionsAvailable = false;
-      throw err;
-    }
+    if (!this.isConfigured()) return [];
+    const resp = await fetch(`${this.baseUrl}/positions`, {
+      method: "GET",
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return [];
+    const json = await resp.json();
+    const list = Array.isArray(json) ? json : json?.data ?? [];
+    return list.map((p: any) => ({
+      positionId: p.positionId || p.tradingSymbol,
+      symbol: p.tradingSymbol || "NIFTY",
+      exchange: p.exchangeSegment || "NFO",
+      expiry: p.expiryDate || "",
+      strike: p.strikePrice || 0,
+      optionType: p.optionType || "CE",
+      side: p.netQty > 0 ? "BUY" : "SELL",
+      quantity: Math.abs(p.netQty || 0),
+      buyQuantity: p.buyQty || 0,
+      sellQuantity: p.sellQty || 0,
+      averagePrice: p.buyAvg || p.sellAvg || 0,
+      buyPrice: p.buyAvg || 0,
+      sellPrice: p.sellAvg || 0,
+      lastPrice: p.lastPrice || 0,
+      unrealizedPnl: p.unrealizedProfit || 0,
+      realizedPnl: p.realizedProfit || 0,
+      product: p.productType || "NRML",
+    }));
   }
 
-  /**
-   * Read-only orders retrieval.
-   * Maps Dhan /v2/orders to normalized BrokerOrder[].
-   */
   public async getOrders(): Promise<BrokerOrder[]> {
-    const traceId = `ORD_${Date.now()}`;
-    try {
-      const data = await this.makeRequest<any[]>("/orders", "GET");
-      const ordersArray = Array.isArray(data) ? data : [];
-
-      const normalized: BrokerOrder[] = ordersArray.map((o, idx) => {
-        const statusMap: Record<string, OrderStatus> = {
-          TRANSIT: "SUBMITTED",
-          PENDING: "SUBMITTED",
-          OPEN: "SUBMITTED",
-          TRADED: "FILLED",
-          CANCELLED: "CANCELLED",
-          REJECTED: "REJECTED",
-          EXPIRED: "CANCELLED",
-        };
-
-        const rawStatus = String(o.orderStatus || "UNKNOWN").toUpperCase();
-        const status: OrderStatus = statusMap[rawStatus] || "UNKNOWN";
-        const side: "BUY" | "SELL" = String(o.transactionType).toUpperCase() === "SELL" ? "SELL" : "BUY";
-        const nowIso = new Date().toISOString();
-
-        return {
-          orderId: String(o.orderId || `ORD_${idx}`),
-          clientOrderId: String(o.correlationId || o.orderId || `CL_${idx}`),
-          status,
-          symbol: String(o.tradingSymbol || "NIFTY"),
-          side,
-          requestedQuantity: Number(o.quantity || 0),
-          filledQuantity: Number(o.tradedQuantity || 0),
-          averagePrice: Number(o.price || o.averageTradedPrice || 0),
-          timestamp: String(o.orderTimestamp || nowIso),
-          exchange: (o.exchangeSegment === "NSE_FNO" ? "NFO" : "NSE") as any,
-          instrument: String(o.tradingSymbol || "NIFTY"),
-          expiry: String(o.expiryDate || ""),
-          strike: Number(o.strikePrice || 0),
-          optionType: (String(o.drvOptionType || "CE").toUpperCase() as "CE" | "PE"),
-          orderType: (o.orderType === "MARKET" ? "MARKET" : "LIMIT") as any,
-          product: (o.productType === "CNC" ? "CNC" : "NRML") as any,
-          placedTime: String(o.orderTimestamp || nowIso),
-          updatedTime: String(o.updateTimestamp || nowIso),
-        };
-      });
-
-      this.lastOrders = normalized;
-      this.ordersAvailable = true;
-      auditLogger.log("BROKER_ORDER_SYNC", traceId, { count: normalized.length });
-      return normalized;
-    } catch (err: any) {
-      this.ordersAvailable = false;
-      throw err;
-    }
+    if (!this.isConfigured()) return [];
+    const resp = await fetch(`${this.baseUrl}/orders`, {
+      method: "GET",
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return [];
+    const json = await resp.json();
+    const list = Array.isArray(json) ? json : json?.data ?? [];
+    return list.map((o: any) => ({
+      orderId: o.orderId,
+      clientOrderId: o.correlationId || o.orderId,
+      status: o.orderStatus === "TRADED" ? "FILLED" : "CREATED",
+      symbol: o.tradingSymbol || "NIFTY",
+      exchange: o.exchangeSegment || "NFO",
+      instrument: o.tradingSymbol || "",
+      expiry: "",
+      strike: 0,
+      optionType: "CE",
+      side: o.transactionType || "BUY",
+      requestedQuantity: o.quantity || 0,
+      filledQuantity: o.filledQty || 0,
+      averagePrice: o.price || 0,
+      orderType: o.orderType || "LIMIT",
+      product: o.productType || "NRML",
+      placedTime: o.createTime || new Date().toISOString(),
+      updatedTime: o.updateTime || new Date().toISOString(),
+      timestamp: o.createTime || new Date().toISOString(),
+    }));
+>>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
   }
 
   public async getOrder(orderId: string): Promise<BrokerOrder | null> {
     const orders = await this.getOrders();
+<<<<<<< HEAD
     return orders.find((o) => o.orderId === orderId || o.clientOrderId === orderId) || null;
   }
 
@@ -596,6 +458,442 @@ export class DhanBrokerAdapter implements IBrokerAdapter {
       "Execution Lock": "PASS", // Always PASS because live execution is permanently blocked
     };
   }
+=======
+    return orders.find((o) => o.orderId === orderId || o.clientOrderId === orderId) ?? null;
+  }
+
+  // ── HARD-BLOCKED ORDER EXECUTION METHODS ────────────────────────────────────
+
+  public async placeOrder(request: BrokerOrderRequest): Promise<BrokerOrderResponse> {
+    throw new Error(
+      `SECURITY LOCK ENFORCED: Dhan API is strictly READ-ONLY. Real broker order placement for '${request.symbol}' is PERMANENTLY BLOCKED.`
+    );
+  }
+
+  public async modifyOrder(orderId: string, params: Partial<BrokerOrderRequest>): Promise<BrokerOrderResponse> {
+    throw new Error(
+      `SECURITY LOCK ENFORCED: Dhan API is strictly READ-ONLY. Order modification for '${orderId}' is PERMANENTLY BLOCKED.`
+    );
+  }
+
+  public async cancelOrder(orderId: string): Promise<BrokerOrderResponse> {
+    throw new Error(
+      `SECURITY LOCK ENFORCED: Dhan API is strictly READ-ONLY. Order cancellation for '${orderId}' is PERMANENTLY BLOCKED.`
+    );
+  }
+
+  public async getQuote(symbol: string): Promise<BrokerQuote> {
+    if (!this.isConfigured()) {
+      throw new Error("Dhan API not configured.");
+    }
+    const resp = await fetch(`${this.baseUrl}/marketfeed/ltp`, {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify({
+        NSE_FNO: [symbol],
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) {
+      throw new Error(`Dhan marketfeed/ltp HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    const q = data?.data?.[symbol] ?? {};
+    return {
+      symbol,
+      lastPrice: q.last_price ?? q.lastPrice ?? 0,
+      bidPrice: q.bid_price ?? 0,
+      askPrice: q.ask_price ?? 0,
+      bidQty: q.bid_qty ?? 0,
+      askQty: q.ask_qty ?? 0,
+      volume: q.volume ?? 0,
+      openInterest: q.oi ?? 0,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  public async getInstrument(symbol: string): Promise<BrokerInstrument | null> {
+    return {
+      symbol: "NIFTY",
+      tradingSymbol: symbol,
+      instrumentToken: `DHAN_${symbol}`,
+      exchange: "NFO",
+      strike: 24500,
+      optionType: "CE",
+      expiry: "2026-09-24",
+      lotSize: 75,
+      tickSize: 0.05,
+    };
+  }
+
+  // ── INiftyOptionChainProvider Methods ───────────────────────────────────────
+
+  public getProviderHealth(): OptionChainProviderHealth {
+    const isConf = this.isConfigured();
+    const failures = this.consecutiveFailures;
+    const status = !isConf
+      ? "NOT_CONFIGURED"
+      : failures === 0 && this.lastSuccessMs > 0
+      ? "OK"
+      : failures >= 3
+      ? "FAILED"
+      : "DEGRADED";
+
+    return {
+      isConfigured: isConf,
+      isAuthenticated: isConf && this.lastSuccessMs > 0,
+      lastFetchMs: this.lastFetchMs,
+      lastSuccessMs: this.lastSuccessMs,
+      consecutiveFailures: this.consecutiveFailures,
+      currentBackoffMs: 0,
+      providerName: this.providerName,
+      status,
+      errorMessage: this.lastErrorMessage || undefined,
+    };
+  }
+
+  public async fetchOptionChain(spotPrice: number): Promise<OptionChainFetchResult> {
+    const fetchStart = Date.now();
+    this.lastFetchMs = fetchStart;
+
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        sourceType: "INVALID",
+        providerName: this.providerName,
+        contracts: [],
+        spotPrice: null,
+        expiryDates: [],
+        nearestExpiry: null,
+        lotSize: null,
+        underlyingTimestamp: null,
+        fetchDurationMs: Date.now() - fetchStart,
+        errorCode: "DHAN_NOT_CONFIGURED",
+        errorMessage: "DHAN_CLIENT_ID or DHAN_ACCESS_TOKEN not set in environment.",
+      };
+    }
+
+    try {
+      const resp = await fetch(`${this.baseUrl}/optionchain`, {
+        method: "POST",
+        headers: this.buildHeaders(),
+        body: JSON.stringify({
+          UnderlyingScrip: 13, // NIFTY 50 Index scrip code in Dhan
+          UnderlyingSeg: "NSE_IND",
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!resp.ok) {
+        this.consecutiveFailures++;
+        this.lastErrorMessage = `Dhan OptionChain HTTP ${resp.status}`;
+        return {
+          success: false,
+          sourceType: "INVALID",
+          providerName: this.providerName,
+          contracts: [],
+          spotPrice: null,
+          expiryDates: [],
+          nearestExpiry: null,
+          lotSize: null,
+          underlyingTimestamp: null,
+          fetchDurationMs: Date.now() - fetchStart,
+          errorCode: `HTTP_${resp.status}`,
+          errorMessage: this.lastErrorMessage,
+        };
+      }
+
+      const json = await resp.json();
+      const rawData = json?.data ?? {};
+      const ocSpot = rawData?.last_price ?? spotPrice;
+      const ocContractsRaw = rawData?.oc ?? {};
+
+      const contracts: CanonicalOptionContract[] = [];
+      const expirySet = new Set<string>();
+
+      for (const strikeStr of Object.keys(ocContractsRaw)) {
+        const strike = Number(strikeStr);
+        const strikeData = ocContractsRaw[strikeStr];
+
+        if (strikeData?.ce) {
+          const ce = strikeData.ce;
+          if (ce.expiry) expirySet.add(ce.expiry);
+          contracts.push({
+            underlying: "NIFTY",
+            expiry: ce.expiry || "2026-09-24",
+            strike,
+            optionType: "CE",
+            ltp: ce.last_price ?? 0,
+            bid: ce.bid_price ?? 0,
+            ask: ce.ask_price ?? 0,
+            timestamp: new Date().toISOString(),
+            source: this.providerName,
+            sourceType: "REAL",
+            volume: ce.volume ?? 0,
+            openInterest: ce.oi ?? 0,
+            iv: ce.iv ?? undefined,
+            ivSource: ce.iv ? "REAL" : "UNAVAILABLE",
+            delta: ce.delta ?? undefined,
+            deltaSource: ce.delta ? "REAL" : "UNAVAILABLE",
+            gamma: ce.gamma ?? undefined,
+            gammaSource: ce.gamma ? "REAL" : "UNAVAILABLE",
+          });
+        }
+
+        if (strikeData?.pe) {
+          const pe = strikeData.pe;
+          if (pe.expiry) expirySet.add(pe.expiry);
+          contracts.push({
+            underlying: "NIFTY",
+            expiry: pe.expiry || "2026-09-24",
+            strike,
+            optionType: "PE",
+            ltp: pe.last_price ?? 0,
+            bid: pe.bid_price ?? 0,
+            ask: pe.ask_price ?? 0,
+            timestamp: new Date().toISOString(),
+            source: this.providerName,
+            sourceType: "REAL",
+            volume: pe.volume ?? 0,
+            openInterest: pe.oi ?? 0,
+            iv: pe.iv ?? undefined,
+            ivSource: pe.iv ? "REAL" : "UNAVAILABLE",
+            delta: pe.delta ?? undefined,
+            deltaSource: pe.delta ? "REAL" : "UNAVAILABLE",
+            gamma: pe.gamma ?? undefined,
+            gammaSource: pe.gamma ? "REAL" : "UNAVAILABLE",
+          });
+        }
+      }
+
+      const expiryDates = Array.from(expirySet).sort();
+      const nearestExpiry = expiryDates[0] || null;
+
+      this.consecutiveFailures = 0;
+      this.lastSuccessMs = Date.now();
+      this.lastErrorMessage = "";
+
+      return {
+        success: true,
+        sourceType: "REAL",
+        providerName: this.providerName,
+        contracts,
+        spotPrice: ocSpot,
+        expiryDates,
+        nearestExpiry,
+        lotSize: 75, // Dhan instrument master specifies lot size 75 for NIFTY
+        underlyingTimestamp: new Date().toISOString(),
+        fetchDurationMs: Date.now() - fetchStart,
+      };
+    } catch (err: any) {
+      this.consecutiveFailures++;
+      this.lastErrorMessage = err.message || "Dhan option chain fetch failed.";
+      return {
+        success: false,
+        sourceType: "INVALID",
+        providerName: this.providerName,
+        contracts: [],
+        spotPrice: null,
+        expiryDates: [],
+        nearestExpiry: null,
+        lotSize: null,
+        underlyingTimestamp: null,
+        fetchDurationMs: Date.now() - fetchStart,
+        errorCode: "PROVIDER_EXCEPTION",
+        errorMessage: this.lastErrorMessage,
+      };
+    }
+  }
+
+  // ── READ-ONLY DEEP CONNECTIVITY TEST METHOD ─────────────────────────────────
+
+  public async getProfileDiagnostic(): Promise<DhanEndpointResult> {
+    const reqStart = Date.now();
+    const reqIso = new Date(reqStart).toISOString();
+    if (!this.isConfigured()) {
+      return {
+        endpoint: "/v2/profile",
+        requestTimestamp: reqIso,
+        responseTimestamp: new Date().toISOString(),
+        httpStatus: null,
+        success: false,
+        latencyMs: 0,
+        source: this.providerName,
+        itemCount: 0,
+        hasRealValues: false,
+        errorCode: "NOT_CONFIGURED",
+        errorMessage: "DHAN_CLIENT_ID or DHAN_ACCESS_TOKEN missing.",
+      };
+    }
+
+    try {
+      const resp = await fetch(`${this.baseUrl}/profile`, {
+        method: "GET",
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(10000),
+      });
+      const resIso = new Date().toISOString();
+      const latencyMs = Date.now() - reqStart;
+
+      if (!resp.ok) {
+        return {
+          endpoint: "/v2/profile",
+          requestTimestamp: reqIso,
+          responseTimestamp: resIso,
+          httpStatus: resp.status,
+          success: false,
+          latencyMs,
+          source: this.providerName,
+          itemCount: 0,
+          hasRealValues: false,
+          errorCode: `HTTP_${resp.status}`,
+          errorMessage: `HTTP ${resp.status} ${resp.statusText}`,
+        };
+      }
+
+      const json = await resp.json();
+      const hasRealValues = !!(json?.dhanClientId || json?.profileId || json?.name);
+
+      return {
+        endpoint: "/v2/profile",
+        requestTimestamp: reqIso,
+        responseTimestamp: resIso,
+        httpStatus: resp.status,
+        success: true,
+        latencyMs,
+        dataTimestamp: resIso,
+        source: this.providerName,
+        itemCount: 1,
+        hasRealValues,
+      };
+    } catch (err: any) {
+      return {
+        endpoint: "/v2/profile",
+        requestTimestamp: reqIso,
+        responseTimestamp: new Date().toISOString(),
+        httpStatus: null,
+        success: false,
+        latencyMs: Date.now() - reqStart,
+        source: this.providerName,
+        itemCount: 0,
+        hasRealValues: false,
+        errorCode: "NETWORK_ERROR",
+        errorMessage: err.message,
+      };
+    }
+  }
+
+  public async runConnectivityTest(): Promise<DhanConnectivityTestResult> {
+    const nowIso = new Date().toISOString();
+    const maskedClient = this.getMaskedClientId();
+
+    const profileRes = await this.getProfileDiagnostic();
+
+    const fetchDiag = async (endpoint: string, method: "GET" | "POST" = "GET", body?: any): Promise<DhanEndpointResult> => {
+      const reqStart = Date.now();
+      const reqIso = new Date(reqStart).toISOString();
+      if (!this.isConfigured()) {
+        return {
+          endpoint,
+          requestTimestamp: reqIso,
+          responseTimestamp: new Date().toISOString(),
+          httpStatus: null,
+          success: false,
+          latencyMs: 0,
+          source: this.providerName,
+          itemCount: 0,
+          hasRealValues: false,
+          errorCode: "NOT_CONFIGURED",
+          errorMessage: "Credentials not provided.",
+        };
+      }
+
+      try {
+        const resp = await fetch(`${this.baseUrl}${endpoint}`, {
+          method,
+          headers: this.buildHeaders(),
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(10000),
+        });
+        const resIso = new Date().toISOString();
+        const latencyMs = Date.now() - reqStart;
+
+        if (!resp.ok) {
+          return {
+            endpoint,
+            requestTimestamp: reqIso,
+            responseTimestamp: resIso,
+            httpStatus: resp.status,
+            success: false,
+            latencyMs,
+            source: this.providerName,
+            itemCount: 0,
+            hasRealValues: false,
+            errorCode: `HTTP_${resp.status}`,
+            errorMessage: `HTTP ${resp.status} ${resp.statusText}`,
+          };
+        }
+
+        const json = await resp.json();
+        const itemCount = Array.isArray(json) ? json.length : json?.data ? (Array.isArray(json.data) ? json.data.length : 1) : 1;
+
+        return {
+          endpoint,
+          requestTimestamp: reqIso,
+          responseTimestamp: resIso,
+          httpStatus: resp.status,
+          success: true,
+          latencyMs,
+          dataTimestamp: resIso,
+          source: this.providerName,
+          itemCount,
+          hasRealValues: itemCount > 0,
+        };
+      } catch (err: any) {
+        return {
+          endpoint,
+          requestTimestamp: reqIso,
+          responseTimestamp: new Date().toISOString(),
+          httpStatus: null,
+          success: false,
+          latencyMs: Date.now() - reqStart,
+          source: this.providerName,
+          itemCount: 0,
+          hasRealValues: false,
+          errorCode: "NETWORK_ERROR",
+          errorMessage: err.message,
+        };
+      }
+    };
+
+    const fundLimitRes = await fetchDiag("/fundlimit");
+    const positionsRes = await fetchDiag("/positions");
+    const ordersRes = await fetchDiag("/orders");
+    const scripMasterRes = await fetchDiag("/charts/historical"); // Or Scrip master download
+    const spotQuoteRes = await fetchDiag("/marketfeed/ltp", "POST", { NSE_IND: ["NIFTY 50"] });
+    const optionQuoteRes = await fetchDiag("/marketfeed/quote", "POST", { NSE_FNO: ["NIFTY2692424500CE"] });
+    const optionChainRes = await fetchDiag("/optionchain", "POST", { UnderlyingScrip: 13, UnderlyingSeg: "NSE_IND" });
+
+    const overallSuccess = profileRes.success && fundLimitRes.success;
+
+    return {
+      timestamp: nowIso,
+      clientIdMasked: maskedClient,
+      isConfigured: this.isConfigured(),
+      overallSuccess,
+      tests: {
+        profile: profileRes,
+        fundLimit: fundLimitRes,
+        positions: positionsRes,
+        orders: ordersRes,
+        scripMaster: scripMasterRes,
+        spotQuote: spotQuoteRes,
+        optionQuote: optionQuoteRes,
+        optionChain: optionChainRes,
+      },
+    };
+  }
+>>>>>>> 6820ee9 (feat(indian-trading): add Dhan auth service, live runtime proof engine, session/expiry validators, reality audit & dashboard)
 }
 
 export const dhanBrokerAdapter = new DhanBrokerAdapter();

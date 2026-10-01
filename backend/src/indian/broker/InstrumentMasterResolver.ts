@@ -131,6 +131,17 @@ export class InstrumentMasterResolver {
       currentLotSize: this.currentProviderLotSize,
     };
   }
+  public getAvailableExpiries(): string[] {
+    const expiries = new Set<string>();
+    for (const inst of this.knownContracts.values()) {
+      if (inst.expiry) expiries.add(inst.expiry);
+    }
+    return Array.from(expiries).sort();
+  }
+
+  public getDhanInstrumentMaster(): Map<string, BrokerInstrument> | null {
+    return this.knownContracts.size > 0 ? this.knownContracts : null;
+  }
 }
 
 export const instrumentMasterResolver = new InstrumentMasterResolver();

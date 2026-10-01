@@ -234,6 +234,18 @@ export interface AutoHedgeSignal {
     vwap: number;
     atr: number;
   };
+  // Phase 23 Data Provenance & Tracing
+  dataSource?: "NSE" | "DHAN" | "OTHER" | "MIXED" | "SYNTHETIC" | "UNKNOWN";
+  spotSource?: "NSE" | "DHAN" | "TWELVEDATA" | "SYNTHETIC";
+  optionChainSource?: "NSE" | "DHAN" | "SYNTHETIC";
+  optionPriceSource?: "NSE" | "DHAN" | "SYNTHETIC";
+  greeksSource?: "REAL" | "PROVIDER_DERIVED" | "SYNTHETIC" | "UNAVAILABLE";
+  ivSource?: "REAL" | "PROVIDER_DERIVED" | "SYNTHETIC" | "UNAVAILABLE";
+  lotSizeSource?: "DHAN_MASTER" | "NSE_METADATA" | "HARDCODED" | "UNVERIFIED";
+  dataFreshnessMs?: number;
+  decisionTimestamp?: string;
+  strategyInputHash?: string;
+  signalId?: string;
 }
 
 export interface PositionLeg {
@@ -302,6 +314,12 @@ export interface NiftySpreadPosition {
   shortLegGamma?: number;
   timeInTradeSeconds?: number;
   snapshots?: PositionSnapshot[];
+  // Phase 23 P&L & Paper Trade Provenance
+  pnlType?: "REAL_MARKET_DATA_PAPER_PNL" | "SYNTHETIC_PAPER_PNL" | "SIMULATED_TEST_PNL";
+  entryDataSource?: string;
+  entryPriceSource?: string;
+  exitDataSource?: string;
+  exitPriceSource?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -826,6 +844,59 @@ export interface Phase17GenuineGateResult {
 // ── PHASE 18: GENUINE LIVE PAPER TRADING OPERATIONS & DATA RELIABILITY TYPES ──
 
 export type MarketSessionState = "PRE_MARKET" | "MARKET_OPEN" | "MARKET_CLOSING" | "MARKET_CLOSED";
+
+// ── PHASE 25: LIVE MARKET TIME, EXPIRY & GREEKS FORENSIC AUDIT TYPES ──────────
+
+/**
+ * Strict IST market session status for NIFTY F&O trading.
+ * Must be derived from IST conversion, never server local timezone.
+ */
+export type Phase25MarketSessionStatus =
+  | "PRE_MARKET"    // 09:00–09:15 IST, Mon–Fri, non-holiday
+  | "MARKET_OPEN"   // 09:15–15:30 IST, Mon–Fri, non-holiday
+  | "MARKET_CLOSED" // All other times on Mon–Fri
+  | "HOLIDAY"       // Official NSE trading holiday
+  | "WEEKEND";      // Saturday (6) or Sunday (0)
+
+/** Execution mode separation for LIVE_PAPER, HISTORICAL_BACKTEST, SIMULATED_TEST */
+export type ExecutionMode = "LIVE_PAPER" | "HISTORICAL_BACKTEST" | "SIMULATED_TEST";
+
+/** Allowed source mode for signal provenance */
+export type SourceMode = "SINGLE_PROVIDER" | "MIXED_PROVIDER" | "SYNTHETIC" | "UNKNOWN";
+
+/** Expiry validation status */
+export type ExpiryValidationStatus = "VALID" | "EXPIRED" | "UNVERIFIED";
+
+/** Greeks provenance source */
+export type GreeksProvenance = "DHAN" | "NSE" | "PROVIDER_DERIVED" | "UNAVAILABLE";
+
+/**
+ * Phase 25 data integrity record attached to every strategy evaluation.
+ */
+export interface Phase25DataIntegrityRecord {
+  serverTimestamp: string;
+  istTimestamp: string;
+  marketSessionStatus: Phase25MarketSessionStatus;
+  marketDate: string;               // YYYY-MM-DD in IST
+  exchangeTradingDay: string;       // YYYY-MM-DD in IST
+  marketSessionValid: boolean;
+  dataFresh: boolean;
+  dataTimestamp: string;
+  decisionTimestamp: string;
+  dataSessionDate: string;          // YYYY-MM-DD of data timestamp in IST
+  decisionSessionDate: string;      // YYYY-MM-DD of decision timestamp in IST
+  dataAgeMs: number;
+  selectedExpiry: string;
+  expiryStatus: ExpiryValidationStatus;
+  expirySource: string;
+  sourceMode: SourceMode;
+  gammaValue: number | null;
+  gammaSource: GreeksProvenance;
+  deltaSource: GreeksProvenance;
+  ivSource: GreeksProvenance;
+  strategyStatus: "GENUINE" | "BLOCKED";
+  blockedReasons: string[];
+}
 
 export type Phase18ComponentStatus = "HEALTHY" | "STALE" | "MISSING" | "ERROR";
 

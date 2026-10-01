@@ -18,6 +18,7 @@ import { niftyOptionChainService } from "./NiftyOptionChainService";
 import { priceStore } from "../../market/MarketPriceStore";
 import { INiftyOptionChainProvider } from "./INiftyOptionChainProvider";
 import { nseIndiaOptionChainProvider } from "./NseIndiaOptionChainProvider";
+import { dhanBrokerAdapter } from "../broker/DhanBrokerAdapter";
 
 export class NiftyMarketProvider implements INiftyMarketDataProvider {
   private providerName = "NiftyMarketProvider";
@@ -29,10 +30,17 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
 
   constructor(
     staleTimeoutMs = 60000,
-    optionChainProvider: INiftyOptionChainProvider | null = nseIndiaOptionChainProvider,
+    optionChainProvider: INiftyOptionChainProvider | null = null,
   ) {
     this.staleTimeoutMs = staleTimeoutMs;
-    this.optionChainProvider = optionChainProvider;
+    const configuredProvider = process.env.NIFTY_DATA_PROVIDER;
+    if (optionChainProvider !== null) {
+      this.optionChainProvider = optionChainProvider;
+    } else if (configuredProvider === "DHAN") {
+      this.optionChainProvider = dhanBrokerAdapter;
+    } else {
+      this.optionChainProvider = nseIndiaOptionChainProvider;
+    }
   }
 
   public getProviderName(): string {
@@ -81,6 +89,15 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
       }
     }
 
+    // If INDIAN_REAL_DATA_ONLY is enabled, do not return synthetic fallback spot
+    if (process.env.INDIAN_REAL_DATA_ONLY === "true") {
+      return {
+        spotPrice: 0,
+        timestamp: this.lastUpdateTimestampMs,
+        isReal: false,
+      };
+    }
+
     // No live data — return default paper/synthetic price
     return {
       spotPrice: 24700.45,
@@ -92,6 +109,9 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
   public async getCandles(timeframe: "15M" | "1H", limit = 30): Promise<CandlesResult> {
     const spotRes = await this.getSpotPrice();
     const spot = spotRes.spotPrice;
+    if (spot <= 0 || (process.env.INDIAN_REAL_DATA_ONLY === "true" && !spotRes.isReal)) {
+      return { candles: [], isReal: false };
+    }
     const now = Math.floor(Date.now() / 1000);
     const intervalSec = timeframe === "15M" ? 900 : 3600;
 
@@ -134,6 +154,7 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
           delta: c.delta ?? (c.optionType === "CE" ? 0.5 : -0.5),
           gamma: c.gamma,
           timestamp: c.timestamp,
+          source: c.source || fetchResult.providerName,
         }));
 
         const chain: NiftyOptionChain = {
@@ -159,6 +180,19 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
           isReal: false,
         };
       }
+    }
+
+    // In REAL_DATA_ONLY mode, do not generate synthetic option chain
+    if (process.env.INDIAN_REAL_DATA_ONLY === "true") {
+      return {
+        chain: {
+          spotPrice: effectiveSpot,
+          timestamp: new Date().toISOString(),
+          contracts: [],
+          isSynthetic: true,
+        },
+        isReal: false,
+      };
     }
 
     // Explicitly no provider set (e.g. legacy fallback) -> synthetic chain

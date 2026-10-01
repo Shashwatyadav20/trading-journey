@@ -24,6 +24,8 @@ import {
   BrokerInstrument,
 } from "./IBrokerAdapter";
 import { instrumentMasterResolver } from "./InstrumentMasterResolver";
+import { marketSessionValidator } from "../market/MarketSessionValidator";
+import { expiryValidator } from "../market/ExpiryValidator";
 
 export class PaperBrokerAdapter implements IBrokerAdapter {
   private config: NiftyConfig;
@@ -71,6 +73,37 @@ export class PaperBrokerAdapter implements IBrokerAdapter {
   ): NiftySpreadPosition {
     if (signal.status !== "READY" || !signal.sellLeg || !signal.buyLeg) {
       throw new Error(`Cannot execute paper order with signal status: ${signal.status}`);
+    }
+
+    // Phase 25 Paper Execution Contract Validation
+    // Session enforcement: only in LIVE_PAPER mode (backward-compatible — no EXECUTION_MODE = legacy behaviour)
+    const execMode = process.env.EXECUTION_MODE;
+    const isLivePaper = execMode === "LIVE_PAPER";
+    const isSimulatedTest = execMode === "SIMULATED_TEST";
+    const isHistoricalBacktest = execMode === "HISTORICAL_BACKTEST";
+
+    if (isLivePaper) {
+      const sessionResult = marketSessionValidator.validateSessionForTrading();
+      if (!sessionResult.isValid) {
+        throw new Error(`Paper execution rejected: ${sessionResult.rejectionReason}`);
+      }
+    }
+
+    // Expiry check: always in LIVE_PAPER and SIMULATED_TEST (skip only for HISTORICAL_BACKTEST and legacy no-mode)
+    if (isLivePaper || isSimulatedTest) {
+      const expiryResult = expiryValidator.validateExpiry(signal.expiry);
+      if (!expiryResult.isValid) {
+        throw new Error(`Paper execution rejected: ${expiryResult.rejectionReason}`);
+      }
+    }
+
+    // Cross-session data check: only in LIVE_PAPER mode
+    if (isLivePaper && signal.timestamp) {
+      const dataSessionDate = marketSessionValidator.getIstDateString(signal.timestamp);
+      const decisionSessionDate = marketSessionValidator.getIstDateString();
+      if (dataSessionDate !== decisionSessionDate) {
+        throw new Error("Paper execution rejected: CROSS_SESSION_DATA");
+      }
     }
 
     const signalFingerprint = `${signal.symbol}_${signal.action}_${signal.expiry}_${signal.sellLeg.strike}_${signal.buyLeg.strike}_${signal.timestamp}`;
@@ -163,8 +196,11 @@ export class PaperBrokerAdapter implements IBrokerAdapter {
       spotPriceAtEntry: signal.spotPrice,
       currentSpotPrice: signal.spotPrice,
       shortLegDelta: signal.sellLeg.delta,
-      shortLegGamma: 0.003,
+      shortLegGamma: (signal.sellLeg as any)?.gamma ?? undefined,
       snapshots: [],
+      pnlType: signal.dataSource === "SYNTHETIC" ? "SYNTHETIC_PAPER_PNL" : "REAL_MARKET_DATA_PAPER_PNL",
+      entryDataSource: signal.dataSource || "REAL",
+      entryPriceSource: signal.optionPriceSource || "LIVE_QUOTES",
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -248,8 +284,14 @@ export class PaperBrokerAdapter implements IBrokerAdapter {
         if (strikeQuotesMap[pos.buyLeg.strike] !== undefined) {
           currentBuyPrice = strikeQuotesMap[pos.buyLeg.strike];
         }
+        pos.pnlType = "REAL_MARKET_DATA_PAPER_PNL";
+      } else if (process.env.INDIAN_REAL_DATA_ONLY === "true") {
+        // REAL_DATA_ONLY mode active — do NOT estimate synthetic option prices
+        currentSellPrice = pos.sellLeg.currentPrice || pos.sellLeg.entryPrice;
+        currentBuyPrice = pos.buyLeg.currentPrice || pos.buyLeg.entryPrice;
       } else {
-        // Estimate current spread price based on spot movement
+        // Estimate current spread price based on spot movement (synthetic fallback)
+        pos.pnlType = "SYNTHETIC_PAPER_PNL";
         const spotDiff = spotPrice - (pos.sellLeg.strike + pos.buyLeg.strike) / 2;
         if (pos.strategy === "BULL_PUT_SPREAD") {
           currentSellPrice = Math.max(1, pos.sellLeg.entryPrice - spotDiff * 0.05);

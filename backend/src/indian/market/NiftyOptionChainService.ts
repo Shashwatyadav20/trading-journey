@@ -1,6 +1,21 @@
 import { NiftyOptionChain, OptionContract } from "../types";
 import { DEFAULT_NIFTY_CONFIG, NiftyConfig } from "../config/niftyConfig";
 
+/** Returns the next Thursday (or today if today is Thursday) as YYYY-MM-DD in IST. */
+function nextNiftyExpiryIST(): string {
+  const nowUtcMs = Date.now();
+  const istMs = nowUtcMs + 5.5 * 60 * 60 * 1000;   // UTC → IST
+  const ist = new Date(istMs);
+  const dow = ist.getUTCDay(); // 0=Sun, 1=Mon, … 4=Thu, 5=Fri, 6=Sat
+  const daysUntilThursday = dow <= 4 ? 4 - dow : 7 - dow + 4;
+  const expiryMs = istMs + daysUntilThursday * 24 * 60 * 60 * 1000;
+  const exp = new Date(expiryMs);
+  const y = exp.getUTCFullYear();
+  const m = String(exp.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(exp.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export class NiftyOptionChainService {
   private config: NiftyConfig;
 
@@ -15,7 +30,7 @@ export class NiftyOptionChainService {
   public normalizeOptionChain(
     spotPrice: number,
     rawContracts: Partial<OptionContract>[],
-    expiryStr: string = "2026-09-26"
+    expiryStr: string = nextNiftyExpiryIST()
   ): NiftyOptionChain {
     const validContracts: OptionContract[] = [];
     const nowIso = new Date().toISOString();
@@ -51,11 +66,7 @@ export class NiftyOptionChainService {
         }
       }
 
-      let gamma = raw.gamma;
-      if (gamma === undefined || isNaN(gamma)) {
-        const dist = Math.abs((raw.strike - spotPrice));
-        gamma = Number((Math.exp(-0.5 * Math.pow(dist / 250, 2)) / 300).toFixed(4));
-      }
+      const gamma = raw.gamma !== undefined && !isNaN(raw.gamma) ? Number(raw.gamma.toFixed(4)) : undefined;
 
       const contract: OptionContract = {
         symbol:
@@ -72,7 +83,7 @@ export class NiftyOptionChainService {
         changeInOI: raw.changeInOI || 1200,
         iv: raw.iv || 14.5,
         delta: Number(delta.toFixed(2)),
-        gamma: Number(gamma.toFixed(4)),
+        gamma,
         timestamp: raw.timestamp || nowIso,
       };
 
@@ -94,7 +105,7 @@ export class NiftyOptionChainService {
    */
   public generateSyntheticChain(
     spotPrice: number,
-    expiryStr: string = "2026-09-26"
+    expiryStr: string = nextNiftyExpiryIST()
   ): NiftyOptionChain {
     const atmStrike = Math.round(spotPrice / 50) * 50;
     const contracts: Partial<OptionContract>[] = [];
