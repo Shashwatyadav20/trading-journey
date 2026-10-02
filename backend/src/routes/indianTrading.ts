@@ -1322,7 +1322,14 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
         expiries,
       });
     } catch (err: any) {
-      return reply.status(500).send({ success: false, error: err.message });
+      return reply.status(200).send({
+        success: false,
+        provider: "DHAN",
+        underlyingScrip: 13,
+        underlyingSeg: "IDX_I",
+        expiries: [],
+        error: err.message || "Failed to fetch expiry list",
+      });
     }
   });
 

@@ -553,6 +553,37 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
       });
 
       if (!resp.ok) {
+        if (resp.status === 401) {
+          const newToken = await dhanAuthService.handleExpiredTokenResponse();
+          if (newToken) {
+            const retryResp = await fetch(`${this.baseUrl}/optionchain/expirylist`, {
+              method: "POST",
+              headers: this.buildHeaders(),
+              body: JSON.stringify({
+                UnderlyingScrip: underlyingScrip,
+                UnderlyingSeg: underlyingSeg,
+              }),
+              signal: AbortSignal.timeout(10000),
+            });
+            if (retryResp.ok) {
+              const json = await retryResp.json();
+              const list: string[] = Array.isArray(json)
+                ? json
+                : Array.isArray(json?.data)
+                ? json.data
+                : Array.isArray(json?.data?.expirylist)
+                ? json.data.expirylist
+                : [];
+
+              const validExpiries = list.filter((e) => typeof e === "string" && e.length >= 8).sort();
+              if (validExpiries.length > 0) {
+                this.cachedExpiries = { expiries: validExpiries, fetchedAt: now };
+              }
+              return validExpiries;
+            }
+          }
+        }
+
         let dhanCode = `HTTP_${resp.status}`;
         let errorMsg = `Dhan ExpiryList HTTP ${resp.status}`;
         try {
