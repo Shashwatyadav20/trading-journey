@@ -86,6 +86,7 @@ describe("PHASE 26A — Official DhanHQ API Authentication & Token Lifecycle Tes
       provider: "DHAN",
       connected: true,
       authentication: "VALID",
+      profileApiStatus: "HTTP_200",
       dataAccess: true,
       executionEnabled: false,
       authFlowUsed: "TOTP_PIN",

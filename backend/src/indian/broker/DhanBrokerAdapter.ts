@@ -140,14 +140,33 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
     return `${id.slice(0, 2)}****${id.slice(-2)}`;
   }
 
-  private buildHeaders(): Record<string, string> {
-    return {
-      "access-token": this.accessToken || process.env.DHAN_ACCESS_TOKEN || "",
-      "client-id": this.clientId || process.env.DHAN_CLIENT_ID || "",
-      "Content-Type": "application/json",
+  private cleanString(val: string): string {
+    if (!val || typeof val !== "string") return "";
+    let clean = val.trim();
+    if ((clean.startsWith('"') && clean.endsWith('"')) || (clean.startsWith("'") && clean.endsWith("'"))) {
+      clean = clean.substring(1, clean.length - 1).trim();
+    }
+    if (clean.toLowerCase().startsWith("bearer ")) {
+      clean = clean.substring(7).trim();
+    }
+    return clean.replace(/[\r\n\t]+/g, "").trim();
+  }
+
+  private buildHeaders(isGet: boolean = false): Record<string, string> {
+    const token = this.cleanString(this.accessToken || process.env.DHAN_ACCESS_TOKEN || "");
+    const cid = this.cleanString(this.clientId || process.env.DHAN_CLIENT_ID || "");
+    const headers: Record<string, string> = {
+      "access-token": token,
       "Accept": "application/json",
       "User-Agent": "TradingJourney/1.0",
     };
+    if (cid) {
+      headers["client-id"] = cid;
+    }
+    if (!isGet) {
+      headers["Content-Type"] = "application/json";
+    }
+    return headers;
   }
 
   // ── Internal HTTP helper (spyable by tests) ────────────────────────────────
@@ -155,7 +174,7 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
   protected async makeRequest<T = any>(endpoint: string, method: "GET" | "POST" = "GET", body?: any): Promise<T> {
     const resp = await fetch(`${this.baseUrl}${endpoint}`, {
       method,
-      headers: this.buildHeaders(),
+      headers: this.buildHeaders(method === "GET"),
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(10000),
     });

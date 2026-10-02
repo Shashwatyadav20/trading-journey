@@ -19,6 +19,10 @@ export interface DhanAuthVerificationResult {
   dataAccess: boolean;
   executionEnabled: boolean;
   authFlowUsed?: "DIRECT_TOKEN" | "TOTP_PIN" | "CONSENT_TOKEN_ID";
+  profileApiStatus?: string;
+  tokenConfigured?: boolean;
+  tokenLength?: number;
+  tokenMasked?: boolean;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -101,20 +105,41 @@ export class DhanAuthService {
     this.reloadCredentials(credentials);
   }
 
-  public reloadCredentials(credentials?: DhanAuthCredentials): void {
-    this.clientId = credentials?.clientId ?? process.env.DHAN_CLIENT_ID ?? "";
-    this.pin = credentials?.pin ?? process.env.DHAN_PIN ?? "";
-    this.totpSecret = credentials?.totpSecret ?? process.env.DHAN_TOTP_SECRET ?? "";
-    this.apiKey = credentials?.apiKey ?? process.env.DHAN_API_KEY ?? "";
-    this.apiSecret = credentials?.apiSecret ?? process.env.DHAN_API_SECRET ?? "";
-    this.tokenId = credentials?.tokenId ?? process.env.DHAN_TOKEN_ID ?? "";
-    this.baseUrl = credentials?.baseUrl ?? process.env.DHAN_BASE_URL ?? "https://api.dhan.co/v2";
-    this.authUrl = credentials?.authUrl ?? process.env.DHAN_AUTH_URL ?? "https://auth.dhan.co";
+  /**
+   * Helper function to sanitize/clean raw tokens & client IDs:
+   * - Strips leading/trailing whitespace
+   * - Strips surrounding single/double quotes
+   * - Strips "Bearer " prefix if present
+   * - Strips newlines, carriage returns, and tabs
+   */
+  public cleanToken(token?: string): string {
+    if (!token || typeof token !== "string") return "";
+    let clean = token.trim();
+    if ((clean.startsWith('"') && clean.endsWith('"')) || (clean.startsWith("'") && clean.endsWith("'"))) {
+      clean = clean.substring(1, clean.length - 1).trim();
+    }
+    if (clean.toLowerCase().startsWith("bearer ")) {
+      clean = clean.substring(7).trim();
+    }
+    return clean.replace(/[\r\n\t]+/g, "").trim();
+  }
 
-    const directToken = credentials?.accessToken ?? process.env.DHAN_ACCESS_TOKEN;
-    if (directToken && !this.accessToken) {
+  public reloadCredentials(credentials?: DhanAuthCredentials): void {
+    this.clientId = this.cleanToken(credentials?.clientId ?? process.env.DHAN_CLIENT_ID);
+    this.pin = (credentials?.pin ?? process.env.DHAN_PIN ?? "").trim();
+    this.totpSecret = (credentials?.totpSecret ?? process.env.DHAN_TOTP_SECRET ?? "").trim();
+    this.apiKey = (credentials?.apiKey ?? process.env.DHAN_API_KEY ?? "").trim();
+    this.apiSecret = (credentials?.apiSecret ?? process.env.DHAN_API_SECRET ?? "").trim();
+    this.tokenId = (credentials?.tokenId ?? process.env.DHAN_TOKEN_ID ?? "").trim();
+    this.baseUrl = (credentials?.baseUrl ?? process.env.DHAN_BASE_URL ?? "https://api.dhan.co/v2").trim();
+    this.authUrl = (credentials?.authUrl ?? process.env.DHAN_AUTH_URL ?? "https://auth.dhan.co").trim();
+
+    const directToken = this.cleanToken(credentials?.accessToken ?? process.env.DHAN_ACCESS_TOKEN);
+    if (directToken) {
       this.accessToken = directToken;
-      this.tokenExpiryMs = Date.now() + 86400 * 1000; // Default 24-hour validity window
+      if (this.tokenExpiryMs === 0) {
+        this.tokenExpiryMs = Date.now() + 86400 * 1000; // Default 24-hour validity window
+      }
     }
   }
 
@@ -122,9 +147,11 @@ export class DhanAuthService {
    * Evaluates if any official DhanHQ authentication flow is configured.
    */
   public isConfigured(): boolean {
-    const hasTotpPinFlow = !!(this.clientId && this.pin && this.totpSecret);
-    const hasDirectToken = !!(this.clientId && (this.accessToken || process.env.DHAN_ACCESS_TOKEN));
-    const hasConsentFlow = !!(this.clientId && this.apiKey && this.apiSecret && this.tokenId);
+    const activeToken = this.accessToken || this.cleanToken(process.env.DHAN_ACCESS_TOKEN);
+    const activeClientId = this.clientId || this.cleanToken(process.env.DHAN_CLIENT_ID);
+    const hasTotpPinFlow = !!(activeClientId && this.pin && this.totpSecret);
+    const hasDirectToken = !!activeToken;
+    const hasConsentFlow = !!(activeClientId && this.apiKey && this.apiSecret && this.tokenId);
     return hasTotpPinFlow || hasDirectToken || hasConsentFlow;
   }
 
@@ -195,7 +222,21 @@ export class DhanAuthService {
       };
     }
 
-    // 2. Verify Credential Configuration
+    // 2. Refresh/Clean environment token if available
+    const envToken = this.cleanToken(process.env.DHAN_ACCESS_TOKEN);
+    if (envToken && (!this.accessToken || envToken !== this.accessToken)) {
+      this.accessToken = envToken;
+      if (this.tokenExpiryMs === 0) {
+        this.tokenExpiryMs = Date.now() + 86400 * 1000;
+      }
+    }
+
+    const envClientId = this.cleanToken(process.env.DHAN_CLIENT_ID);
+    if (envClientId) {
+      this.clientId = envClientId;
+    }
+
+    // 3. Verify Credential Configuration
     if (!this.isConfigured()) {
       this.authStatus = "NOT_CONFIGURED";
       this.lastErrorMessage = "DHAN_CLIENT_ID or authentication credentials missing from environment.";
@@ -210,7 +251,7 @@ export class DhanAuthService {
       };
     }
 
-    // 3. EXECUTE OFFICIAL AUTHENTICATION FLOWS
+    // 4. EXECUTE OFFICIAL AUTHENTICATION FLOWS
 
     // FLOW A: Official TOTP + PIN Token Generation (Client ID + PIN + TOTP Secret)
     if (this.clientId && this.pin && this.totpSecret) {
@@ -244,13 +285,14 @@ export class DhanAuthService {
             dataAccess: false,
             executionEnabled: false,
             authFlowUsed: "TOTP_PIN",
+            profileApiStatus: `HTTP_${resp.status}`,
             errorCode: resp.status === 401 || resp.status === 403 ? "AUTHENTICATION_FAILED" : `HTTP_${resp.status}`,
             errorMessage: this.lastErrorMessage,
           };
         }
 
         const data = await resp.json();
-        const newToken = data?.accessToken || data?.access_token || data?.token || data?.data?.accessToken;
+        const newToken = this.cleanToken(data?.accessToken || data?.access_token || data?.token || data?.data?.accessToken);
         const expiresInSec = data?.expiresIn || data?.expires_in || 86400;
 
         if (newToken) {
@@ -258,7 +300,6 @@ export class DhanAuthService {
           this.tokenExpiryMs = Date.now() + expiresInSec * 1000;
           this.lastAuthTimeMs = Date.now();
         } else {
-          // If response does not return token directly, report failure
           this.authStatus = "FAILED";
           this.lastErrorMessage = "Dhan TOTP auth response missing accessToken.";
           return {
@@ -291,17 +332,15 @@ export class DhanAuthService {
     }
 
     // FLOW B: Direct Access Token + Renewal via GET /v2/RenewToken
-    else if (this.clientId && this.accessToken) {
+    else if (this.accessToken || process.env.DHAN_ACCESS_TOKEN) {
       this.lastAuthFlowUsed = "DIRECT_TOKEN";
       // If token is expiring, attempt official renewal via /v2/RenewToken
-      if (this.isTokenExpired()) {
+      if (this.isTokenExpired() && this.accessToken && this.clientId) {
         try {
           const renewResp = await fetch(`${this.baseUrl}/RenewToken`, {
             method: "GET",
             headers: {
               "access-token": this.accessToken,
-              "dhanClientId": this.clientId,
-              "client-id": this.clientId,
               "Accept": "application/json",
             },
             signal: AbortSignal.timeout(10000),
@@ -309,7 +348,7 @@ export class DhanAuthService {
 
           if (renewResp.ok) {
             const renewData = await renewResp.json();
-            const newToken = renewData?.accessToken || renewData?.token || this.accessToken;
+            const newToken = this.cleanToken(renewData?.accessToken || renewData?.token || this.accessToken);
             this.accessToken = newToken;
             this.tokenExpiryMs = Date.now() + 86400 * 1000;
             this.lastAuthTimeMs = Date.now();
@@ -339,7 +378,7 @@ export class DhanAuthService {
         if (resp.ok) {
           const data = await resp.json();
           if (data?.accessToken) {
-            this.accessToken = data.accessToken;
+            this.accessToken = this.cleanToken(data.accessToken);
             this.tokenExpiryMs = Date.now() + 86400 * 1000;
             this.lastAuthTimeMs = Date.now();
           }
@@ -349,39 +388,81 @@ export class DhanAuthService {
       }
     }
 
-    // 4. READ-ONLY PROFILE API VERIFICATION STEP
+    // 5. READ-ONLY PROFILE API VERIFICATION STEP
     return await this.verifyProfile();
   }
 
   /**
    * Calls Dhan read-only Profile API as the single verification mechanism.
+   * Uses current official DhanHQ v2 Profile API contract:
+   * GET https://api.dhan.co/v2/profile
+   * Header:
+   * access-token: <JWT>
    */
   public async verifyProfile(): Promise<DhanAuthVerificationResult> {
+    const rawToken = this.accessToken || process.env.DHAN_ACCESS_TOKEN;
+    this.accessToken = this.cleanToken(rawToken);
+
     if (!this.accessToken) {
       this.authStatus = "FAILED";
+      console.log("[DhanAuth] Safe Diagnostics:", {
+        tokenConfigured: false,
+        tokenLength: 0,
+        tokenPrefixMasked: "NONE",
+        tokenExpiryKnown: false,
+        httpStatus: null,
+        dhanErrorCode: "NO_TOKEN",
+        dhanErrorMessage: "No access token available for Profile verification.",
+      });
       return {
         provider: "DHAN",
         connected: false,
         authentication: "FAILED",
         dataAccess: false,
         executionEnabled: false,
-        authFlowUsed: this.lastAuthFlowUsed,
+        authFlowUsed: this.lastAuthFlowUsed || "DIRECT_TOKEN",
+        profileApiStatus: "NO_TOKEN",
+        tokenConfigured: false,
+        tokenLength: 0,
+        tokenMasked: false,
         errorCode: "NO_TOKEN",
         errorMessage: "No access token available for Profile verification.",
       };
     }
 
+    const tokenLength = this.accessToken.length;
+    const tokenPrefixMasked = tokenLength >= 6 ? `${this.accessToken.substring(0, 6)}...` : "****";
+
     try {
+      const headers: Record<string, string> = {
+        "access-token": this.accessToken,
+        "Accept": "application/json",
+      };
+
       const resp = await fetch(`${this.baseUrl}/profile`, {
         method: "GET",
-        headers: {
-          "access-token": this.accessToken,
-          "client-id": this.clientId || process.env.DHAN_CLIENT_ID || "",
-          "dhanClientId": this.clientId || process.env.DHAN_CLIENT_ID || "",
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
+        headers,
         signal: AbortSignal.timeout(10000),
+      });
+
+      const profileApiStatus = `HTTP_${resp.status}`;
+
+      let errJson: any = null;
+      try {
+        errJson = await resp.json();
+      } catch {
+        // Body was not JSON
+      }
+
+      // Safe console diagnostic logging (DO NOT expose full token)
+      console.log("[DhanAuth] Safe Diagnostics:", {
+        tokenConfigured: true,
+        tokenLength,
+        tokenPrefixMasked,
+        tokenExpiryKnown: this.tokenExpiryMs > 0,
+        httpStatus: resp.status,
+        dhanErrorCode: errJson?.errorCode || errJson?.code || errJson?.status || null,
+        dhanErrorMessage: errJson?.errorMessage || errJson?.message || errJson?.error || null,
       });
 
       if (!resp.ok) {
@@ -389,20 +470,29 @@ export class DhanAuthService {
         if (this.authStatus === "EXPIRED") {
           this.accessToken = null; // Purge invalid token
         }
-        this.lastErrorMessage = `Profile verification HTTP ${resp.status} ${resp.statusText}`;
+
+        const defaultErrorCode = resp.status === 401 || resp.status === 403 ? "EXPIRED_TOKEN" : `HTTP_${resp.status}`;
+        const safeErrorCode = (resp.status === 401 || resp.status === 403)
+          ? "EXPIRED_TOKEN"
+          : (errJson?.errorCode || errJson?.code || errJson?.status || defaultErrorCode);
+
+        const safeErrorMessage = errJson?.errorMessage || errJson?.message || errJson?.error || `Profile verification HTTP ${resp.status}`;
+
+        this.lastErrorMessage = safeErrorMessage;
         return {
           provider: "DHAN",
           connected: false,
           authentication: this.authStatus,
           dataAccess: false,
           executionEnabled: false,
-          authFlowUsed: this.lastAuthFlowUsed,
-          errorCode: resp.status === 401 || resp.status === 403 ? "EXPIRED_TOKEN" : `HTTP_${resp.status}`,
-          errorMessage: this.lastErrorMessage,
+          authFlowUsed: this.lastAuthFlowUsed || "DIRECT_TOKEN",
+          profileApiStatus,
+          errorCode: safeErrorCode,
+          errorMessage: safeErrorMessage,
         };
       }
 
-      const json = await resp.json();
+      const json = errJson;
       const isValidProfile = !!(json?.dhanClientId || json?.profileId || json?.name || json?.status === "success" || resp.ok);
 
       if (isValidProfile) {
@@ -412,21 +502,25 @@ export class DhanAuthService {
           provider: "DHAN",
           connected: true,
           authentication: "VALID",
+          profileApiStatus: "HTTP_200",
           dataAccess: true,
           executionEnabled: false,
           authFlowUsed: this.lastAuthFlowUsed || "DIRECT_TOKEN",
         };
       } else {
         this.authStatus = "FAILED";
+        const safeErrorCode = json?.errorCode || json?.code || "INVALID_PROFILE_RESPONSE";
+        const safeErrorMessage = json?.errorMessage || json?.message || "Profile API returned unexpected structure.";
         return {
           provider: "DHAN",
           connected: false,
           authentication: "FAILED",
           dataAccess: false,
           executionEnabled: false,
-          authFlowUsed: this.lastAuthFlowUsed,
-          errorCode: "INVALID_PROFILE_RESPONSE",
-          errorMessage: "Profile API returned unexpected structure.",
+          authFlowUsed: this.lastAuthFlowUsed || "DIRECT_TOKEN",
+          profileApiStatus: "HTTP_200",
+          errorCode: safeErrorCode,
+          errorMessage: safeErrorMessage,
         };
       }
     } catch (err: any) {
@@ -438,7 +532,11 @@ export class DhanAuthService {
         authentication: "FAILED",
         dataAccess: false,
         executionEnabled: false,
-        authFlowUsed: this.lastAuthFlowUsed,
+        authFlowUsed: this.lastAuthFlowUsed || "DIRECT_TOKEN",
+        profileApiStatus: "NETWORK_ERROR",
+        tokenConfigured: true,
+        tokenLength,
+        tokenMasked: true,
         errorCode: "NETWORK_ERROR",
         errorMessage: this.lastErrorMessage,
       };
