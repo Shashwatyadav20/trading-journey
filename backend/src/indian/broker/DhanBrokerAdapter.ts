@@ -100,8 +100,8 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
   private _positionsAvailable: boolean = false;
 
   constructor(config?: DhanApiConfig) {
-    this.clientId = config?.clientId ?? process.env.DHAN_CLIENT_ID ?? "";
-    this.accessToken = config?.accessToken ?? process.env.DHAN_ACCESS_TOKEN ?? "";
+    this.clientId = config?.clientId ?? "";
+    this.accessToken = config?.accessToken ?? "";
     this.baseUrl = config?.baseUrl ?? process.env.DHAN_BASE_URL ?? "https://api.dhan.co/v2";
     this.staleTimeoutMs = config?.staleTimeoutMs ?? parseInt(process.env.DHAN_DATA_STALE_MS ?? "60000", 10);
   }
@@ -111,11 +111,11 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
   }
 
   public getClientId(): string {
-    return this.clientId;
+    return this.cleanString(this.clientId || dhanAuthService.getClientId() || process.env.DHAN_CLIENT_ID || "");
   }
 
   public getAccessToken(): string {
-    return this.accessToken;
+    return this.cleanString(this.accessToken || dhanAuthService.getReadOnlyToken() || process.env.DHAN_ACCESS_TOKEN || "");
   }
 
   public isConfigured(): boolean {
@@ -124,15 +124,15 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
 
   public async getAuthVerificationResult(): Promise<DhanAuthVerificationResult> {
     dhanAuthService.reloadCredentials({
-      clientId: this.clientId || undefined,
-      accessToken: this.accessToken || undefined,
+      clientId: this.getClientId() || undefined,
+      accessToken: this.getAccessToken() || undefined,
       baseUrl: this.baseUrl || undefined,
     });
     return await dhanAuthService.authenticateAndVerify();
   }
 
   private getMaskedClientId(): string {
-    return this.maskId(this.clientId || process.env.DHAN_CLIENT_ID || "");
+    return this.maskId(this.getClientId());
   }
 
   private maskId(id: string): string {
@@ -159,17 +159,11 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
     // 2. getValidAccessToken() throws when LIVE_TRADING=false/PAPER_TRADING=true (safety locks active).
     // 3. The token used here is the same token that successfully calls /v2/profile.
     //
-    // Token priority: adapter-local config → global auth service → env var
-    const localToken = this.cleanString(this.accessToken);
-    const token = localToken
-      || dhanAuthService.getReadOnlyToken()
-      || this.cleanString(process.env.DHAN_ACCESS_TOKEN || "");
+    // Token priority: adapter-local explicit override -> global auth service -> env var
+    const token = this.getAccessToken();
 
-    // ClientId priority: adapter-local → global auth service → env var
-    const localCid = this.cleanString(this.clientId);
-    const cid = localCid
-      || dhanAuthService.getClientId()
-      || this.cleanString(process.env.DHAN_CLIENT_ID || "");
+    // ClientId priority: adapter-local explicit override -> global auth service -> env var
+    const cid = this.getClientId();
 
     const headers: Record<string, string> = {
       "access-token": token,
