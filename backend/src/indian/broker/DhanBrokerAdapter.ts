@@ -14,6 +14,7 @@ import {
   OptionChainFetchResult,
   OptionChainProviderHealth,
 } from "../market/INiftyOptionChainProvider";
+import { nseIndiaOptionChainProvider } from "../market/NseIndiaOptionChainProvider";
 import { CanonicalOptionContract, DataSourceType } from "../types";
 import { dhanAuthService, DhanAuthVerificationResult } from "./DhanAuthService";
 import { auditLogger } from "../audit/AuditLogger";
@@ -476,6 +477,96 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
 
   // ── INiftyOptionChainProvider Methods ───────────────────────────────────────
 
+  // ── Dhan Option Chain Rate Limiter, Cache & Deduplication State ────────────
+  private lastOutboundRequestMs: number = 0;
+  private rateLimitBackoffUntilMs: number = 0;
+  private chainCache: Map<string, { result: OptionChainFetchResult; fetchedAt: number }> = new Map();
+  private inFlightRequests: Map<string, Promise<OptionChainFetchResult>> = new Map();
+  private lastDiscrepancyLogs: Array<{
+    sourceA: string;
+    sourceB: string;
+    field: string;
+    dhanValue: any;
+    nseValue: any;
+    difference: number | null;
+    timestamp: string;
+  }> = [];
+  private cachedExpiries: { expiries: string[]; fetchedAt: number } | null = null;
+
+  /**
+   * Minimum 3-second spacing required between Dhan Option Chain requests.
+   */
+  private async enforceRateLimitDelay(): Promise<void> {
+    if (process.env.NODE_ENV === "test" || process.env.VITEST || process.env.EXECUTION_MODE === "SIMULATED_TEST") {
+      return;
+    }
+    const now = Date.now();
+    if (now < this.rateLimitBackoffUntilMs) {
+      const waitMs = this.rateLimitBackoffUntilMs - now;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+
+    const elapsed = Date.now() - this.lastOutboundRequestMs;
+    const minSpacing = 3000;
+    if (elapsed < minSpacing) {
+      const delay = minSpacing - elapsed;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+    this.lastOutboundRequestMs = Date.now();
+  }
+
+  /**
+   * Official DhanHQ v2 Expiry List Discovery API:
+   * POST https://api.dhan.co/v2/optionchain/expirylist
+   */
+  public async fetchExpiryList(underlyingScrip: number = 13, underlyingSeg: string = "IDX_I"): Promise<string[]> {
+    const now = Date.now();
+    if (this.cachedExpiries && now - this.cachedExpiries.fetchedAt < 30000) {
+      return this.cachedExpiries.expiries;
+    }
+
+    if (!this.isConfigured()) {
+      return [];
+    }
+
+    try {
+      await this.enforceRateLimitDelay();
+
+      const resp = await fetch(`${this.baseUrl}/optionchain/expirylist`, {
+        method: "POST",
+        headers: this.buildHeaders(),
+        body: JSON.stringify({
+          UnderlyingScrip: underlyingScrip,
+          UnderlyingSeg: underlyingSeg,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!resp.ok) {
+        return [];
+      }
+
+      const json = await resp.json();
+      const list: string[] = Array.isArray(json)
+        ? json
+        : Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json?.data?.expirylist)
+        ? json.data.expirylist
+        : [];
+
+      const validExpiries = list.filter((e) => typeof e === "string" && e.length >= 8).sort();
+      if (validExpiries.length > 0) {
+        this.cachedExpiries = { expiries: validExpiries, fetchedAt: now };
+      }
+      return validExpiries;
+    } catch (err) {
+      return [];
+    }
+  }
+
+  // ── INiftyOptionChainProvider Methods ───────────────────────────────────────
+
   public getProviderHealth(): OptionChainProviderHealth {
     const isConf = this.isConfigured();
     const failures = this.consecutiveFailures;
@@ -500,7 +591,11 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
     };
   }
 
-  public async fetchOptionChain(spotPrice: number): Promise<OptionChainFetchResult> {
+  /**
+   * Official DhanHQ v2 Real-Time NIFTY Option Chain API Integration.
+   * POST https://api.dhan.co/v2/optionchain
+   */
+  public async fetchOptionChain(spotPrice: number, targetExpiry?: string): Promise<OptionChainFetchResult> {
     const fetchStart = Date.now();
     this.lastFetchMs = fetchStart;
 
@@ -521,136 +616,343 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
       };
     }
 
-    try {
-      const resp = await fetch(`${this.baseUrl}/optionchain`, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify({
-          UnderlyingScrip: 13, // NIFTY 50 Index scrip code in Dhan
-          UnderlyingSeg: "NSE_IND",
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
+    // 1. Dynamic Expiry Discovery
+    const expiries = await this.fetchExpiryList(13, "IDX_I");
+    let expiryToFetch = targetExpiry;
 
-      if (!resp.ok) {
+    if (!expiryToFetch) {
+      if (expiries.length > 0) {
+        const nowIsoDate = new Date().toISOString().split("T")[0];
+        const activeExpiries = expiries.filter((e) => e >= nowIsoDate);
+        expiryToFetch = activeExpiries[0] || expiries[0];
+      } else {
+        expiryToFetch = "2026-10-08";
+      }
+    }
+
+    // 2. Rate Limiting, Cache & Deduplication Check
+    const cacheKey = `DHAN_NIFTY_${expiryToFetch}`;
+    const cached = this.chainCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < 5000) {
+      return cached.result;
+    }
+
+    if (this.inFlightRequests.has(cacheKey)) {
+      return await this.inFlightRequests.get(cacheKey)!;
+    }
+
+    const requestPromise = (async (): Promise<OptionChainFetchResult> => {
+      try {
+        await this.enforceRateLimitDelay();
+
+        const resp = await fetch(`${this.baseUrl}/optionchain`, {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify({
+            UnderlyingScrip: 13, // NIFTY 50 Index Security ID in Dhan
+            UnderlyingSeg: "IDX_I",
+            Expiry: expiryToFetch,
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (resp.status === 429) {
+          this.rateLimitBackoffUntilMs = Date.now() + 5000;
+          this.consecutiveFailures++;
+          this.lastErrorMessage = "Dhan OptionChain HTTP 429 Rate Limit Exceeded";
+          if (cached) return cached.result;
+          return {
+            success: false,
+            sourceType: "INVALID",
+            providerName: this.providerName,
+            contracts: [],
+            spotPrice: null,
+            expiryDates: expiries,
+            nearestExpiry: expiryToFetch,
+            lotSize: null,
+            underlyingTimestamp: null,
+            fetchDurationMs: Date.now() - fetchStart,
+            errorCode: "HTTP_429",
+            errorMessage: this.lastErrorMessage,
+          };
+        }
+
+        if (!resp.ok) {
+          this.consecutiveFailures++;
+          this.lastErrorMessage = `Dhan OptionChain HTTP ${resp.status}`;
+          return {
+            success: false,
+            sourceType: "INVALID",
+            providerName: this.providerName,
+            contracts: [],
+            spotPrice: null,
+            expiryDates: expiries,
+            nearestExpiry: expiryToFetch,
+            lotSize: null,
+            underlyingTimestamp: null,
+            fetchDurationMs: Date.now() - fetchStart,
+            errorCode: `HTTP_${resp.status}`,
+            errorMessage: this.lastErrorMessage,
+          };
+        }
+
+        const json = await resp.json();
+        const rawData = json?.data ?? json ?? {};
+        const ocSpot = rawData?.last_price ?? rawData?.lastPrice ?? spotPrice;
+        const ocContractsRaw = rawData?.oc ?? rawData?.optionChain ?? {};
+
+        const contracts: CanonicalOptionContract[] = [];
+        const expirySet = new Set<string>(expiries);
+        let validPriceCount = 0;
+
+        for (const strikeStr of Object.keys(ocContractsRaw)) {
+          const strike = Number(strikeStr);
+          if (isNaN(strike)) continue;
+          const strikeData = ocContractsRaw[strikeStr];
+
+          if (strikeData?.ce) {
+            const ce = strikeData.ce;
+            const ceExpiry = ce.expiry || expiryToFetch;
+            if (ceExpiry) expirySet.add(ceExpiry);
+
+            const ltp = ce.last_price ?? ce.lastPrice ?? ce.ltp ?? 0;
+            const bid = ce.top_bid_price ?? ce.bid_price ?? ce.bid ?? ce.topBidPrice ?? 0;
+            const ask = ce.top_ask_price ?? ce.ask_price ?? ce.ask ?? ce.topAskPrice ?? 0;
+            if (ltp > 0 || bid > 0 || ask > 0) validPriceCount++;
+
+            contracts.push({
+              underlying: "NIFTY",
+              expiry: ceExpiry,
+              strike,
+              optionType: "CE",
+              bid,
+              ask,
+              ltp,
+              timestamp: new Date().toISOString(),
+              source: this.providerName,
+              sourceType: "REAL_EXTERNAL",
+              volume: ce.volume ?? ce.volume_traded ?? 0,
+              openInterest: ce.oi ?? ce.open_interest ?? ce.openInterest ?? 0,
+              iv: ce.iv ?? ce.implied_volatility ?? undefined,
+              ivSource: ce.iv !== undefined || ce.implied_volatility !== undefined ? "REAL" : "UNAVAILABLE",
+              delta: ce.delta !== undefined ? Number(ce.delta) : undefined,
+              deltaSource: ce.delta !== undefined ? "REAL" : "UNAVAILABLE",
+              gamma: ce.gamma !== undefined ? Number(ce.gamma) : undefined,
+              gammaSource: ce.gamma !== undefined ? "REAL" : "UNAVAILABLE",
+              theta: ce.theta !== undefined ? Number(ce.theta) : undefined,
+              thetaSource: ce.theta !== undefined ? "REAL" : "UNAVAILABLE",
+              vega: ce.vega !== undefined ? Number(ce.vega) : undefined,
+              vegaSource: ce.vega !== undefined ? "REAL" : "UNAVAILABLE",
+            });
+          }
+
+          if (strikeData?.pe) {
+            const pe = strikeData.pe;
+            const peExpiry = pe.expiry || expiryToFetch;
+            if (peExpiry) expirySet.add(peExpiry);
+
+            const ltp = pe.last_price ?? pe.lastPrice ?? pe.ltp ?? 0;
+            const bid = pe.top_bid_price ?? pe.bid_price ?? pe.bid ?? pe.topBidPrice ?? 0;
+            const ask = pe.top_ask_price ?? pe.ask_price ?? pe.ask ?? pe.topAskPrice ?? 0;
+            if (ltp > 0 || bid > 0 || ask > 0) validPriceCount++;
+
+            contracts.push({
+              underlying: "NIFTY",
+              expiry: peExpiry,
+              strike,
+              optionType: "PE",
+              bid,
+              ask,
+              ltp,
+              timestamp: new Date().toISOString(),
+              source: this.providerName,
+              sourceType: "REAL_EXTERNAL",
+              volume: pe.volume ?? pe.volume_traded ?? 0,
+              openInterest: pe.oi ?? pe.open_interest ?? pe.openInterest ?? 0,
+              iv: pe.iv ?? pe.implied_volatility ?? undefined,
+              ivSource: pe.iv !== undefined || pe.implied_volatility !== undefined ? "REAL" : "UNAVAILABLE",
+              delta: pe.delta !== undefined ? Number(pe.delta) : undefined,
+              deltaSource: pe.delta !== undefined ? "REAL" : "UNAVAILABLE",
+              gamma: pe.gamma !== undefined ? Number(pe.gamma) : undefined,
+              gammaSource: pe.gamma !== undefined ? "REAL" : "UNAVAILABLE",
+              theta: pe.theta !== undefined ? Number(pe.theta) : undefined,
+              thetaSource: pe.theta !== undefined ? "REAL" : "UNAVAILABLE",
+              vega: pe.vega !== undefined ? Number(pe.vega) : undefined,
+              vegaSource: pe.vega !== undefined ? "REAL" : "UNAVAILABLE",
+            });
+          }
+        }
+
+        const expiryDates = Array.from(expirySet).sort();
+
+        // Price & Quote Integrity Validation
+        if (contracts.length === 0 || validPriceCount === 0) {
+          this.consecutiveFailures++;
+          this.lastErrorMessage = "REAL_OPTION_PRICE_UNAVAILABLE: Dhan option chain returned 0 valid quotes.";
+          return {
+            success: false,
+            sourceType: "INVALID",
+            providerName: this.providerName,
+            contracts: [],
+            spotPrice: ocSpot,
+            expiryDates,
+            nearestExpiry: expiryToFetch,
+            lotSize: null,
+            underlyingTimestamp: null,
+            fetchDurationMs: Date.now() - fetchStart,
+            errorCode: "REAL_OPTION_PRICE_UNAVAILABLE",
+            errorMessage: this.lastErrorMessage,
+          };
+        }
+
+        // Dynamic Lot Size Resolution
+        const lotVerification = instrumentMasterResolver.verifyLotSizeFromProvider(75);
+        if (!lotVerification.verified) {
+          return {
+            success: false,
+            sourceType: "INVALID",
+            providerName: this.providerName,
+            contracts: [],
+            spotPrice: ocSpot,
+            expiryDates,
+            nearestExpiry: expiryToFetch,
+            lotSize: null,
+            underlyingTimestamp: null,
+            fetchDurationMs: Date.now() - fetchStart,
+            errorCode: "LOT_SIZE_UNVERIFIED",
+            errorMessage: "Lot size unverified from Dhan provider.",
+          };
+        }
+
+        this.consecutiveFailures = 0;
+        this.lastSuccessMs = Date.now();
+        this.lastErrorMessage = "";
+
+        const result: OptionChainFetchResult = {
+          success: true,
+          sourceType: "REAL",
+          providerName: this.providerName,
+          contracts,
+          spotPrice: ocSpot,
+          expiryDates,
+          nearestExpiry: expiryToFetch,
+          lotSize: lotVerification.currentLotSize,
+          underlyingTimestamp: new Date().toISOString(),
+          fetchDurationMs: Date.now() - fetchStart,
+        };
+
+        this.chainCache.set(cacheKey, { result, fetchedAt: Date.now() });
+        this.crossVerifyWithNse(result).catch(() => {});
+
+        return result;
+      } catch (err: any) {
         this.consecutiveFailures++;
-        this.lastErrorMessage = `Dhan OptionChain HTTP ${resp.status}`;
+        this.lastErrorMessage = err.message || "Dhan option chain fetch failed.";
         return {
           success: false,
           sourceType: "INVALID",
           providerName: this.providerName,
           contracts: [],
           spotPrice: null,
-          expiryDates: [],
-          nearestExpiry: null,
+          expiryDates: expiries,
+          nearestExpiry: expiryToFetch || null,
           lotSize: null,
           underlyingTimestamp: null,
           fetchDurationMs: Date.now() - fetchStart,
-          errorCode: `HTTP_${resp.status}`,
+          errorCode: "PROVIDER_EXCEPTION",
           errorMessage: this.lastErrorMessage,
         };
+      } finally {
+        this.inFlightRequests.delete(cacheKey);
       }
+    })();
 
-      const json = await resp.json();
-      const rawData = json?.data ?? {};
-      const ocSpot = rawData?.last_price ?? spotPrice;
-      const ocContractsRaw = rawData?.oc ?? {};
+    this.inFlightRequests.set(cacheKey, requestPromise);
+    return await requestPromise;
+  }
 
-      const contracts: CanonicalOptionContract[] = [];
-      const expirySet = new Set<string>();
+  /**
+   * Performs side-by-side NSE vs Dhan cross-verification logging.
+   */
+  public async crossVerifyWithNse(dhanResult: OptionChainFetchResult): Promise<void> {
+    if (!dhanResult.success) return;
+    try {
+      const nseChain = await nseIndiaOptionChainProvider.fetchOptionChain(dhanResult.spotPrice || 24700);
+      if (!nseChain.success || nseChain.contracts.length === 0) return;
 
-      for (const strikeStr of Object.keys(ocContractsRaw)) {
-        const strike = Number(strikeStr);
-        const strikeData = ocContractsRaw[strikeStr];
+      const logs: Array<{
+        sourceA: string;
+        sourceB: string;
+        field: string;
+        dhanValue: any;
+        nseValue: any;
+        difference: number | null;
+        timestamp: string;
+      }> = [];
+      const nowIso = new Date().toISOString();
 
-        if (strikeData?.ce) {
-          const ce = strikeData.ce;
-          if (ce.expiry) expirySet.add(ce.expiry);
-          contracts.push({
-            underlying: "NIFTY",
-            expiry: ce.expiry || "2026-09-24",
-            strike,
-            optionType: "CE",
-            ltp: ce.last_price ?? 0,
-            bid: ce.bid_price ?? 0,
-            ask: ce.ask_price ?? 0,
-            timestamp: new Date().toISOString(),
-            source: this.providerName,
-            sourceType: "REAL",
-            volume: ce.volume ?? 0,
-            openInterest: ce.oi ?? 0,
-            iv: ce.iv ?? undefined,
-            ivSource: ce.iv ? "REAL" : "UNAVAILABLE",
-            delta: ce.delta ?? undefined,
-            deltaSource: ce.delta ? "REAL" : "UNAVAILABLE",
-            gamma: ce.gamma ?? undefined,
-            gammaSource: ce.gamma ? "REAL" : "UNAVAILABLE",
-          });
-        }
-
-        if (strikeData?.pe) {
-          const pe = strikeData.pe;
-          if (pe.expiry) expirySet.add(pe.expiry);
-          contracts.push({
-            underlying: "NIFTY",
-            expiry: pe.expiry || "2026-09-24",
-            strike,
-            optionType: "PE",
-            ltp: pe.last_price ?? 0,
-            bid: pe.bid_price ?? 0,
-            ask: pe.ask_price ?? 0,
-            timestamp: new Date().toISOString(),
-            source: this.providerName,
-            sourceType: "REAL",
-            volume: pe.volume ?? 0,
-            openInterest: pe.oi ?? 0,
-            iv: pe.iv ?? undefined,
-            ivSource: pe.iv ? "REAL" : "UNAVAILABLE",
-            delta: pe.delta ?? undefined,
-            deltaSource: pe.delta ? "REAL" : "UNAVAILABLE",
-            gamma: pe.gamma ?? undefined,
-            gammaSource: pe.gamma ? "REAL" : "UNAVAILABLE",
+      if (dhanResult.spotPrice !== null && nseChain.spotPrice !== null) {
+        const spotDiff = Math.abs(dhanResult.spotPrice - nseChain.spotPrice);
+        if (spotDiff > 2.0) {
+          logs.push({
+            sourceA: "DHAN",
+            sourceB: "NSE",
+            field: "NIFTY_SPOT",
+            dhanValue: dhanResult.spotPrice,
+            nseValue: nseChain.spotPrice,
+            difference: Number(spotDiff.toFixed(2)),
+            timestamp: nowIso,
           });
         }
       }
 
-      const expiryDates = Array.from(expirySet).sort();
-      const nearestExpiry = expiryDates[0] || null;
+      if (Math.abs(dhanResult.contracts.length - nseChain.contracts.length) > 10) {
+        logs.push({
+          sourceA: "DHAN",
+          sourceB: "NSE",
+          field: "CONTRACTS_COUNT",
+          dhanValue: dhanResult.contracts.length,
+          nseValue: nseChain.contracts.length,
+          difference: Math.abs(dhanResult.contracts.length - nseChain.contracts.length),
+          timestamp: nowIso,
+        });
+      }
 
-      this.consecutiveFailures = 0;
-      this.lastSuccessMs = Date.now();
-      this.lastErrorMessage = "";
+      for (const log of logs) {
+        console.log("[CROSS_VERIFICATION_DISCREPANCY]", log);
+      }
 
-      return {
-        success: true,
-        sourceType: "REAL",
-        providerName: this.providerName,
-        contracts,
-        spotPrice: ocSpot,
-        expiryDates,
-        nearestExpiry,
-        lotSize: 75, // Dhan instrument master specifies lot size 75 for NIFTY
-        underlyingTimestamp: new Date().toISOString(),
-        fetchDurationMs: Date.now() - fetchStart,
-      };
-    } catch (err: any) {
-      this.consecutiveFailures++;
-      this.lastErrorMessage = err.message || "Dhan option chain fetch failed.";
-      return {
-        success: false,
-        sourceType: "INVALID",
-        providerName: this.providerName,
-        contracts: [],
-        spotPrice: null,
-        expiryDates: [],
-        nearestExpiry: null,
-        lotSize: null,
-        underlyingTimestamp: null,
-        fetchDurationMs: Date.now() - fetchStart,
-        errorCode: "PROVIDER_EXCEPTION",
-        errorMessage: this.lastErrorMessage,
-      };
+      this.lastDiscrepancyLogs = [...logs, ...this.lastDiscrepancyLogs].slice(0, 50);
+    } catch (err) {
+      console.error("[DEBUG] Error in crossVerifyWithNse:", err);
+      // Ignore cross-verification exceptions
     }
+  }
+
+  public getDiscrepancyLogs() {
+    return this.lastDiscrepancyLogs;
+  }
+
+  public getOptionChainStatus() {
+    const isConf = this.isConfigured();
+    const now = Date.now();
+    const cachedItem = Array.from(this.chainCache.values())[0];
+    const cacheAgeMs = cachedItem ? now - cachedItem.fetchedAt : null;
+
+    return {
+      provider: "DHAN",
+      isConfigured: isConf,
+      status: this.getProviderHealth().status,
+      rateLimitSpacingMs: 3000,
+      lastOutboundRequestMs: this.lastOutboundRequestMs,
+      rateLimitBackoffActive: now < this.rateLimitBackoffUntilMs,
+      cachedChainsCount: this.chainCache.size,
+      cacheAgeMs,
+      inFlightRequestsCount: this.inFlightRequests.size,
+      lotSizeVerified: instrumentMasterResolver.getCurrentProviderLotSize() !== null,
+      currentLotSize: instrumentMasterResolver.getLotSize(),
+      discrepanciesCount: this.lastDiscrepancyLogs.length,
+    };
   }
 
   // ── READ-ONLY DEEP CONNECTIVITY TEST METHOD ─────────────────────────────────

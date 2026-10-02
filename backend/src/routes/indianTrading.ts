@@ -1286,6 +1286,119 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   });
 
   /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * PHASE 26B — DHAN REAL-TIME NIFTY OPTION CHAIN INTEGRATION ENDPOINTS
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+
+  /**
+   * GET /api/indian/dhan/option-chain/status
+   * Safe status of Dhan option chain provider, rate limiter, cache, and lot size verification.
+   */
+  server.get("/api/indian/dhan/option-chain/status", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = dhanBrokerAdapter.getOptionChainStatus();
+      return reply.send({
+        success: true,
+        status,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/dhan/option-chain/expiry
+   * Discovered active expiries from official Dhan Expiry List API.
+   */
+  server.get("/api/indian/dhan/option-chain/expiry", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const expiries = await dhanBrokerAdapter.fetchExpiryList(13, "IDX_I");
+      return reply.send({
+        success: true,
+        provider: "DHAN",
+        underlyingScrip: 13,
+        underlyingSeg: "IDX_I",
+        expiries,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/dhan/option-chain
+   * Real-time normalized canonical NIFTY option chain from Dhan (safe market data only).
+   */
+  server.get("/api/indian/dhan/option-chain", async (request: FastifyRequest<{ Querystring: { expiry?: string } }>, reply: FastifyReply) => {
+    try {
+      const { expiry } = request.query || {};
+      const spotRes = await niftyMarketProvider.getSpotPrice();
+      const fetchResult = await dhanBrokerAdapter.fetchOptionChain(spotRes.spotPrice || 24700, expiry);
+      return reply.send({
+        success: fetchResult.success,
+        fetchResult,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/dhan/data-health
+   * Phase 26B comprehensive provider transparency and health metrics.
+   */
+  server.get("/api/indian/dhan/data-health", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const spotRes = await niftyMarketProvider.getSpotPrice();
+      const chainFetch = await dhanBrokerAdapter.fetchOptionChain(spotRes.spotPrice || 24700);
+      const isConnected = dhanBrokerAdapter.isConfigured() && chainFetch.success;
+
+      const sampleContract = chainFetch.contracts[0];
+
+      const dataHealth = {
+        provider: "DHAN",
+        connected: isConnected,
+        sourceType: "REAL_EXTERNAL",
+        spot: {
+          available: spotRes.spotPrice > 0,
+          source: "DHAN",
+        },
+        optionChain: {
+          available: chainFetch.success,
+          source: "DHAN",
+          contracts: chainFetch.contracts.length,
+          stale: false,
+        },
+        optionPrices: {
+          available: chainFetch.success && chainFetch.contracts.some((c) => c.ltp > 0),
+          source: "DHAN",
+        },
+        greeks: {
+          delta: !!(sampleContract && sampleContract.delta !== undefined),
+          gamma: !!(sampleContract && sampleContract.gamma !== undefined),
+          theta: !!(sampleContract && sampleContract.theta !== undefined),
+          vega: !!(sampleContract && sampleContract.vega !== undefined),
+          iv: !!(sampleContract && sampleContract.iv !== undefined),
+        },
+        lotSize: {
+          verified: chainFetch.lotSize != null && chainFetch.lotSize > 0,
+          currentLotSize: chainFetch.lotSize,
+          source: "DHAN_INSTRUMENT_MASTER",
+        },
+        executionEnabled: false,
+      };
+
+      return reply.send({
+        success: true,
+        dataHealth,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/indian/phase19/strategies
    * Returns factual performance breakdown for BULL_PUT, BEAR_CALL, and IRON_CONDOR (unranked).
    */

@@ -393,9 +393,13 @@ export type RejectionCategory =
   | "MAX_TRADES"
   | "CONSECUTIVE_LOSS_LOCK"
   | "NO_VALID_OPTION"
-  // Phase 17 — Genuine Data Provider reasons
+  // Phase 17 & Phase 26 — Genuine Data Provider reasons
   | "REAL_OPTION_CHAIN_UNAVAILABLE"
   | "REAL_OPTION_PRICE_UNAVAILABLE"
+  | "REAL_GREEK_UNAVAILABLE"
+  | "REAL_OPTION_CHAIN_STALE"
+  | "INSTRUMENT_UNVERIFIED"
+  | "REAL_EXPIRY_UNAVAILABLE"
   | "AUTHENTICATION_FAILURE"
   | "PROVIDER_ERROR"
   | "MARKET_CLOSED"
@@ -726,7 +730,7 @@ export interface GenuinePaperValidationReport {
  * STALE = real at some point but age > threshold.
  * INVALID = received but failed validation.
  */
-export type DataSourceType = "REAL" | "SYNTHETIC" | "UNKNOWN" | "STALE" | "INVALID";
+export type DataSourceType = "REAL" | "REAL_EXTERNAL" | "SYNTHETIC" | "UNKNOWN" | "STALE" | "INVALID";
 
 /**
  * Health record for a single data component (spot, option chain, option prices).
