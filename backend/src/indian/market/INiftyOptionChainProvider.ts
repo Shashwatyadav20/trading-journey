@@ -28,6 +28,7 @@ export interface OptionChainFetchResult {
   expiryDates: string[];
   nearestExpiry: string | null;
   lotSize: number | null;            // from provider; null if not supplied
+  lotSizeVerified?: boolean;         // true only when provider explicitly supplied lot size
   underlyingTimestamp: string | null;
   fetchDurationMs: number;
   errorMessage?: string;

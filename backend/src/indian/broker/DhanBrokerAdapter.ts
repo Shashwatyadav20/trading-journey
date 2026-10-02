@@ -154,8 +154,23 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
   }
 
   private buildHeaders(isGet: boolean = false): Record<string, string> {
-    const token = this.cleanString(this.accessToken || process.env.DHAN_ACCESS_TOKEN || "");
-    const cid = this.cleanString(this.clientId || process.env.DHAN_CLIENT_ID || "");
+    // Use getReadOnlyToken() — NOT getValidAccessToken() — because:
+    // 1. Data reads (option chain, expiry list) are always safe and must never be blocked by execution safety locks.
+    // 2. getValidAccessToken() throws when LIVE_TRADING=false/PAPER_TRADING=true (safety locks active).
+    // 3. The token used here is the same token that successfully calls /v2/profile.
+    //
+    // Token priority: adapter-local config → global auth service → env var
+    const localToken = this.cleanString(this.accessToken);
+    const token = localToken
+      || dhanAuthService.getReadOnlyToken()
+      || this.cleanString(process.env.DHAN_ACCESS_TOKEN || "");
+
+    // ClientId priority: adapter-local → global auth service → env var
+    const localCid = this.cleanString(this.clientId);
+    const cid = localCid
+      || dhanAuthService.getClientId()
+      || this.cleanString(process.env.DHAN_CLIENT_ID || "");
+
     const headers: Record<string, string> = {
       "access-token": token,
       "Accept": "application/json",
@@ -169,6 +184,7 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
     }
     return headers;
   }
+
 
   // ── Internal HTTP helper (spyable by tests) ────────────────────────────────
 
@@ -543,7 +559,16 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
       });
 
       if (!resp.ok) {
-        return [];
+        let dhanCode = `HTTP_${resp.status}`;
+        let errorMsg = `Dhan ExpiryList HTTP ${resp.status}`;
+        try {
+          const errorJson = await resp.json();
+          if (errorJson?.errorCode || errorJson?.error_code) {
+            dhanCode = `DHAN_${errorJson.errorCode || errorJson.error_code}`;
+            errorMsg = errorJson.errorMessage || errorJson.error_message || errorMsg;
+          }
+        } catch { /* ignore */ }
+        throw new Error(`${dhanCode}: ${errorMsg}`);
       }
 
       const json = await resp.json();
@@ -560,8 +585,9 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
         this.cachedExpiries = { expiries: validExpiries, fetchedAt: now };
       }
       return validExpiries;
-    } catch (err) {
-      return [];
+    } catch (err: any) {
+      this.lastErrorMessage = err?.message || String(err);
+      throw err;
     }
   }
 
@@ -617,7 +643,22 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
     }
 
     // 1. Dynamic Expiry Discovery
-    const expiries = await this.fetchExpiryList(13, "IDX_I");
+    let expiries: string[] = [];
+    let expiryError: string | null = null;
+    let expiryErrorCode: string = "DHAN_EXPIRY_UNAVAILABLE";
+    try {
+      expiries = await this.fetchExpiryList(13, "IDX_I");
+    } catch (err: any) {
+      expiryError = (err.message || "Failed to fetch expiry list") as string;
+      if (expiryError.startsWith("DHAN_") || expiryError.startsWith("HTTP_")) {
+        const parts = expiryError.split(":");
+        if (parts.length > 1) {
+          expiryErrorCode = parts[0];
+          expiryError = parts.slice(1).join(":").trim();
+        }
+      }
+    }
+
     let expiryToFetch = targetExpiry;
 
     if (!expiryToFetch) {
@@ -625,9 +666,24 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
         const nowIsoDate = new Date().toISOString().split("T")[0];
         const activeExpiries = expiries.filter((e) => e >= nowIsoDate);
         expiryToFetch = activeExpiries[0] || expiries[0];
-      } else {
-        expiryToFetch = "2026-10-08";
       }
+    }
+    
+    if (!expiryToFetch) {
+      return {
+        success: false,
+        sourceType: "INVALID",
+        providerName: this.providerName,
+        contracts: [],
+        spotPrice: null,
+        expiryDates: expiries,
+        nearestExpiry: null,
+        lotSize: null,
+        underlyingTimestamp: null,
+        fetchDurationMs: Date.now() - fetchStart,
+        errorCode: expiryErrorCode,
+        errorMessage: expiryError || "REAL_EXPIRY_LIST_UNAVAILABLE",
+      };
     }
 
     // 2. Rate Limiting, Cache & Deduplication Check
@@ -678,8 +734,19 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
         }
 
         if (!resp.ok) {
+          let dhanCode = `HTTP_${resp.status}`;
+          let errorMsg = `Dhan OptionChain HTTP ${resp.status}`;
+          try {
+            const errorJson = await resp.json();
+            if (errorJson?.errorCode || errorJson?.error_code) {
+              const code = errorJson.errorCode || errorJson.error_code;
+              dhanCode = `DHAN_${code}`;
+              errorMsg = errorJson.errorMessage || errorJson.error_message || errorMsg;
+            }
+          } catch { /* ignore */ }
+
           this.consecutiveFailures++;
-          this.lastErrorMessage = `Dhan OptionChain HTTP ${resp.status}`;
+          this.lastErrorMessage = errorMsg;
           return {
             success: false,
             sourceType: "INVALID",
@@ -691,7 +758,7 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
             lotSize: null,
             underlyingTimestamp: null,
             fetchDurationMs: Date.now() - fetchStart,
-            errorCode: `HTTP_${resp.status}`,
+            errorCode: dhanCode,
             errorMessage: this.lastErrorMessage,
           };
         }
@@ -806,23 +873,29 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
         }
 
         // Dynamic Lot Size Resolution
-        const lotVerification = instrumentMasterResolver.verifyLotSizeFromProvider(75);
-        if (!lotVerification.verified) {
-          return {
-            success: false,
-            sourceType: "INVALID",
-            providerName: this.providerName,
-            contracts: [],
-            spotPrice: ocSpot,
-            expiryDates,
-            nearestExpiry: expiryToFetch,
-            lotSize: null,
-            underlyingTimestamp: null,
-            fetchDurationMs: Date.now() - fetchStart,
-            errorCode: "LOT_SIZE_UNVERIFIED",
-            errorMessage: "Lot size unverified from Dhan provider.",
-          };
+        // Extract lot size from provider response if present.
+        // If absent: lotSize = null, lotSizeVerified = false.
+        // LOT_SIZE_UNVERIFIED → blocks paper TRADE execution, NOT data fetch.
+        let extractedLotSize: number | null = null;
+        if (rawData?.lot_size || rawData?.lotSize) {
+          extractedLotSize = Number(rawData.lot_size ?? rawData.lotSize);
+        } else {
+          for (const strikeStr of Object.keys(ocContractsRaw)) {
+            const sd = ocContractsRaw[strikeStr];
+            if (sd?.ce?.lot_size || sd?.ce?.multiplier) {
+              extractedLotSize = Number(sd.ce.lot_size ?? sd.ce.multiplier);
+              break;
+            }
+            if (sd?.pe?.lot_size || sd?.pe?.multiplier) {
+              extractedLotSize = Number(sd.pe.lot_size ?? sd.pe.multiplier);
+              break;
+            }
+          }
         }
+
+        const lotVerification = instrumentMasterResolver.verifyLotSizeFromProvider(extractedLotSize);
+        // NOTE: lotSizeVerified=false does NOT fail the fetch — it sets lotSize=null.
+        // Trade execution logic (PaperBrokerAdapter) must check lotSizeVerified before filling.
 
         this.consecutiveFailures = 0;
         this.lastSuccessMs = Date.now();
@@ -837,6 +910,7 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
           expiryDates,
           nearestExpiry: expiryToFetch,
           lotSize: lotVerification.currentLotSize,
+          lotSizeVerified: lotVerification.verified,
           underlyingTimestamp: new Date().toISOString(),
           fetchDurationMs: Date.now() - fetchStart,
         };
@@ -938,9 +1012,39 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
     const now = Date.now();
     const cachedItem = Array.from(this.chainCache.values())[0];
     const cacheAgeMs = cachedItem ? now - cachedItem.fetchedAt : null;
+    
+    let lastErr: any = null;
+    if (this.lastErrorMessage) {
+      lastErr = {
+        message: this.lastErrorMessage,
+      };
+      if (this.lastErrorMessage.startsWith("DHAN_") || this.lastErrorMessage.startsWith("HTTP_")) {
+        const parts = this.lastErrorMessage.split(":");
+        lastErr.dhanCode = parts[0];
+        lastErr.message = parts.slice(1).join(":").trim() || this.lastErrorMessage;
+      }
+    }
+
+    const dataApi = this.lastSuccessMs > 0 ? "AVAILABLE" : (this.lastErrorMessage ? "UNAVAILABLE" : "UNKNOWN");
+    const expiryListStatus = this.cachedExpiries?.expiries?.length ? "AVAILABLE" : (this.lastErrorMessage?.includes("EXPIRY") ? "ERROR" : "EMPTY");
+    const optionChainStatus = this.chainCache.size > 0 ? "AVAILABLE" : (this.lastErrorMessage ? "ERROR" : "UNKNOWN");
 
     return {
       provider: "DHAN",
+      configured: isConf,
+      authentication: isConf ? "VALID" : "INVALID",
+      dataApi,
+      underlyingScrip: 13,
+      underlyingSeg: "IDX_I",
+      expiryListStatus,
+      optionChainStatus,
+      lastError: lastErr,
+      lotSizeVerified: instrumentMasterResolver.getCurrentProviderLotSize() !== null,
+      currentLotSize: instrumentMasterResolver.getLotSize(),
+      syntheticFallback: false,
+      realDataOnly: true,
+      
+      // legacy fields for backwards compatibility
       isConfigured: isConf,
       status: this.getProviderHealth().status,
       rateLimitSpacingMs: 3000,
@@ -949,8 +1053,6 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
       cachedChainsCount: this.chainCache.size,
       cacheAgeMs,
       inFlightRequestsCount: this.inFlightRequests.size,
-      lotSizeVerified: instrumentMasterResolver.getCurrentProviderLotSize() !== null,
-      currentLotSize: instrumentMasterResolver.getLotSize(),
       discrepanciesCount: this.lastDiscrepancyLogs.length,
     };
   }
@@ -979,7 +1081,7 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
     try {
       const resp = await fetch(`${this.baseUrl}/profile`, {
         method: "GET",
-        headers: this.buildHeaders(),
+        headers: this.buildHeaders(true),
         signal: AbortSignal.timeout(10000),
       });
       const resIso = new Date().toISOString();
@@ -1061,7 +1163,7 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
       try {
         const resp = await fetch(`${this.baseUrl}${endpoint}`, {
           method,
-          headers: this.buildHeaders(),
+          headers: this.buildHeaders(method === "GET"),
           body: body ? JSON.stringify(body) : undefined,
           signal: AbortSignal.timeout(10000),
         });
@@ -1122,7 +1224,7 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
     const scripMasterRes = await fetchDiag("/charts/historical"); // Or Scrip master download
     const spotQuoteRes = await fetchDiag("/marketfeed/ltp", "POST", { NSE_IND: ["NIFTY 50"] });
     const optionQuoteRes = await fetchDiag("/marketfeed/quote", "POST", { NSE_FNO: ["NIFTY2692424500CE"] });
-    const optionChainRes = await fetchDiag("/optionchain", "POST", { UnderlyingScrip: 13, UnderlyingSeg: "NSE_IND" });
+    const optionChainRes = await fetchDiag("/optionchain", "POST", { UnderlyingScrip: 13, UnderlyingSeg: "IDX_I" });
 
     const overallSuccess = profileRes.success && fundLimitRes.success;
 

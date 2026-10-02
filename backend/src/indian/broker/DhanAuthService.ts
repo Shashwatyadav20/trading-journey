@@ -146,6 +146,10 @@ export class DhanAuthService {
   /**
    * Evaluates if any official DhanHQ authentication flow is configured.
    */
+  public getClientId(): string {
+    return this.clientId || this.cleanToken(process.env.DHAN_CLIENT_ID) || "";
+  }
+
   public isConfigured(): boolean {
     const activeToken = this.accessToken || this.cleanToken(process.env.DHAN_ACCESS_TOKEN);
     const activeClientId = this.clientId || this.cleanToken(process.env.DHAN_CLIENT_ID);
@@ -194,6 +198,16 @@ export class DhanAuthService {
     }
 
     return this.accessToken;
+  }
+
+  /**
+   * Returns current access token for READ-ONLY data API calls (option chain, market data).
+   * Does NOT enforce safety locks because market data reads never risk live order placement.
+   * This is the correct method for DhanBrokerAdapter option chain / expiry requests.
+   */
+  public getReadOnlyToken(): string {
+    const token = this.accessToken || this.cleanToken(process.env.DHAN_ACCESS_TOKEN);
+    return token || "";
   }
 
   public isTokenExpired(): boolean {

@@ -381,6 +381,7 @@ describe("PHASE 26B — Dhan Real-Time NIFTY Option Chain Integration Test Suite
           json: async () => ({
             data: {
               last_price: 24700,
+              lot_size: 75, // Provider supplies lot size dynamically
               oc: { "24700": { ce: { last_price: 100, top_bid_price: 99, top_ask_price: 101 } } },
             },
           }),
@@ -394,6 +395,7 @@ describe("PHASE 26B — Dhan Real-Time NIFTY Option Chain Integration Test Suite
 
     expect(res.success).toBe(true);
     expect(res.lotSize).toBe(75);
+    expect(res.lotSizeVerified).toBe(true);
 
     const verified = instrumentMasterResolver.verifyLotSizeFromProvider(75);
     expect(verified.verified).toBe(true);
