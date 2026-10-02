@@ -33,6 +33,8 @@ import { phase19GenuineValidationEngine } from "../indian/validation/Phase19Genu
 import { brokerManager } from "../indian/broker/BrokerManager";
 import { phase21OperationalMonitor } from "../indian/validation/Phase21OperationalMonitor";
 import { phase24RuntimeProofEngine } from "../indian/validation/Phase24RuntimeProofEngine";
+import { dhanMarketFeedProvider } from "../indian/market/DhanMarketFeedProvider";
+import { dhanSubscriptionManager } from "../indian/market/DhanSubscriptionManager";
 
 
 
@@ -1399,6 +1401,92 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.send({
         success: true,
         dataHealth,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * PHASE 26D — DHAN REAL-TIME WEBSOCKET MARKET FEED ENDPOINTS
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+
+  /**
+   * GET /api/indian/dhan/realtime/status
+   */
+  server.get("/api/indian/dhan/realtime/status", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const health = dhanMarketFeedProvider.getHealth();
+      return reply.send({
+        success: true,
+        status: health,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/dhan/realtime/subscriptions
+   */
+  server.get("/api/indian/dhan/realtime/subscriptions", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const subscriptions = dhanSubscriptionManager.getSubscriptions();
+      return reply.send({
+        success: true,
+        count: subscriptions.length,
+        subscriptions,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/dhan/realtime/health
+   */
+  server.get("/api/indian/dhan/realtime/health", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const health = dhanMarketFeedProvider.getHealth();
+      return reply.send({
+        success: true,
+        health,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/dhan/realtime/ticks
+   */
+  server.get("/api/indian/dhan/realtime/ticks", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const ticksMap = dhanMarketFeedProvider.getAllTicks();
+      const ticks = Array.from(ticksMap.values());
+      return reply.send({
+        success: true,
+        count: ticks.length,
+        ticks,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/dhan/realtime/latency
+   */
+  server.get("/api/indian/dhan/realtime/latency", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const health = dhanMarketFeedProvider.getHealth();
+      return reply.send({
+        success: true,
+        feedLatencyMs: health.feedLatencyMs,
+        connectionState: health.connectionState,
+        lastMessageAt: health.lastMessageAt,
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });

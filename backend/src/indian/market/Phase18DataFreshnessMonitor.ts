@@ -6,6 +6,8 @@ import {
 } from "../types";
 import { niftyMarketProvider } from "./NiftyMarketProvider";
 import { nseIndiaOptionChainProvider } from "./NseIndiaOptionChainProvider";
+import { dhanBrokerAdapter } from "../broker/DhanBrokerAdapter";
+import { dhanMarketFeedProvider } from "./DhanMarketFeedProvider";
 
 export class Phase18DataFreshnessMonitor {
   private staleThresholdMs: number;
@@ -17,7 +19,13 @@ export class Phase18DataFreshnessMonitor {
   public async getFreshnessMetrics(): Promise<Phase18FreshnessMetrics> {
     const now = Date.now();
     const spotRes = await niftyMarketProvider.getSpotPrice();
-    const providerHealth = nseIndiaOptionChainProvider.getProviderHealth();
+
+    const isDhanActive = process.env.NIFTY_DATA_PROVIDER === "DHAN";
+    const providerHealth = isDhanActive
+      ? dhanBrokerAdapter.getProviderHealth()
+      : nseIndiaOptionChainProvider.getProviderHealth();
+
+    const dhanFeedHealth = isDhanActive ? dhanMarketFeedProvider.getHealth() : null;
 
     // 1. Spot Component Freshness
     const spotAgeMs = now - spotRes.timestamp;
@@ -39,7 +47,6 @@ export class Phase18DataFreshnessMonitor {
       errorMessage: spotStatus === "MISSING" ? "Spot price is synthetic/unverified" : spotStatus === "STALE" ? `Spot data stale (${Math.round(spotAgeMs / 1000)}s old)` : undefined,
     };
 
-
     // 2. Option Chain Component Freshness
     const chainLastSuccessMs = providerHealth.lastSuccessMs;
     const chainAgeMs = chainLastSuccessMs > 0 ? now - chainLastSuccessMs : Infinity;
@@ -57,6 +64,11 @@ export class Phase18DataFreshnessMonitor {
       chainSource = "INVALID";
     }
 
+    if (dhanFeedHealth && dhanFeedHealth.connectionState === "STALE") {
+      chainStatus = "STALE";
+      chainSource = "STALE";
+    }
+
     const chainComponent: Phase18ComponentFreshness = {
       status: chainStatus,
       sourceType: chainSource,
@@ -65,7 +77,7 @@ export class Phase18DataFreshnessMonitor {
       errorMessage: providerHealth.errorMessage ?? (chainStatus === "STALE" ? `Option chain stale (${Math.round(chainAgeMs / 1000)}s old)` : undefined),
     };
 
-    // 3. Option Prices Component Freshness (linked to Option Chain)
+    // 3. Option Prices Component Freshness (linked to Option Chain & WebSocket ticks)
     const pricesComponent: Phase18ComponentFreshness = {
       ...chainComponent,
     };
@@ -100,3 +112,4 @@ export class Phase18DataFreshnessMonitor {
 }
 
 export const phase18DataFreshnessMonitor = new Phase18DataFreshnessMonitor();
+

@@ -764,6 +764,11 @@ export interface CanonicalOptionContract {
   // Optional — absent if provider does not supply
   volume?: number;
   openInterest?: number;
+  securityId?: string | number;
+  underlyingPrice?: number;
+  lotSize?: number;
+  expiryDate?: string;
+  strikePrice?: number;
 
   // IV — must be labelled if present
   iv?: number;
@@ -1205,5 +1210,81 @@ export interface Phase19SummaryReport {
   dataSeparationEnforced: boolean;
   generatedAt: string;
 }
+
+// ── PHASE 26D: DHAN REAL-TIME MARKET FEED & GENUINE PAPER TRADING TYPES ──────
+
+export interface DhanMarketTick {
+  provider: "DHAN";
+  exchangeSegment: string;
+  securityId: number | string;
+  timestamp: number;
+  ltp?: number;
+  lastTradedQuantity?: number;
+  volume?: number;
+  bestBid?: number;
+  bestBidQuantity?: number;
+  bestAsk?: number;
+  bestAskQuantity?: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  oi?: number;
+  previousClose?: number;
+  sourceType: "REAL_EXTERNAL";
+}
+
+export interface DhanSubscriptionRecord {
+  securityId: string;
+  exchangeSegment: string;
+  instrument: string;
+  subscriptionMode: "TICKER" | "QUOTE" | "FULL";
+  subscriptionTime: string;
+  lastPacketTime: string | null;
+  packetCount: number;
+}
+
+export interface DhanRealtimeMergeResult {
+  securityId: string;
+  underlyingScrip: number;
+  spotPrice: number | null;
+  optionLtp: number | null;
+  bidPrice: number | null;
+  askPrice: number | null;
+  oi: number | null;
+  iv: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  lotSize: number | null;
+  expiry: string | null;
+  strike: number | null;
+  provenance: {
+    spot: string;
+    optionLtp: string;
+    oi: string;
+    iv: string;
+    delta: string;
+    gamma: string;
+    lotSize: string;
+    expiry: string;
+  };
+  mergedAt: string;
+}
+
+export interface DhanNseComparisonResult {
+  timestamp: string;
+  symbol: string;
+  dhanSpot: number | null;
+  nseSpot: number | null;
+  spotDifference: number | null;
+  dhanOptionLtp: number | null;
+  nseOptionLtp: number | null;
+  optionLtpDifference: number | null;
+  matchStatus: "DHAN_NSE_MATCH" | "DHAN_NSE_MISMATCH" | "NSE_UNAVAILABLE";
+  discrepancyLogged: boolean;
+}
+
 
 
