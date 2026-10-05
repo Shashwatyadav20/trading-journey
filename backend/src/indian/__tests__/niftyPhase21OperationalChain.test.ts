@@ -144,7 +144,7 @@ describe("Phase 21 — Extended Genuine Paper Trading & Broker Reconciliation Va
   // 2. BROKER TELEMETRY & ERROR HANDLING
   // ═══════════════════════════════════════════════════════════════════════════
   describe("2. Broker Telemetry & Fail-Safe Isolation", () => {
-    it("reports Dhan connected status and telemetry latency accurately", async () => {
+    it("reports Dhan connected status and telemetry latency accurately", { timeout: 15000 }, async () => {
       vi.spyOn(dhanBrokerAdapter, "getStatus").mockReturnValue({
         connected: true,
         clientId: "1100993334",

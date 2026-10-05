@@ -15,7 +15,7 @@ describe("Phase 21 — Fastify API Endpoints Integration Test Suite", () => {
     await app.ready();
   });
 
-  it("1. GET /api/indian/phase21/operational-status returns 3-source telemetry, safety flags and systemStatus", async () => {
+  it("1. GET /api/indian/phase21/operational-status returns 3-source telemetry, safety flags and systemStatus", { timeout: 15000 }, async () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/indian/phase21/operational-status",

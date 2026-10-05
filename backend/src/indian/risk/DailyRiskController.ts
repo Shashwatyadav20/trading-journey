@@ -119,6 +119,10 @@ export class DailyRiskController {
     this.state = this.getInitialState();
     paperPersistenceManager.persistDailyRisk(this.state);
   }
+
+  public resetDailyState(): void {
+    this.resetLocks();
+  }
 }
 
 export const dailyRiskController = new DailyRiskController();

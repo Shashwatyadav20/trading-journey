@@ -35,6 +35,26 @@ import { phase21OperationalMonitor } from "../indian/validation/Phase21Operation
 import { phase24RuntimeProofEngine } from "../indian/validation/Phase24RuntimeProofEngine";
 import { dhanMarketFeedProvider } from "../indian/market/DhanMarketFeedProvider";
 import { dhanSubscriptionManager } from "../indian/market/DhanSubscriptionManager";
+import { phase26EGenuineLivePaperValidationEngine } from "../indian/validation/Phase26EGenuineLivePaperValidationEngine";
+import { phase27StatisticalValidationEngine } from "../indian/validation/Phase27StatisticalValidationEngine";
+import { phase28StatisticalEvidenceEngine } from "../indian/validation/Phase28StatisticalEvidenceEngine";
+import { phase29ValidationControlEngine } from "../indian/validation/Phase29ValidationControlEngine";
+import { phase30SampleAccumulationEngine } from "../indian/validation/Phase30SampleAccumulationEngine";
+import { phase31ValidationCertificationEngine } from "../indian/validation/Phase31ValidationCertificationEngine";
+import { phase32OutOfSampleValidationEngine } from "../indian/validation/Phase32OutOfSampleValidationEngine";
+import { phase33RobustnessEngine } from "../indian/validation/Phase33RobustnessEngine";
+import { phase34LongHorizonEngine } from "../indian/validation/Phase34LongHorizonEngine";
+import { phase35ResearchReportEngine } from "../indian/validation/Phase35ResearchReportEngine";
+import { phase36DecisionGate } from "../indian/phase36/Phase36DecisionGate";
+import { genuineSampleStore } from "../indian/persistence/GenuineSampleStore";
+import { genuineDailyLedger } from "../indian/persistence/GenuineDailyLedger";
+import { phase37ValidationControl } from "../indian/validation/Phase37ValidationControl";
+import { phase38SampleAccumulator } from "../indian/validation/Phase38SampleAccumulator";
+import { phase38SessionCollector } from "../indian/validation/Phase38SessionCollector";
+import { phase38TradeCollector } from "../indian/validation/Phase38TradeCollector";
+import { phase39RevalidationEngine } from "../indian/phase39/Phase39RevalidationEngine";
+import { phase40FinalReadinessEngine } from "../indian/validation/Phase40FinalReadinessEngine";
+import { postPhase40OperationsMonitor } from "../indian/operations/PostPhase40OperationsMonitor";
 
 
 
@@ -2013,7 +2033,1728 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       });
     }
   });
+
+  /**
+   * GET /api/indian/phase26e/session
+   * Phase 26E — End-to-End Genuine Live Paper Session Validation Status.
+   */
+  server.get("/api/indian/phase26e/session", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const sessionStatus = phase26EGenuineLivePaperValidationEngine.getSessionStatus();
+      return reply.send(sessionStatus);
+    } catch (err: any) {
+      return reply.status(500).send({
+        status: "BLOCKED",
+        marketSession: "MARKET_CLOSED",
+        dataGate: "BLOCKED",
+        dhan: "DISCONNECTED",
+        websocket: "DISCONNECTED",
+        optionChain: "UNAVAILABLE",
+        lotSize: "UNVERIFIED",
+        activePositions: 0,
+        genuineSession: false,
+        genuineTrades: 0,
+        paperPnl: 0,
+        liveOrders: 0,
+      });
+    }
+  });
+
+  // ── PHASE 27: GENUINE SAMPLE COLLECTION & STATISTICAL VALIDATION ENDPOINTS ──
+
+  /**
+   * GET /api/indian/phase27/summary
+   * Complete Phase 27 Genuine Sample Summary & Statistical Validation Report.
+   */
+  server.get("/api/indian/phase27/summary", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase27StatisticalValidationEngine.generateValidationReport();
+      return reply.send(report);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/scorecard
+   * Factual Sample Quality Scorecard.
+   */
+  server.get("/api/indian/phase27/scorecard", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase27StatisticalValidationEngine.generateValidationReport();
+      return reply.send({
+        success: true,
+        scorecard: report.scorecard,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/daily
+   * Genuine Daily Ledger statistics & ₹1,000 Target Analysis.
+   */
+  server.get("/api/indian/phase27/daily", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const entries = genuineDailyLedger.getAllEntries(true);
+      const summary = genuineDailyLedger.getSummary(true);
+      return reply.send({
+        success: true,
+        dailyEntries: entries,
+        dailySummary: summary,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/trades
+   * Immutable genuine paper trade ledger.
+   */
+  server.get("/api/indian/phase27/trades", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const trades = genuineSampleStore.getTrades(true);
+      return reply.send({
+        success: true,
+        tradeCount: trades.length,
+        trades,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/strategies
+   * Strategy breakdown (Bull Put, Bear Call, Iron Condor).
+   */
+  server.get("/api/indian/phase27/strategies", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const genuineTrades = genuineSampleStore.getTrades(true);
+      const breakdowns = phase27StatisticalValidationEngine.calculateStrategyBreakdown(genuineTrades);
+      return reply.send({
+        success: true,
+        strategyBreakdowns: breakdowns,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/regimes
+   * Market regime breakdown (Bullish, Bearish, Range, No Trade).
+   */
+  server.get("/api/indian/phase27/regimes", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const genuineTrades = genuineSampleStore.getTrades(true);
+      const breakdowns = phase27StatisticalValidationEngine.calculateRegimeBreakdown(genuineTrades);
+      return reply.send({
+        success: true,
+        regimeBreakdowns: breakdowns,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/exits
+   * Exit reason breakdown.
+   */
+  server.get("/api/indian/phase27/exits", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const genuineTrades = genuineSampleStore.getTrades(true);
+      const breakdowns = phase27StatisticalValidationEngine.calculateExitBreakdown(genuineTrades);
+      return reply.send({
+        success: true,
+        exitBreakdowns: breakdowns,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/rolling
+   * Rolling 10, 20, 30-trade window metrics.
+   */
+  server.get("/api/indian/phase27/rolling", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const genuineTrades = genuineSampleStore.getTrades(true);
+      const rolling = phase27StatisticalValidationEngine.calculateRollingMetrics(genuineTrades);
+      return reply.send({
+        success: true,
+        rollingMetrics: rolling,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/risk
+   * Safety locks, risk limits, and daily risk controller state.
+   */
+  server.get("/api/indian/phase27/risk", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const dailyState = dailyRiskController.getState();
+      return reply.send({
+        success: true,
+        dailyRisk: dailyState,
+        safetyLocks: {
+          paperTrading: process.env.PAPER_TRADING !== "false",
+          liveTrading: process.env.LIVE_TRADING === "true",
+          brokerExecution: process.env.BROKER_EXECUTION_ENABLED === "true",
+          realDataOnly: process.env.INDIAN_REAL_DATA_ONLY === "true",
+          realBrokerOrders: 0,
+        },
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/data-quality
+   * Data quality telemetry and excluded data counters.
+   */
+  server.get("/api/indian/phase27/data-quality", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase27StatisticalValidationEngine.generateValidationReport();
+      return reply.send({
+        success: true,
+        dataQuality: report.dataQuality,
+        exclusions: genuineSampleStore.getExclusionCounters(),
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase27/export
+   * Sanitized export of complete genuine session and trade dataset.
+   */
+  server.get("/api/indian/phase27/export", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const genuineSessions = genuineSampleStore.getSessions(true);
+      const genuineTrades = genuineSampleStore.getTrades(true);
+      const summary = phase27StatisticalValidationEngine.generateValidationReport();
+
+      return reply.send({
+        success: true,
+        exportedAt: new Date().toISOString(),
+        validationStatus: summary.validationStatus,
+        sampleProgress: summary.scorecard.sampleProgress,
+        genuineSessions,
+        genuineTrades,
+        summary,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 28: STATISTICAL EVIDENCE & ROBUSTNESS VALIDATION ENDPOINTS ──
+
+  /**
+   * GET /api/indian/phase28/summary
+   */
+  server.get("/api/indian/phase28/summary", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send(report);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/confidence
+   */
+  server.get("/api/indian/phase28/confidence", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        winRateConfidence: report.winRateConfidence,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/bootstrap
+   */
+  server.get("/api/indian/phase28/bootstrap", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        bootstrapExpectancy: report.bootstrapExpectancy,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/rolling
+   */
+  server.get("/api/indian/phase28/rolling", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        rollingWindows: report.rollingWindows,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/regimes
+   */
+  server.get("/api/indian/phase28/regimes", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        regimeEvidence: report.regimeEvidence,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/strategies
+   */
+  server.get("/api/indian/phase28/strategies", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        strategyEvidence: report.strategyEvidence,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/concentration
+   */
+  server.get("/api/indian/phase28/concentration", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        concentrationAnalysis: report.concentrationAnalysis,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/drawdown
+   */
+  server.get("/api/indian/phase28/drawdown", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        maxDrawdown: report.coreStatistics.maxDrawdown,
+        maxDrawdownPercent: report.coreStatistics.maxDrawdownPercent,
+        recoveryFactor: report.coreStatistics.recoveryFactor,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/monte-carlo
+   */
+  server.get("/api/indian/phase28/monte-carlo", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        monteCarloDiagnostic: report.monteCarloDiagnostic,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/stability
+   */
+  server.get("/api/indian/phase28/stability", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        timeStabilityBlocks: report.timeStabilityBlocks,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/phase28/risk
+   */
+  server.get("/api/indian/phase28/risk", async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase28StatisticalEvidenceEngine.generateReport();
+      return reply.send({
+        success: true,
+        safetyLocks: {
+          paperTrading: process.env.PAPER_TRADING !== "false",
+          liveTrading: process.env.LIVE_TRADING === "true",
+          brokerExecution: process.env.BROKER_EXECUTION_ENABLED === "true",
+          realDataOnly: process.env.INDIAN_REAL_DATA_ONLY === "true",
+          realBrokerOrders: 0,
+        },
+        fingerprintStatus: report.fingerprintStatus,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 29: GENUINE SAMPLE COMPLETION & VALIDATION CONTROL ──────────────
+
+  /** GET /api/indian/phase29/status */
+  server.get("/api/indian/phase29/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const progress = phase29ValidationControlEngine.getProgress();
+      const integrity = phase29ValidationControlEngine.getIntegrityReport();
+      return reply.send({ success: true, progress, integrity });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase29/progress */
+  server.get("/api/indian/phase29/progress", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      return reply.send({ success: true, ...phase29ValidationControlEngine.getProgress() });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase29/sessions */
+  server.get("/api/indian/phase29/sessions", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const sessions = phase29ValidationControlEngine.getSessionFinalizer().getFinalizedSessions();
+      return reply.send({ success: true, sessionCount: sessions.length, sessions });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase29/trades */
+  server.get("/api/indian/phase29/trades", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const trades = phase29ValidationControlEngine.getTradeFinalizer().getGenuineFinalized();
+      return reply.send({ success: true, tradeCount: trades.length, trades });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase29/exclusions */
+  server.get("/api/indian/phase29/exclusions", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const audit = phase29ValidationControlEngine.getTradeFinalizer().getExclusionAudit();
+      const counters = phase29ValidationControlEngine.getTradeFinalizer().getExclusionCounters();
+      return reply.send({ success: true, counters, audit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase29/snapshot */
+  server.get("/api/indian/phase29/snapshot", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const snapshot = phase29ValidationControlEngine.getValidationSnapshot();
+      if (!snapshot) {
+        return reply.send({ success: true, snapshot: null, message: "Validation snapshot not yet created — sample gate not met." });
+      }
+      return reply.send({ success: true, snapshot });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase29/integrity */
+  server.get("/api/indian/phase29/integrity", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const integrity = phase29ValidationControlEngine.getIntegrityReport();
+      return reply.send({ success: true, integrity });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase29/fingerprint */
+  server.get("/api/indian/phase29/fingerprint", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const fp = strategyFingerprintManager.getCurrentFingerprint();
+      const cohort = strategyFingerprintManager.getActiveCohort();
+      return reply.send({
+        success: true,
+        fingerprint: {
+          hash: fp.masterFingerprintHash,
+          version: fp.version,
+          timestamp: fp.timestamp,
+        },
+        cohort: {
+          cohortId: cohort.cohortId,
+          cohortName: cohort.cohortName,
+          isActive: cohort.isActive,
+        },
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase29/export */
+  server.get("/api/indian/phase29/export", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exportData = phase29ValidationControlEngine.getExport();
+      return reply.send(exportData);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase30/operations */
+  server.get("/api/indian/phase30/operations", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const ops = phase30SampleAccumulationEngine.getOperationsStatus();
+      return reply.send(ops);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase31/status */
+  server.get("/api/indian/phase31/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = phase31ValidationCertificationEngine.getStatus();
+      return reply.send({ success: true, status });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase31/cohort */
+  server.get("/api/indian/phase31/cohort", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const cohort = phase31ValidationCertificationEngine.getFrozenCohort();
+      return reply.send({ success: true, cohort });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase31/reconciliation */
+  server.get("/api/indian/phase31/reconciliation", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const reconciliation = phase31ValidationCertificationEngine.runPnlReconciliation();
+      return reply.send({ success: true, reconciliation });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase31/integrity */
+  server.get("/api/indian/phase31/integrity", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const integrity = phase31ValidationCertificationEngine.runIntegrityChecks();
+      return reply.send({ success: true, integrity });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase31/statistics */
+  server.get("/api/indian/phase31/statistics", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const statistics = phase31ValidationCertificationEngine.getStatisticalSnapshot();
+      return reply.send({ success: true, statistics });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase31/exclusions */
+  server.get("/api/indian/phase31/exclusions", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exclusions = phase31ValidationCertificationEngine.getExclusionAudit();
+      return reply.send({ success: true, exclusions });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase31/certification */
+  server.get("/api/indian/phase31/certification", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const certification = phase31ValidationCertificationEngine.processCertificationPipeline();
+      return reply.send(certification);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase31/export */
+  server.get("/api/indian/phase31/export", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exportData = phase31ValidationCertificationEngine.getExport();
+      return reply.send(exportData);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 32: INDEPENDENT OUT-OF-SAMPLE & WALK-FORWARD VALIDATION ───────
+
+  /** GET /api/indian/phase32/status */
+  server.get("/api/indian/phase32/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = phase32OutOfSampleValidationEngine.getStatus();
+      return reply.send({ success: true, ...status });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/dataset */
+  server.get("/api/indian/phase32/dataset", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase32OutOfSampleValidationEngine.getReport();
+      return reply.send({
+        success: true,
+        cohort: report.cohort,
+        datasetFingerprint: report.datasetFingerprint,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/summary */
+  server.get("/api/indian/phase32/summary", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase32OutOfSampleValidationEngine.getReport();
+      return reply.send({ success: true, report });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/oos */
+  server.get("/api/indian/phase32/oos", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase32OutOfSampleValidationEngine.getReport();
+      return reply.send({
+        success: true,
+        oosCoreStatistics: report.oosCoreStatistics,
+        winRateConfidence: report.winRateConfidence,
+        bootstrapExpectancy: report.bootstrapExpectancy,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/walk-forward */
+  server.get("/api/indian/phase32/walk-forward", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase32OutOfSampleValidationEngine.getReport();
+      return reply.send({
+        success: true,
+        walkForwardWindows: report.walkForwardWindows,
+        walkForwardStability: report.walkForwardStability,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/comparison */
+  server.get("/api/indian/phase32/comparison", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase32OutOfSampleValidationEngine.getReport();
+      return reply.send({
+        success: true,
+        comparison: report.comparison,
+        degradation: report.degradation,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/regimes */
+  server.get("/api/indian/phase32/regimes", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase32OutOfSampleValidationEngine.getReport();
+      return reply.send({
+        success: true,
+        regimeOOSBreakdown: report.regimeOOSBreakdown,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/strategies */
+  server.get("/api/indian/phase32/strategies", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase32OutOfSampleValidationEngine.getReport();
+      return reply.send({
+        success: true,
+        strategyOOSBreakdown: report.strategyOOSBreakdown,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/leakage */
+  server.get("/api/indian/phase32/leakage", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase32OutOfSampleValidationEngine.getReport();
+      return reply.send({
+        success: true,
+        leakageReport: report.leakageReport,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/integrity */
+  server.get("/api/indian/phase32/integrity", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase32OutOfSampleValidationEngine.getReport();
+      return reply.send({
+        success: true,
+        safetyStatus: report.safetyStatus,
+        fingerprintLocked: report.fingerprintLocked,
+        fingerprintMatch: report.fingerprintMatch,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase32/export */
+  server.get("/api/indian/phase32/export", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exportData = phase32OutOfSampleValidationEngine.getExport();
+      return reply.send(exportData);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 33: ROBUSTNESS & STRESS TESTING ENDPOINTS ──────────────────────
+
+  /** GET /api/indian/phase33/status */
+  server.get("/api/indian/phase33/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = phase33RobustnessEngine.getStatus();
+      return reply.send({ success: true, ...status });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/scenarios */
+  server.get("/api/indian/phase33/scenarios", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase33RobustnessEngine.getReport();
+      return reply.send({ success: true, scenarioMatrix: report.scenarioMatrix });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/execution */
+  server.get("/api/indian/phase33/execution", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase33RobustnessEngine.getReport();
+      return reply.send({
+        success: true,
+        slippageStress: report.slippageStress,
+        delayStress: report.delayStress,
+        spreadStress: report.spreadStress,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/slippage */
+  server.get("/api/indian/phase33/slippage", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase33RobustnessEngine.getReport();
+      return reply.send({ success: true, slippageStress: report.slippageStress });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/liquidity */
+  server.get("/api/indian/phase33/liquidity", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase33RobustnessEngine.getReport();
+      return reply.send({ success: true, spreadStress: report.spreadStress });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/sequence */
+  server.get("/api/indian/phase33/sequence", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase33RobustnessEngine.getReport();
+      return reply.send({
+        success: true,
+        sequenceStress: report.sequenceStress,
+        sequencePermutations: report.sequencePermutations,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/drawdown */
+  server.get("/api/indian/phase33/drawdown", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase33RobustnessEngine.getReport();
+      return reply.send({
+        success: true,
+        tailLossStress: report.tailLossStress,
+        drawdownDistribution: report.monteCarloDiagnostic.maxDrawdownDistribution,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/data-quality */
+  server.get("/api/indian/phase33/data-quality", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase33RobustnessEngine.getReport();
+      return reply.send({ success: true, dataQualityStress: report.dataQualityStress });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/monte-carlo */
+  server.get("/api/indian/phase33/monte-carlo", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase33RobustnessEngine.getReport();
+      return reply.send({ success: true, monteCarloDiagnostic: report.monteCarloDiagnostic });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/summary */
+  server.get("/api/indian/phase33/summary", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase33RobustnessEngine.getReport();
+      return reply.send({ success: true, report });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase33/export */
+  server.get("/api/indian/phase33/export", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exportData = phase33RobustnessEngine.getExport();
+      return reply.send(exportData);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 34: LONG-HORIZON GENUINE PAPER VALIDATION ENDPOINTS ─────────────
+
+  /** GET /api/indian/phase34/status */
+  server.get("/api/indian/phase34/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = phase34LongHorizonEngine.getStatus();
+      return reply.send({ success: true, ...status });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/cohort */
+  server.get("/api/indian/phase34/cohort", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({ success: true, cohort: report.cohort });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/daily */
+  server.get("/api/indian/phase34/daily", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exportData = phase34LongHorizonEngine.getExport();
+      return reply.send({ success: true, dailyObservations: exportData.dailyObservations });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/rolling */
+  server.get("/api/indian/phase34/rolling", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({
+        success: true,
+        rollingSessionWindows: report.rollingSessionWindows,
+        rollingTradeWindows: report.rollingTradeWindows,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/drift */
+  server.get("/api/indian/phase34/drift", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({ success: true, driftReport: report.driftReport });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/regimes */
+  server.get("/api/indian/phase34/regimes", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({ success: true, regimeDrift: report.driftReport.regimeDrift });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/strategies */
+  server.get("/api/indian/phase34/strategies", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({ success: true, strategyDrift: report.driftReport.strategyDrift });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/risk */
+  server.get("/api/indian/phase34/risk", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({ success: true, riskBehavior: report.riskBehavior });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/operations */
+  server.get("/api/indian/phase34/operations", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({ success: true, operationalStability: report.operationalStability });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/data-quality */
+  server.get("/api/indian/phase34/data-quality", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({
+        success: true,
+        noTradeDueToDataQualityCount: report.operationalStability.noTradeDueToDataQualityCount,
+        dataGateFailures: report.operationalStability.dataGateFailures,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/reconciliation */
+  server.get("/api/indian/phase34/reconciliation", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({ success: true, reconciliation: report.reconciliation });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/summary */
+  server.get("/api/indian/phase34/summary", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase34LongHorizonEngine.getReport();
+      return reply.send({ success: true, report });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase34/export */
+  server.get("/api/indian/phase34/export", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exportData = phase34LongHorizonEngine.getExport();
+      return reply.send(exportData);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 35: FINAL EVIDENCE REGISTRY & RESEARCH REPORT ENDPOINTS ─────────
+
+  /** GET /api/indian/phase35/status */
+  server.get("/api/indian/phase35/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = phase35ResearchReportEngine.getStatus();
+      return reply.send({ success: true, ...status });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase35/registry */
+  server.get("/api/indian/phase35/registry", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exportData = phase35ResearchReportEngine.getExport();
+      return reply.send({ success: true, artifacts: exportData.artifacts });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase35/reconciliation */
+  server.get("/api/indian/phase35/reconciliation", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase35ResearchReportEngine.getReport();
+      return reply.send({ success: true, reconciliation: report.reconciliation });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase35/manifest */
+  server.get("/api/indian/phase35/manifest", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase35ResearchReportEngine.getReport();
+      return reply.send({ success: true, manifest: report.manifest });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase35/safety-audit */
+  server.get("/api/indian/phase35/safety-audit", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const safetyAudit = phase35ResearchReportEngine.verifySafetyAudit();
+      return reply.send({ success: true, safetyAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase35/reproducibility */
+  server.get("/api/indian/phase35/reproducibility", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase35ResearchReportEngine.getReport();
+      return reply.send({
+        success: true,
+        reproducibilityManifest: report.sections.reproducibilityManifest,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase35/evidence-snapshot */
+  server.get("/api/indian/phase35/evidence-snapshot", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase35ResearchReportEngine.getReport();
+      return reply.send({ success: true, snapshot: report.snapshot });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase35/research-report */
+  server.get("/api/indian/phase35/research-report", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase35ResearchReportEngine.getReport();
+      return reply.send({ success: true, report });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase35/summary */
+  server.get("/api/indian/phase35/summary", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase35ResearchReportEngine.getReport();
+      return reply.send({ success: true, report });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase35/export */
+  server.get("/api/indian/phase35/export", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exportData = phase35ResearchReportEngine.getExport();
+      return reply.send(exportData);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 36: EVIDENCE-BASED DECISION GATE ENDPOINTS ───────────────────────
+
+  /** GET /api/indian/phase36/status */
+  server.get("/api/indian/phase36/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = phase36DecisionGate.getStatus();
+      return reply.send({ success: true, status });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/evidence */
+  server.get("/api/indian/phase36/evidence", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, snapshot: report.snapshot, artifacts: report.sections.evidenceIntegrity });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/sample-assessment */
+  server.get("/api/indian/phase36/sample-assessment", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, sampleAssessment: report.sections.sampleSufficiency });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/statistics */
+  server.get("/api/indian/phase36/statistics", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, statistics: report.sections.statisticalAssessment, confidenceIntervals: report.sections.confidenceIntervals });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/oos */
+  server.get("/api/indian/phase36/oos", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, oos: report.sections.oosAssessment, walkForward: report.sections.walkForwardAssessment });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/stress */
+  server.get("/api/indian/phase36/stress", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, stress: report.sections.stressAssessment });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/drift */
+  server.get("/api/indian/phase36/drift", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, drift: report.sections.longHorizonDrift });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/risk */
+  server.get("/api/indian/phase36/risk", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, risk: report.sections.riskBehaviour });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/operational */
+  server.get("/api/indian/phase36/operational", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, operational: report.sections.operationalStability });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/decision */
+  server.get("/api/indian/phase36/decision", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, decision: report.decision, decisionGate: report.sections.decisionGate });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/report */
+  server.get("/api/indian/phase36/report", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase36DecisionGate.getReport();
+      return reply.send({ success: true, report });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/export/json */
+  server.get("/api/indian/phase36/export/json", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exports = phase36DecisionGate.getExports();
+      return reply.type("application/json").send(exports.json);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase36/export/csv */
+  server.get("/api/indian/phase36/export/csv", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exports = phase36DecisionGate.getExports();
+      return reply.type("text/csv").send(exports.csv);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 37 — FINAL EVIDENCE CONSOLIDATION & VALIDATION CONTROL ───────
+
+  /** GET /api/indian/phase37/status */
+  server.get("/api/indian/phase37/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase37ValidationControl.buildFullReport();
+      return reply.send({
+        success: true,
+        validationState: report.validationState,
+        safetyInvariantPassed: report.safety.safetyInvariantPassed,
+        sampleStatus: report.sampleGate.validationStatus,
+        reconciliationStatus: report.reconciliation.overallStatus,
+        fingerprintStatus: report.fingerprint.fingerprintStatus,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase37/evidence */
+  server.get("/api/indian/phase37/evidence", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const phaseEvidence = phase37ValidationControl.buildPhaseEvidence();
+      const testEvidence  = phase37ValidationControl.buildTestEvidence();
+      return reply.send({ success: true, phaseEvidence, testEvidence });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase37/safety */
+  server.get("/api/indian/phase37/safety", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const safety = phase37ValidationControl.verifySafetyInvariants();
+      return reply.send({ success: true, safety });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase37/sample-gate */
+  server.get("/api/indian/phase37/sample-gate", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const sampleGate = phase37ValidationControl.evaluateGenuineSampleGate();
+      return reply.send({ success: true, sampleGate });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase37/reconciliation */
+  server.get("/api/indian/phase37/reconciliation", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const reconciliation = phase37ValidationControl.evaluatePnLReconciliation();
+      return reply.send({ success: true, reconciliation });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase37/fingerprint */
+  server.get("/api/indian/phase37/fingerprint", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const fingerprint = phase37ValidationControl.evaluateStrategyFingerprint();
+      return reply.send({ success: true, fingerprint });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 38 API ROUTES ──────────────────────────────────────────────
+
+  /** GET /api/indian/phase38/status */
+  server.get("/api/indian/phase38/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = phase38SampleAccumulator.getStatus();
+      return reply.send({ success: true, ...status });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase38/progress */
+  server.get("/api/indian/phase38/progress", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const progress = phase38SampleAccumulator.getProgress();
+      return reply.send({ success: true, ...progress });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase38/sessions */
+  server.get("/api/indian/phase38/sessions", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const sessions = phase38SessionCollector.getSessions();
+      return reply.send({ success: true, sessions, count: sessions.length });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase38/trades */
+  server.get("/api/indian/phase38/trades", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const trades = phase38TradeCollector.getTrades();
+      return reply.send({ success: true, trades, count: trades.length });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase38/exclusions */
+  server.get("/api/indian/phase38/exclusions", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const exclusionCounters = phase38TradeCollector.getExclusionCounters();
+      const exclusionAudit = phase38TradeCollector.getExclusionAuditLog();
+      return reply.send({ success: true, exclusionCounters, exclusionAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /** GET /api/indian/phase38/integrity */
+  server.get("/api/indian/phase38/integrity", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const integrity = phase38SampleAccumulator.getIntegrityReport();
+      return reply.send({ success: true, ...integrity });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── PHASE 39 API ROUTES ──────────────────────────────────────────────
+  server.get("/api/indian/phase39/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, state: report.state, sampleGate: report.sampleGate });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/cohort", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, cohort: report.cohortSnapshot });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/integrity", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({
+        success: true,
+        timestampAudit: report.timestampAudit,
+        leakageAudit: report.leakageAudit,
+        pnlAudit: report.pnlAudit,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/leakage", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, leakageAudit: report.leakageAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/timestamps", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, timestampAudit: report.timestampAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/pnl", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, pnlAudit: report.pnlAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/statistics", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, statisticalAudit: report.statisticalAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/oos", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, oosAudit: report.oosAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/walk-forward", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, walkForwardAudit: report.walkForwardAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/stress", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, stressAudit: report.stressAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/drift", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, driftAudit: report.driftAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/safety", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, safetyAudit: report.safetyAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/decision", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, state: report.state, immutableHash: report.immutableHash });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/report", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, report });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/walkforward", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, walkForwardAudit: report.walkForwardAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/risk", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, riskAudit: report.riskAudit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/freeze", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      return reply.send({ success: true, state: report.state, manifest: report.manifest, immutableHash: report.immutableHash });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase39/export", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase39RevalidationEngine.getReport();
+      const manifest = report.manifest;
+      return reply.send({ success: true, manifest, report });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── Phase 40 — Final Production Readiness & Project Completion Audit ────────
+
+  server.get("/api/indian/phase40/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase40FinalReadinessEngine.getReport();
+      return reply.send({
+        success: true,
+        finalState: report.finalState,
+        mandatoryAuditsFailed: report.mandatoryAuditsFailed,
+        immutableHash: report.immutableHash,
+        isLiveReady: false, // ALWAYS false — broker execution is intentionally disabled
+        explicitLimitations: report.explicitLimitations,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase40/safety", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const audit = phase40FinalReadinessEngine.auditSafetyInvariants();
+      return reply.send({ success: true, audit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase40/cohort", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const audit = phase40FinalReadinessEngine.auditPhase39Cohort();
+      return reply.send({ success: true, audit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase40/strategy", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const audit = phase40FinalReadinessEngine.auditStrategyIntegrity();
+      return reply.send({ success: true, audit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase40/data", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const audit = phase40FinalReadinessEngine.auditGenuineData();
+      return reply.send({ success: true, audit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase40/statistics", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const audit = phase40FinalReadinessEngine.auditStatisticalEvidence();
+      return reply.send({ success: true, audit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase40/risk", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const audit = phase40FinalReadinessEngine.auditRiskControls();
+      return reply.send({ success: true, audit });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  server.get("/api/indian/phase40/report", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const report = phase40FinalReadinessEngine.runFinalAudit();
+      return reply.send({ success: true, report });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // ── Post-Phase-40 Operations & Monitoring Endpoints ────────────────────────
+
+  /**
+   * GET /api/indian/operations/status
+   * Returns full operations status including system, market data, trading, risk, reconciliation, sample, alerts, safety invariants.
+   */
+  server.get("/api/indian/operations/status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = postPhase40OperationsMonitor.getFullStatus();
+      return reply.send({ success: true, status });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/operations/market
+   * Returns market data freshness, NIFTY spot, option chain, option prices, Greeks, WebSocket tick, VWAP/RSI, lot-size, expiry, market session, genuine-data gate.
+   */
+  server.get("/api/indian/operations/market", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const marketData = postPhase40OperationsMonitor.getMarketDataStatus();
+      return reply.send({ success: true, marketData });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/operations/trading
+   * Returns trading status: active paper positions, signal evaluation timestamp, last paper order & exit timestamps.
+   */
+  server.get("/api/indian/operations/trading", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const trading = postPhase40OperationsMonitor.getTradingStatus();
+      return reply.send({ success: true, trading });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/operations/risk
+   * Returns continuous risk metrics: daily P&L, daily profit/loss locks, trade limits, exposure, active positions count.
+   */
+  server.get("/api/indian/operations/risk", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const risk = postPhase40OperationsMonitor.getRiskStatus();
+      return reply.send({ success: true, risk });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/operations/reconciliation
+   * Returns continuous reconciliation audit between signal, paper position, order, journal, daily P&L, persisted state.
+   */
+  server.get("/api/indian/operations/reconciliation", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const reconciliation = postPhase40OperationsMonitor.getReconciliationStatus();
+      return reply.send({ success: true, reconciliation });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/operations/alerts
+   * Returns operational alerts list.
+   */
+  server.get("/api/indian/operations/alerts", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const alerts = postPhase40OperationsMonitor.getAlerts();
+      return reply.send({ success: true, alerts });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/operations/sample
+   * Returns genuine evidence sample progress (sessions, trades, active sessions, Phase39 cohort, Phase40 status).
+   */
+  server.get("/api/indian/operations/sample", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const sample = postPhase40OperationsMonitor.getSampleProgress();
+      return reply.send({ success: true, sample });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
 }
+
+
+
 
 
 

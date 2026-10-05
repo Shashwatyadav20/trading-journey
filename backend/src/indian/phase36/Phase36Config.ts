@@ -1,0 +1,40 @@
+export const PHASE36_LIVE_EXECUTION_ALLOWED = false;
+
+export interface Phase36ConfigType {
+  PAPER_TRADING: boolean;
+  LIVE_TRADING: boolean;
+  BROKER_EXECUTION_ENABLED: boolean;
+  INDIAN_REAL_DATA_ONLY: boolean;
+  REAL_DHAN_ORDERS: number;
+  MIN_GENUINE_SESSIONS: number;
+  MIN_GENUINE_TRADES: number;
+  MIN_ACTIVE_SESSIONS: number;
+  MIN_LONG_HORIZON_SESSIONS: number;
+  MAX_LOSS_PER_TRADE_INR: number;
+  DAILY_PROFIT_CAP_INR: number;
+  DAILY_LOSS_CAP_INR: number;
+}
+
+export const PHASE36_CONFIG: Phase36ConfigType = Object.freeze({
+  PAPER_TRADING: true,
+  LIVE_TRADING: false,
+  BROKER_EXECUTION_ENABLED: false,
+  INDIAN_REAL_DATA_ONLY: true,
+  REAL_DHAN_ORDERS: 0,
+  MIN_GENUINE_SESSIONS: 20,
+  MIN_GENUINE_TRADES: 30,
+  MIN_ACTIVE_SESSIONS: 15,
+  MIN_LONG_HORIZON_SESSIONS: 60,
+  MAX_LOSS_PER_TRADE_INR: 1000,
+  DAILY_PROFIT_CAP_INR: 1000,
+  DAILY_LOSS_CAP_INR: -5000,
+});
+
+// Mandatory runtime invariant assertion
+if (PHASE36_CONFIG.LIVE_TRADING !== false) {
+  throw new Error("PHASE36_LIVE_TRADING_FORBIDDEN");
+}
+
+if (PHASE36_CONFIG.BROKER_EXECUTION_ENABLED !== false) {
+  throw new Error("PHASE36_BROKER_EXECUTION_FORBIDDEN");
+}

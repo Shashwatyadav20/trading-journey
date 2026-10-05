@@ -44,7 +44,8 @@ export type NavTabId =
   | "im-option-chain"
   | "im-strategy"
   | "im-positions"
-  | "im-backtest";
+  | "im-backtest"
+  | "im-operations";
 
 export interface NavItem {
   id: NavTabId;
@@ -69,6 +70,7 @@ export const FOREX_NAV_ITEMS: NavItem[] = [
 export const INDIAN_NAV_ITEMS: NavItem[] = [
   { id: "im-overview", label: "Overview", icon: LayoutDashboard },
   { id: "im-paper-trading", label: "Paper Trading", icon: ShieldAlert, badge: "Paper" },
+  { id: "im-operations", label: "Operations Monitor", icon: ShieldCheck, badge: "Ops" },
   { id: "im-option-chain", label: "Option Chain", icon: Layers3, badge: "Live" },
   { id: "im-strategy", label: "Strategy & Signals", icon: LineChart },
   { id: "im-positions", label: "Positions", icon: ListOrdered },

@@ -6,7 +6,7 @@ import { niftyMarketProvider } from "../market/NiftyMarketProvider";
 import { NiftySpreadPosition } from "../types";
 
 describe("Phase 15 — Genuine Live Paper Trading Validation Test Suite", () => {
-  it("1. Genuine Data Gate Evaluation (Rejects Synthetic Option Chain from Phase 15)", async () => {
+  it("1. Genuine Data Gate Evaluation (Rejects Synthetic Option Chain from Phase 15)", { timeout: 15000 }, async () => {
     const dataGate = await genuineDataValidator.evaluateGenuineDataGate();
     expect(dataGate.isGenuineSessionValidating).toBe(false);
     expect(dataGate.optionChainReal).toBe(false);

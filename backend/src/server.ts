@@ -130,6 +130,17 @@ const start = async () => {
     // ─── Step 2b: Start Pine Level Service (subscribes to priceStore) ─────────
     pineLevelService.start();
 
+    // ─── Step 2c: Auto-connect Dhan Real-Time WebSocket Feed if configured ────
+    try {
+      const { dhanMarketFeedProvider } = await import("./indian/market/DhanMarketFeedProvider");
+      const { dhanAuthService } = await import("./indian/broker/DhanAuthService");
+      if (dhanAuthService.isConfigured()) {
+        dhanMarketFeedProvider.connect().catch(() => {});
+      }
+    } catch {
+      // Ignore startup feed connection errors
+    }
+
     // ─── Step 3: Start HTTP server ────────────────────────────────────────────
     await server.listen({ port: env.PORT, host: '0.0.0.0' });
     server.log.info(`Server is listening on port ${env.PORT}`);

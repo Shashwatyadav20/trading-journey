@@ -111,6 +111,16 @@ export class StrategyFingerprintManager {
   }
 
   /**
+   * Verifies current fingerprint against active cohort.
+   */
+  public verifyCurrentFingerprint(): { matches: boolean; fingerprint: StrategyFingerprint } {
+    const current = this.getCurrentFingerprint();
+    const activeCohort = this.getActiveCohort();
+    const matches = current.masterFingerprintHash === activeCohort.fingerprint.masterFingerprintHash;
+    return { matches, fingerprint: current };
+  }
+
+  /**
    * Returns current active cohort.
    */
   public getActiveCohort(): ValidationCohort {
@@ -119,6 +129,13 @@ export class StrategyFingerprintManager {
       throw new Error(`Active cohort ${this.activeCohortId} not found.`);
     }
     return cohort;
+  }
+
+  /**
+   * Returns the active cohort ID string.
+   */
+  public getActiveCohortId(): string {
+    return this.activeCohortId;
   }
 
   /**
