@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { Candle } from "../types";
 import { niftyMarketProvider } from "../market/NiftyMarketProvider";
 import { hedgingStrategyEngine } from "../strategy/HedgingStrategyEngine";
@@ -13,13 +13,22 @@ import { paperValidationEngine } from "../validation/PaperValidationEngine";
 import { systemHealthService } from "../health/SystemHealthService";
 
 describe("Phase 12 — Paper Trading Performance Validation Test Suite", () => {
+  const origEnv = { ...process.env };
+
   beforeEach(() => {
+    // These paper trading tests use synthetic chains to test paper order logic.
+    // Disable REAL_DATA_ONLY so synthetic chains pass the real-data gate.
+    process.env.INDIAN_REAL_DATA_ONLY = "false";
     dailyRiskController.resetLocks();
     paperBrokerAdapter.resetAccount(500000);
     signalCooldownEngine.reset();
     signalAuditStore.clearLogs();
     paperJournalStore.clear();
     niftyMarketProvider.updateSpotPrice(25000, false, Date.now());
+  });
+
+  afterEach(() => {
+    process.env = { ...origEnv };
   });
 
   const createBullishCandles = (basePrice = 25000): Candle[] => {

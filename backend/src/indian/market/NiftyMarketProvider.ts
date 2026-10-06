@@ -98,7 +98,10 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
       };
     }
 
-    // No live data — return default paper/synthetic price
+    // SYNTHETIC FALLBACK — only reachable when INDIAN_REAL_DATA_ONLY is NOT "true" (local dev only).
+    // 24700.45 is NEVER genuine market data.
+    // Must NOT be used for any live signal, position sizing, or trade entry.
+    // In production (INDIAN_REAL_DATA_ONLY=true), this branch is unreachable — blocked by guard above.
     return {
       spotPrice: 24700.45,
       timestamp: this.lastUpdateTimestampMs,

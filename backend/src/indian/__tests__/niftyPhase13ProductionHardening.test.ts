@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { Candle } from "../types";
 import { niftyMarketProvider } from "../market/NiftyMarketProvider";
 import { hedgingStrategyEngine } from "../strategy/HedgingStrategyEngine";
@@ -14,12 +14,21 @@ import { securityValidator } from "../security/SecurityValidator";
 import { envValidator } from "../config/EnvValidator";
 
 describe("Phase 13 — Production Hardening & Deployment Validation Test Suite", () => {
+  const origEnv = { ...process.env };
+
   beforeEach(() => {
+    // Production hardening tests use synthetic chains to test restart recovery,
+    // idempotency and e2e failure scenarios. Disable REAL_DATA_ONLY for these.
+    process.env.INDIAN_REAL_DATA_ONLY = "false";
     dailyRiskController.resetLocks();
     paperBrokerAdapter.resetAccount(500000);
     signalLifecycleEngine.resetState();
     paperPersistenceManager.clearAllData();
     niftyMarketProvider.updateSpotPrice(25000, false, Date.now());
+  });
+
+  afterEach(() => {
+    process.env = { ...origEnv };
   });
 
   const createBullishCandles = (basePrice = 25000): Candle[] => {

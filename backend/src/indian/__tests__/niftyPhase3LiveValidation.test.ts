@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { NiftyMarketProvider } from "../market/NiftyMarketProvider";
 import { SlippageModel } from "../risk/SlippageModel";
 import { SignalAuditStore } from "../audit/SignalAuditStore";
@@ -12,11 +12,20 @@ describe("Phase 3 Live Paper Validation & Backtest Integration Suite", () => {
   let auditStore: SignalAuditStore;
   let importer: NiftyHistoricalOptionImporter;
 
+  const origEnv = { ...process.env };
+
   beforeEach(() => {
+    // These tests validate paper/synthetic provider behaviour and backtest integration.
+    // Disable REAL_DATA_ONLY so the synthetic spot price fallback (24700.45) is returned.
+    process.env.INDIAN_REAL_DATA_ONLY = "false";
     provider = new NiftyMarketProvider(1000); // 1 sec stale timeout for testing
     slippageModel = new SlippageModel();
     auditStore = new SignalAuditStore();
     importer = new NiftyHistoricalOptionImporter();
+  });
+
+  afterEach(() => {
+    process.env = { ...origEnv };
   });
 
   describe("1. Market Data Provider & Stale Data Protection", () => {

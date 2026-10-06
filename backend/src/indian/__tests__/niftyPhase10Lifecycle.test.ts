@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { Candle } from "../types";
 import { niftyMarketProvider } from "../market/NiftyMarketProvider";
 import { hedgingStrategyEngine } from "../strategy/HedgingStrategyEngine";
@@ -11,12 +11,21 @@ import { paperJournalStore } from "../audit/PaperJournalStore";
 import { niftyOptionChainService } from "../market/NiftyOptionChainService";
 
 describe("Phase 10 — Live Paper Trading Validation & Complete Trade Lifecycle Suite", () => {
+  const origEnv = { ...process.env };
+
   beforeEach(() => {
+    // These lifecycle tests use synthetic chains to test entry/exit logic.
+    // Explicitly disable REAL_DATA_ONLY so synthetic chains pass the real-data gate.
+    process.env.INDIAN_REAL_DATA_ONLY = "false";
     dailyRiskController.resetLocks();
     paperBrokerAdapter.resetAccount(500000);
     signalCooldownEngine.reset();
     signalLifecycleEngine.transitionTo("WAITING_FOR_DATA", "Resetting test state");
     paperJournalStore.clear();
+  });
+
+  afterEach(() => {
+    process.env = { ...origEnv };
   });
 
   const createBullishCandles = (basePrice: number = 25000): Candle[] => {

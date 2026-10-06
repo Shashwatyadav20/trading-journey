@@ -176,6 +176,9 @@ describe("PHASE 23 — Complete Reality Audit & Real-Data Integrity Test Suite",
 
   // 5. Stale data causes NO TRADE
   it("5. Stale data causes NO TRADE", () => {
+    // Explicitly disable REAL_DATA_ONLY so the stale-data gate fires before the gamma gate.
+    // This test specifically validates stale-data detection, not real-data-only mode.
+    process.env.INDIAN_REAL_DATA_ONLY = "false";
     const staleTime = new Date(Date.now() - 120000).toISOString();
     const staleChain: NiftyOptionChain = {
       spotPrice: 24700,

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { volatilityEngine } from "../volatility/VolatilityEngine";
 import { multiTimeframeTrendEngine } from "../trend/MultiTimeframeTrendEngine";
 import { supportResistanceEngine } from "../levels/SupportResistanceEngine";
@@ -15,8 +15,17 @@ import { auditLogger } from "../audit/AuditLogger";
 import { backtestEngine } from "../backtest/BacktestEngine";
 
 describe("Automated NIFTY Options Hedging System Suite", () => {
+  const origEnv = { ...process.env };
+
   beforeEach(() => {
+    // AutoHedge sub-component tests use synthetic chains to test individual engines.
+    // Disable REAL_DATA_ONLY so synthetic chains are not blocked by the real-data gate.
+    process.env.INDIAN_REAL_DATA_ONLY = "false";
     dailyRiskController.resetLocks();
+  });
+
+  afterEach(() => {
+    process.env = { ...origEnv };
   });
 
   const mockCandles15M: Candle[] = Array.from({ length: 30 }, (_, i) => ({

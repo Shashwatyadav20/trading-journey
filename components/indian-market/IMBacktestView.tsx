@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import IMHeader from "./IMHeader";
 import IMStatusBadge from "./IMStatusBadge";
+import { apiUrl } from "../../lib/backendUrl";
 import {
   Play,
   Loader2,
@@ -53,7 +54,7 @@ export default function IMBacktestView() {
 
   const fetchDataSourceStatus = async () => {
     try {
-      const res = await fetch("http://localhost:4000/api/indian/backtest/data-source-status");
+      const res = await fetch(apiUrl("/api/indian/backtest/data-source-status"), { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -76,7 +77,7 @@ export default function IMBacktestView() {
     try {
       setLoading(true);
       setImportError(null);
-      const res = await fetch("http://localhost:4000/api/indian/backtest/run", {
+      const res = await fetch(apiUrl("/api/indian/backtest/run"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -105,7 +106,7 @@ export default function IMBacktestView() {
       setImportError(null);
       setImportNotice(null);
 
-      const res = await fetch("http://localhost:4000/api/indian/backtest/validate-csv", {
+      const res = await fetch(apiUrl("/api/indian/backtest/validate-csv"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ csvContent, declaredSource }),
@@ -146,7 +147,7 @@ export default function IMBacktestView() {
       setImportError(null);
       setImportNotice(null);
 
-      const res = await fetch("http://localhost:4000/api/indian/backtest/import-csv", {
+      const res = await fetch(apiUrl("/api/indian/backtest/import-csv"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ csvContent, declaredSource }),

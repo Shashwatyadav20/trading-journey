@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import IMHeader from "./IMHeader";
 import IMStatusBadge from "./IMStatusBadge";
 import { IMPaperTradingView } from "./IMPaperTradingView";
+import { apiUrl } from "../../lib/backendUrl";
 import {
   TrendingUp,
   Activity,
@@ -111,7 +112,7 @@ export default function IMOverviewView() {
 
   const fetchSignal = async () => {
     try {
-      const res = await fetch("http://localhost:4000/api/indian/signal");
+      const res = await fetch(apiUrl("/api/indian/signal"), { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.signal) {
@@ -121,7 +122,7 @@ export default function IMOverviewView() {
         }
       }
     } catch {
-      // API fallback
+      // Backend unreachable — don't set demo data
     } finally {
       setLoading(false);
     }
@@ -137,7 +138,7 @@ export default function IMOverviewView() {
     setExecuting(true);
     setNotice(null);
     try {
-      const res = await fetch("http://localhost:4000/api/indian/trade/execute-paper", {
+      const res = await fetch(apiUrl("/api/indian/trade/execute-paper"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -157,7 +158,7 @@ export default function IMOverviewView() {
 
   const handleToggleEmergency = async () => {
     try {
-      const res = await fetch("http://localhost:4000/api/indian/trade/emergency-stop", {
+      const res = await fetch(apiUrl("/api/indian/trade/emergency-stop"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: !emergency }),
@@ -245,7 +246,7 @@ export default function IMOverviewView() {
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <StatCard
             label="NIFTY Spot"
-            value={sig ? `₹${sig.spotPrice.toLocaleString("en-IN")}` : "24,700.45"}
+            value={sig ? `₹${sig.spotPrice.toLocaleString("en-IN")}` : "N/A — DATA UNAVAILABLE"}
             sub="NSE Index"
             accent="cyan"
           />
@@ -312,32 +313,32 @@ export default function IMOverviewView() {
           />
           <StatCard
             label="VWAP"
-            value={sig ? `₹${(sig.regime_details?.vwap || sig.spotPrice).toFixed(0)}` : "24,680"}
+            value={sig ? `₹${(sig.regime_details?.vwap || sig.spotPrice).toFixed(0)}` : "N/A"}
             sub={sig && sig.spotPrice > (sig.regime_details?.vwap || 0) ? "ABOVE VWAP" : "BELOW VWAP"}
             accent="emerald"
           />
           <StatCard
             label="RSI (14)"
-            value="58.5"
-            sub="Bullish (>50)"
-            accent="emerald"
+            value={sig?.regime_details?.rsi != null ? sig.regime_details.rsi.toFixed(1) : "N/A"}
+            sub={sig?.regime_details?.rsi != null ? (sig.regime_details.rsi > 50 ? "Bullish (>50)" : "Bearish (<50)") : "Awaiting data"}
+            accent={sig?.regime_details?.rsi != null && sig.regime_details.rsi > 50 ? "emerald" : "amber"}
           />
           <StatCard
             label="Short Delta"
-            value={sig?.sellLeg ? sig.sellLeg.delta : "-0.24"}
-            sub="Delta Safety Valid"
+            value={sig?.sellLeg ? sig.sellLeg.delta : "N/A"}
+            sub={sig?.sellLeg ? "Delta Safety Valid" : "Awaiting data"}
             accent="violet"
           />
           <StatCard
             label="Short Gamma"
-            value="0.003"
-            sub="Acceptable (<0.005)"
+            value={sig?.sellLeg?.gamma != null ? sig.sellLeg.gamma.toFixed(4) : "N/A"}
+            sub={sig?.sellLeg?.gamma != null ? (sig.sellLeg.gamma < 0.005 ? "Acceptable (<0.005)" : "Elevated") : "Awaiting data"}
             accent="slate"
           />
           <StatCard
             label="Strategy Score"
-            value={sig ? `${sig.score}/100` : "86/100"}
-            sub={sig?.score >= 80 ? "QUALIFIED" : "WATCH"}
+            value={sig ? `${sig.score}/100` : "N/A"}
+            sub={sig?.score != null ? (sig.score >= 80 ? "QUALIFIED" : "WATCH") : "Awaiting data"}
             accent="cyan"
           />
         </div>

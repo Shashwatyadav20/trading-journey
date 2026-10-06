@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import IMHeader from "./IMHeader";
 import IMStatusBadge from "./IMStatusBadge";
+import { apiUrl } from "../../lib/backendUrl";
 import {
   Activity,
   ShieldCheck,
@@ -241,7 +242,7 @@ export default function IMPostPhase40OperationsDashboard() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch("http://localhost:4000/api/indian/operations/status");
+      const res = await fetch(apiUrl("/api/indian/operations/status"), { cache: "no-store" });
       if (!res.ok) {
         throw new Error(`HTTP error ${res.status}`);
       }
@@ -253,12 +254,14 @@ export default function IMPostPhase40OperationsDashboard() {
         throw new Error(json.error || "Failed to fetch operations status");
       }
 
-      // Fetch live spot price for display
-      const spotRes = await fetch("http://localhost:4000/api/indian/signal");
+      // Fetch live spot price for display — only show if isRealData confirmed
+      const spotRes = await fetch(apiUrl("/api/indian/signal"), { cache: "no-store" });
       if (spotRes.ok) {
         const spotJson = await spotRes.json();
-        if (spotJson.signal?.spotPrice) {
+        if (spotJson.signal?.spotPrice && spotJson.isRealData) {
           setSpotPrice(spotJson.signal.spotPrice);
+        } else {
+          setSpotPrice(null);
         }
       }
 
@@ -418,8 +421,8 @@ export default function IMPostPhase40OperationsDashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <MetricCard
             title="NIFTY Spot"
-            value={spotPrice ? `₹${spotPrice.toLocaleString("en-IN")}` : "₹24,700.45"}
-            sub={`Age: ${Math.round((mkt?.niftySpot.ageMs || 0) / 1000)}s · ${mkt?.niftySpot.isReal ? "REAL MARKET" : "PAPER MODEL"}`}
+            value={spotPrice ? `₹${spotPrice.toLocaleString("en-IN")}` : (mkt?.niftySpot.isReal ? "Loading…" : "N/A — DATA UNAVAILABLE")}
+            sub={`Age: ${Math.round((mkt?.niftySpot.ageMs || 0) / 1000)}s · ${mkt?.niftySpot.isReal ? "REAL MARKET" : "AWAITING REAL DATA"}`}
             accent={mkt?.niftySpot.isStale ? "rose" : "cyan"}
           />
           <MetricCard

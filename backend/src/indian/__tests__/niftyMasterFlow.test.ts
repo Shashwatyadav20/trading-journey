@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { Candle, NiftyOptionChain } from "../types";
 import { hedgingStrategyEngine } from "../strategy/HedgingStrategyEngine";
 import { marketRegimeEngine } from "../regime/MarketRegimeEngine";
@@ -7,8 +7,18 @@ import { dailyRiskController } from "../risk/DailyRiskController";
 import { multiTimeframeTrendEngine } from "../trend/MultiTimeframeTrendEngine";
 
 describe("Phase 9 — NIFTY Master Trading Logic Deterministic Test Suite", () => {
+  const origEnv = { ...process.env };
+
   beforeEach(() => {
+    // Master flow tests use synthetic chains to deterministically test trading logic
+    // (bullish, bearish, range, conflict, delta, stale). Disable REAL_DATA_ONLY so
+    // synthetic chains are not blocked before the test subject logic executes.
+    process.env.INDIAN_REAL_DATA_ONLY = "false";
     dailyRiskController.resetLocks();
+  });
+
+  afterEach(() => {
+    process.env = { ...origEnv };
   });
 
   const createBullishCandles = (basePrice: number = 25000): Candle[] => {
@@ -320,6 +330,11 @@ describe("Phase 9 — NIFTY Master Trading Logic Deterministic Test Suite", () =
     const spot = 25000;
     const candles15M = createBullishCandles(24900);
     const candles1H = createBullishCandles(24800);
+
+    // Explicitly disable REAL_DATA_ONLY for this test — it validates stale-data detection,
+    // not real-data-only mode. The synthetic chain with a stale timestamp should trigger
+    // DATA_INVALID_OR_STALE, not REAL_OPTION_CHAIN_UNAVAILABLE.
+    process.env.INDIAN_REAL_DATA_ONLY = "false";
 
     const oldTimestamp = new Date(Date.now() - 120 * 1000).toISOString(); // 120s old
     const staleChain: NiftyOptionChain = {

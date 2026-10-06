@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import IMHeader from "./IMHeader";
 import IMStatusBadge from "./IMStatusBadge";
 import { RefreshCw, XSquare, Loader2 } from "lucide-react";
+import { apiUrl } from "../../lib/backendUrl";
 
 export default function IMPositions() {
   const [openPositions, setOpenPositions] = useState<any[]>([]);
@@ -17,8 +18,8 @@ export default function IMPositions() {
     try {
       setLoading(true);
       const [posRes, perfRes] = await Promise.all([
-        fetch("http://localhost:4000/api/indian/positions").catch(() => null),
-        fetch("http://localhost:4000/api/indian/performance").catch(() => null),
+        fetch(apiUrl("/api/indian/positions")).catch(() => null),
+        fetch(apiUrl("/api/indian/performance")).catch(() => null),
       ]);
 
       if (posRes && posRes.ok) {
@@ -50,7 +51,7 @@ export default function IMPositions() {
   const handleClosePosition = async (id: string) => {
     try {
       setClosingId(id);
-      const res = await fetch("http://localhost:4000/api/indian/trade/close", {
+      const res = await fetch(apiUrl("/api/indian/trade/close"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),

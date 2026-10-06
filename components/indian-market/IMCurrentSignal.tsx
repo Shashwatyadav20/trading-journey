@@ -3,24 +3,29 @@
 import React, { useState, useEffect } from "react";
 import IMHeader from "./IMHeader";
 import IMStatusBadge from "./IMStatusBadge";
-import { CheckCircle2, XCircle, RefreshCw, ShieldAlert, Zap } from "lucide-react";
+import { CheckCircle2, XCircle, RefreshCw, ShieldAlert, Zap, WifiOff } from "lucide-react";
+import { apiUrl } from "../../lib/backendUrl";
 
 export default function IMCurrentSignal() {
   const [signalData, setSignalData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [backendError, setBackendError] = useState<string | null>(null);
 
   const fetchSignal = async () => {
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:4000/api/indian/signal");
+      const res = await fetch(apiUrl("/api/indian/signal"), { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.signal) {
-          setSignalData(data.signal);
+          setSignalData(data);
+          setBackendError(null);
         }
+      } else {
+        setBackendError(`HTTP ${res.status}: ${res.statusText}`);
       }
-    } catch {
-      // API fallback
+    } catch (err: unknown) {
+      setBackendError(err instanceof Error ? err.message : "Backend unreachable");
     } finally {
       setLoading(false);
     }
@@ -28,14 +33,18 @@ export default function IMCurrentSignal() {
 
   useEffect(() => {
     fetchSignal();
+    const interval = setInterval(fetchSignal, 15000);
+    return () => clearInterval(interval);
   }, []);
 
-  const isReady = signalData?.status === "READY";
-  
+  const sig = signalData?.signal;
+  const isReady = sig?.status === "READY";
+
   const getStrategyStatus = () => {
-    if (!signalData) return "WAIT";
+    if (backendError) return "DISCONNECTED";
+    if (!sig) return "WAIT";
     if (isReady) return "ACTIVE";
-    const reasons = signalData.reasons || [];
+    const reasons = sig.reasons || [];
     if (reasons.some((r: string) => r.includes("Stale") || r.includes("Error") || r.includes("BLOCKED") || r.includes("limit"))) {
       return "BLOCKED";
     }
@@ -64,7 +73,8 @@ export default function IMCurrentSignal() {
             <span className="text-slate-500">STRATEGY:</span>
             <span className={
               strategyStatus === "ACTIVE" ? "text-emerald-400 font-bold" :
-              strategyStatus === "BLOCKED" ? "text-rose-400 font-bold" : "text-amber-400 font-bold"
+              strategyStatus === "BLOCKED" ? "text-rose-400 font-bold" :
+              strategyStatus === "DISCONNECTED" ? "text-rose-400 font-bold" : "text-amber-400 font-bold"
             }>
               {strategyStatus}
             </span>
@@ -82,21 +92,35 @@ export default function IMCurrentSignal() {
 
       <IMHeader />
 
-      {/* Main Signal Panel */}
-      {isReady && signalData ? (
+      {/* Backend disconnected guard — show prominently, never show demo data */}
+      {backendError && (
+        <div className="p-5 rounded-2xl border border-rose-500/30 bg-rose-500/5 flex items-start gap-3">
+          <WifiOff className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="text-sm font-bold text-rose-400 font-mono uppercase tracking-widest">BACKEND DISCONNECTED</div>
+            <div className="text-[10px] text-slate-500 font-mono">{backendError}</div>
+            <div className="text-[10px] text-slate-600 font-mono">
+              Check that <span className="text-amber-400">NEXT_PUBLIC_BACKEND_URL</span> is set and the Render backend is reachable.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Signal Panel — only render when backend is reachable */}
+      {!backendError && isReady && sig ? (
         <div className="p-6 rounded-2xl bg-emerald-500/5 border border-emerald-500/30 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-500/20 pb-4">
             <div className="flex items-center gap-3">
               <div className="text-2xl font-black text-slate-100 font-mono tracking-tighter">
-                NIFTY Spot @ ₹{signalData.spotPrice}
+                NIFTY Spot @ ₹{sig.spotPrice}
               </div>
-              <IMStatusBadge status={signalData.regime} size="md" pulse />
+              <IMStatusBadge status={sig.regime} size="md" pulse />
             </div>
 
             <div className="flex items-center gap-3 font-mono text-xs text-slate-400">
-              <span>Expiry: <strong className="text-slate-200">{signalData.expiry}</strong></span>
+              <span>Expiry: <strong className="text-slate-200">{sig.expiry}</strong></span>
               <span>•</span>
-              <span>Lots: <strong className="text-cyan-400">{signalData.quantityLots}</strong> ({signalData.totalQuantity} Qty)</span>
+              <span>Lots: <strong className="text-cyan-400">{sig.quantityLots}</strong> ({sig.totalQuantity} Qty)</span>
             </div>
           </div>
 
@@ -107,7 +131,7 @@ export default function IMCurrentSignal() {
                 Strategy Action
               </div>
               <div className="text-sm font-bold font-mono text-emerald-400">
-                {signalData.action.replace(/_/g, " ")}
+                {sig.action.replace(/_/g, " ")}
               </div>
             </div>
 
@@ -116,7 +140,7 @@ export default function IMCurrentSignal() {
                 Setup Score
               </div>
               <div className="text-sm font-bold font-mono text-cyan-400">
-                {signalData.score} / 100
+                {sig.score} / 100
               </div>
             </div>
 
@@ -125,7 +149,7 @@ export default function IMCurrentSignal() {
                 Risk / Reward
               </div>
               <div className="text-sm font-bold font-mono text-emerald-400">
-                1 : {signalData.rewardRiskRatio}
+                1 : {sig.rewardRiskRatio}
               </div>
             </div>
 
@@ -134,13 +158,13 @@ export default function IMCurrentSignal() {
                 Margin Required
               </div>
               <div className="text-sm font-bold font-mono text-amber-400">
-                ₹{signalData.marginRequired?.toLocaleString() || "N/A"}
+                ₹{sig.marginRequired?.toLocaleString() || "N/A"}
               </div>
             </div>
           </div>
 
           {/* Detailed Spread Strike Legs */}
-          {signalData.sellLeg && signalData.buyLeg && (
+          {sig.sellLeg && sig.buyLeg && (
             <div className="p-5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-4 font-mono text-xs">
               <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-wider">
                 <span>Multi-Leg Spread Structure</span>
@@ -152,14 +176,14 @@ export default function IMCurrentSignal() {
                 <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 space-y-1">
                   <div className="flex items-center justify-between text-rose-400 font-bold">
                     <span>SELL SHORT LEG</span>
-                    <span>{signalData.sellLeg.optionType}</span>
+                    <span>{sig.sellLeg.optionType}</span>
                   </div>
                   <div className="text-slate-200">
-                    Strike: ₹{signalData.sellLeg.strike} @ LTP ₹{signalData.sellLeg.ltp}
+                    Strike: ₹{sig.sellLeg.strike} @ LTP ₹{sig.sellLeg.ltp}
                   </div>
                   <div className="text-[10px] text-slate-400 flex gap-3">
-                    <span>Delta: {signalData.sellLeg.delta || "N/A"}</span>
-                    <span>IV: {signalData.sellLeg.iv ? (signalData.sellLeg.iv * 100).toFixed(1) + "%" : "N/A"}</span>
+                    <span>Delta: {sig.sellLeg.delta || "N/A"}</span>
+                    <span>IV: {sig.sellLeg.iv ? (sig.sellLeg.iv * 100).toFixed(1) + "%" : "N/A"}</span>
                   </div>
                 </div>
 
@@ -167,14 +191,14 @@ export default function IMCurrentSignal() {
                 <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 space-y-1">
                   <div className="flex items-center justify-between text-emerald-400 font-bold">
                     <span>BUY HEDGE LEG</span>
-                    <span>{signalData.buyLeg.optionType}</span>
+                    <span>{sig.buyLeg.optionType}</span>
                   </div>
                   <div className="text-slate-200">
-                    Strike: ₹{signalData.buyLeg.strike} @ LTP ₹{signalData.buyLeg.ltp}
+                    Strike: ₹{sig.buyLeg.strike} @ LTP ₹{sig.buyLeg.ltp}
                   </div>
                   <div className="text-[10px] text-slate-400 flex gap-3">
-                    <span>Delta: {signalData.buyLeg.delta || "N/A"}</span>
-                    <span>IV: {signalData.buyLeg.iv ? (signalData.buyLeg.iv * 100).toFixed(1) + "%" : "N/A"}</span>
+                    <span>Delta: {sig.buyLeg.delta || "N/A"}</span>
+                    <span>IV: {sig.buyLeg.iv ? (sig.buyLeg.iv * 100).toFixed(1) + "%" : "N/A"}</span>
                   </div>
                 </div>
               </div>
@@ -183,33 +207,33 @@ export default function IMCurrentSignal() {
               <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-[11px] text-slate-300 pt-3 border-t border-slate-800">
                 <div>
                   <span className="block text-[9px] text-slate-500">Entry Credit</span>
-                  <span className="font-bold text-emerald-400">₹{signalData.entryCredit}</span>
+                  <span className="font-bold text-emerald-400">₹{sig.netCredit}</span>
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-500">Max Profit</span>
-                  <span className="font-bold text-emerald-400">₹{signalData.maxProfit}</span>
+                  <span className="font-bold text-emerald-400">₹{sig.maxProfit}</span>
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-500">Max Loss</span>
-                  <span className="font-bold text-rose-400">₹{signalData.maxLoss}</span>
+                  <span className="font-bold text-rose-400">₹{sig.maxLoss}</span>
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-500">Stop Loss</span>
-                  <span className="font-bold text-slate-200">Spread ₹{signalData.stopLossSpread}</span>
+                  <span className="font-bold text-slate-200">Spread ₹{sig.stopLossSpread}</span>
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-500">Target</span>
-                  <span className="font-bold text-slate-200">Spread ₹{signalData.targetSpread}</span>
+                  <span className="font-bold text-slate-200">Spread ₹{sig.targetSpread}</span>
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-500">Charges & Tax</span>
-                  <span className="font-bold text-amber-400">₹{signalData.charges?.totalCharges || 0}</span>
+                  <span className="font-bold text-amber-400">₹{sig.charges?.totalCharges || 0}</span>
                 </div>
               </div>
 
               <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-800 text-slate-300">
                 <span>Expected Net P&L (After Slippage & Taxes):</span>
-                <strong className="text-emerald-400 text-sm">₹{signalData.expectedNetPnl}</strong>
+                <strong className="text-emerald-400 text-sm">₹{sig.expectedNetPnl}</strong>
               </div>
             </div>
           )}
@@ -219,7 +243,7 @@ export default function IMCurrentSignal() {
             <div className="text-[9px] text-slate-500 font-mono uppercase tracking-widest">
               Signal Rationale & System Audits
             </div>
-            {signalData.reasons.map((r: string, idx: number) => (
+            {sig.reasons.map((r: string, idx: number) => (
               <div key={idx} className="flex items-center gap-2 text-xs font-mono text-emerald-300">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 {r}
@@ -228,14 +252,15 @@ export default function IMCurrentSignal() {
           </div>
         </div>
       ) : (
-        /* NO TRADE / WAIT / BLOCKED Panel */
+        /* NO TRADE / WAIT / BLOCKED Panel — only when backend is connected */
+        !backendError && (
         <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="text-2xl font-black text-slate-100 font-mono tracking-tighter">
-                NIFTY Spot @ ₹{signalData?.spotPrice || "24,700"}
+                {sig?.spotPrice ? `NIFTY Spot @ ₹${sig.spotPrice}` : "NO SIGNAL — DATA UNAVAILABLE"}
               </div>
-              <IMStatusBadge status={signalData?.status || "NO TRADE"} size="md" />
+              <IMStatusBadge status={sig?.status || "NO TRADE"} size="md" />
             </div>
 
             <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
@@ -248,8 +273,8 @@ export default function IMCurrentSignal() {
             <div className="text-[9px] text-slate-500 font-mono uppercase tracking-widest">
               System Audit Diagnostics & Block Reasons
             </div>
-            {signalData?.reasons && signalData.reasons.length > 0 ? (
-              signalData.reasons.map((r: string, idx: number) => (
+            {sig?.reasons && sig.reasons.length > 0 ? (
+              sig.reasons.map((r: string, idx: number) => (
                 <div key={idx} className="flex items-center gap-2 text-xs font-mono text-rose-400">
                   <XCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
                   {r}
@@ -257,11 +282,12 @@ export default function IMCurrentSignal() {
               ))
             ) : (
               <div className="text-xs font-mono text-slate-400">
-                Market conditions do not fulfill defined-risk entry criteria. Stale data or regime filter active.
+                {loading ? "Fetching signal from backend…" : "No rejection reasons returned by backend."}
               </div>
             )}
           </div>
         </div>
+        )
       )}
     </div>
   );
