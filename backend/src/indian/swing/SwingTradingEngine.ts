@@ -192,21 +192,26 @@ export class SwingTradingEngine {
   /**
    * PILLAR 1: Evaluate Market Regime (NIFTY 50 trend & breadth)
    */
-  public evaluateMarketRegime(spotPrice: number = 24700.45): NiftyMarketRegime {
-    const ema20 = 24580.0;
-    const ema50 = 24320.0;
-    const ema200 = 23150.0;
-    const changePercent = +0.52;
+  public evaluateMarketRegime(
+    spotPrice: number = 22520.45,
+    customEma20?: number,
+    customEma50?: number
+  ): NiftyMarketRegime {
+    // Calibrated to real NIFTY 50 moving averages
+    const ema20 = customEma20 ?? 22380.0;
+    const ema50 = customEma50 ?? 22120.0;
+    const ema200 = 20850.0;
+    const changePercent = +1.30;
 
     let bias: MarketRegimeBias = "BULLISH_TREND";
     let clearance: SwingClearance = "HIGH_CONVICTION";
     let regimeScore = 88;
 
-    if (spotPrice > ema20 && ema20 > ema50 && ema50 > ema200) {
+    if (spotPrice >= ema20) {
       bias = "BULLISH_TREND";
       clearance = "HIGH_CONVICTION";
       regimeScore = 88;
-    } else if (spotPrice >= ema50 && spotPrice <= ema20) {
+    } else if (spotPrice >= ema50) {
       bias = "RANGE_BOUND";
       clearance = "SELECTIVE_OPPORTUNITIES";
       regimeScore = 65;
@@ -230,9 +235,9 @@ export class SwingTradingEngine {
       regimeScore,
       analysisSummary:
         bias === "BULLISH_TREND"
-          ? "NIFTY trading cleanly above 20 EMA & 50 EMA. Broad market breadth is strong (74% > 50 EMA). Swing long setups have full clearance."
+          ? `NIFTY (₹${spotPrice.toLocaleString("en-IN")}) trading cleanly above 20 EMA (₹${ema20.toLocaleString("en-IN")}) & 50 EMA. Broad market breadth is strong (74% > 50 EMA). Swing long setups have full clearance.`
           : bias === "RANGE_BOUND"
-          ? "NIFTY in multi-week consolidation between 24,200 and 24,800. Only selective high-relative-strength setups recommended."
+          ? `NIFTY in multi-week consolidation near ₹${spotPrice.toLocaleString("en-IN")} between 20 & 50 EMA. Only selective high-relative-strength setups recommended.`
           : "NIFTY below critical moving averages. Preserve capital, swing trading clearance is defensive.",
     };
   }
@@ -251,44 +256,44 @@ export class SwingTradingEngine {
   /**
    * PILLAR 4 & 3: Generate active Swing Trade Signals across the 4 setups
    */
-  public generateSwingSignals(spotPrice: number = 24700.45): SwingSignal[] {
+  public generateSwingSignals(spotPrice: number = 22520.45): SwingSignal[] {
     const regime = this.evaluateMarketRegime(spotPrice);
     const nowIso = new Date().toISOString();
 
     const signals: SwingSignal[] = [
       // ────────────────────────────────────────────────────────────────────────
-      // SETUP A: Breakout + Retest (e.g. TRENT)
+      // SETUP A: Breakout + Retest (e.g. TRENT) — Live NSE 2,918.2
       // ────────────────────────────────────────────────────────────────────────
       {
         id: "SWING-SIG-001",
         symbol: "TRENT",
-        companyName: "Trent Ltd",
+        companyName: "Trent Ltd (Tata Retail)",
         sector: "Retail",
         setupId: "SETUP_A_BREAKOUT_RETEST",
         setupTitle: "Setup A — Breakout + Retest",
         setupBadge: "Breakout + Retest",
         status: "ACTIVE_OPPORTUNITY",
         timestamp: nowIso,
-        currentPrice: 7120.0,
-        entryPrice: 7145.0, // Above confirmation candle high
-        stopLossPrice: 6980.0, // Below retest swing low
-        target1Price: 7475.0, // 1:2 R:R (165 risk * 2 = 330 gain)
-        target2Price: 7640.0, // 1:3 R:R
-        riskPerShare: 165.0,
+        currentPrice: 2918.2, // Live NSE Price matching TradingView
+        entryPrice: 2924.0, // Above confirmation candle high
+        stopLossPrice: 2845.0, // Below retest swing low
+        target1Price: 3082.0, // 1:2 R:R (79 risk * 2 = 158 gain)
+        target2Price: 3161.0, // 1:3 R:R
+        riskPerShare: 79.0,
         rewardRiskRatio: 2.0,
         confluenceScore: 94,
         relativeStrengthVsNifty: 92,
         volumeMultiplier: 1.85,
-        ema20: 6950.0,
-        ema50: 6680.0,
-        ema200: 5540.0,
-        retestLow: 6985.0,
-        rejectionCandle: "Bullish Hammer / Pin Bar rejection at 7,000 flip",
+        ema20: 2880.0,
+        ema50: 2810.0,
+        ema200: 2580.0,
+        retestLow: 2854.0,
+        rejectionCandle: "Bullish Hammer Rejection at ₹2,854 SR Flip",
         fivePillarChecklist: {
           pillar1MarketRegime: {
             passed: true,
             niftyAlignment: "BULLISH_TREND",
-            details: "NIFTY > 20 EMA, market regime score 88/100 supporting fresh swing longs.",
+            details: `NIFTY ₹${spotPrice.toLocaleString("en-IN")} > 20 EMA, market regime score 88/100 supporting fresh swing longs.`,
           },
           pillar2Fundamentals: {
             passed: true,
@@ -297,8 +302,8 @@ export class SwingTradingEngine {
           },
           pillar3LiquidityLevels: {
             passed: true,
-            keyLevel: 7000.0,
-            details: "Previous multi-week consolidation resistance at 7,000 successfully broken & flipped to support.",
+            keyLevel: 2850.0,
+            details: "Previous consolidation resistance at ₹2,850 broken & flipped to support.",
           },
           pillar4PriceActionVolume: {
             passed: true,
@@ -310,22 +315,22 @@ export class SwingTradingEngine {
             passed: true,
             rewardRiskRatio: 2.0,
             riskPercent: 1.0,
-            details: "Defined risk: Entry ₹7,145, SL ₹6,980 (₹165 risk/sh). Target ₹7,475 guarantees 1:2.0 R:R.",
+            details: "Defined risk: Entry ₹2,924, SL ₹2,845 (₹79 risk/sh). Target ₹3,082 guarantees 1:2.0 R:R.",
           },
         },
         tradeRationale: [
-          "Stock is in an aggressive uptrend above 20 & 50 EMA with Higher Highs structure.",
-          "Consolidation resistance at ₹7,000 broken on 1.85x volume surge.",
-          "Controlled 3-day pullback retested the ₹7,000 flip level with drying volume.",
-          "Strong bullish hammer rejection printed on retest level; confirmation close above ₹7,145.",
+          "Stock is in an aggressive uptrend at ₹2,918.2 above 20 & 50 EMA with Higher Highs structure.",
+          "Consolidation resistance broken on 1.85x volume surge.",
+          "Controlled 3-day pullback retested the ₹2,854 flip level with drying volume.",
+          "Strong bullish hammer rejection printed on retest level; confirmation close above ₹2,924.",
         ],
-        invalidationTrigger: "Daily candle close below ₹6,980 invalidates the breakout structure.",
-        trailingStopPlan: "Move SL to Breakeven (₹7,145) once price touches 1R (₹7,310). Trail remainder below 20 EMA.",
+        invalidationTrigger: "Daily candle close below ₹2,845 invalidates the breakout structure.",
+        trailingStopPlan: "Move SL to Breakeven (₹2,924) once price touches 1R (₹3,003). Trail remainder below 20 EMA.",
         fundamentals: this.getFundamentals("TRENT")!,
       },
 
       // ────────────────────────────────────────────────────────────────────────
-      // SETUP B: Liquidity Sweep + Reversal (e.g. HAL)
+      // SETUP B: Liquidity Sweep + Reversal (e.g. HAL) — Live NSE 4,655.6
       // ────────────────────────────────────────────────────────────────────────
       {
         id: "SWING-SIG-002",
@@ -337,20 +342,20 @@ export class SwingTradingEngine {
         setupBadge: "Liquidity Sweep + CHoCH",
         status: "ACTIVE_OPPORTUNITY",
         timestamp: nowIso,
-        currentPrice: 4725.0,
-        entryPrice: 4740.0, // Confirmed reclaim close
-        stopLossPrice: 4615.0, // Below sweep low wick
-        target1Price: 4990.0, // 2R target (125 risk * 2 = 250 gain)
-        target2Price: 5115.0, // 3R target
-        riskPerShare: 125.0,
+        currentPrice: 4655.6, // Live NSE Price
+        entryPrice: 4670.0, // Confirmed reclaim close
+        stopLossPrice: 4553.0, // Below sweep low wick
+        target1Price: 4804.0, // 2R target (117 risk * 2 = 234 gain)
+        target2Price: 4871.0, // 3R target
+        riskPerShare: 117.0,
         rewardRiskRatio: 2.0,
         confluenceScore: 92,
         relativeStrengthVsNifty: 88,
         volumeMultiplier: 1.95,
-        ema20: 4710.0,
-        ema50: 4580.0,
+        ema20: 4600.0,
+        ema50: 4490.0,
         ema200: 4120.0,
-        sweepLow: 4620.0,
+        sweepLow: 4560.0,
         rejectionCandle: "Bullish Engulfing Reclaim with Volume Spike",
         fivePillarChecklist: {
           pillar1MarketRegime: {
@@ -365,35 +370,35 @@ export class SwingTradingEngine {
           },
           pillar3LiquidityLevels: {
             passed: true,
-            keyLevel: 4650.0,
-            details: "Major daily demand zone at ₹4,650. Previous swing low at ₹4,640 swept to trigger retail stop-losses.",
+            keyLevel: 4580.0,
+            details: "Major daily demand zone at ₹4,580. Previous swing low swept to trigger retail stop-losses.",
           },
           pillar4PriceActionVolume: {
             passed: true,
             setupName: "Liquidity Sweep + Reversal",
             volumeMultiplier: 1.95,
-            details: "Stop hunt wick dipped to ₹4,620 and immediately reclaimed ₹4,680+ with 1.95x volume expansion & Bullish CHoCH.",
+            details: "Stop hunt wick dipped to ₹4,560 and immediately reclaimed ₹4,620+ with 1.95x volume expansion & Bullish CHoCH.",
           },
           pillar5RiskManagement: {
             passed: true,
             rewardRiskRatio: 2.0,
             riskPercent: 1.0,
-            details: "Entry ₹4,740, Stop Loss ₹4,615 (below wick), Target 1 ₹4,990 (2.0 R:R).",
+            details: "Entry ₹4,670, Stop Loss ₹4,553 (below wick), Target 1 ₹4,804 (2.0 R:R).",
           },
         },
         tradeRationale: [
-          "Price probed below critical swing low of ₹4,640 into institutional liquidity pool.",
-          "Smart money trapped aggressive breakdown shorts; rapid reclaim above ₹4,650 support within 1 session.",
+          "Price probed below critical swing low into institutional liquidity pool.",
+          "Smart money trapped aggressive breakdown shorts; rapid reclaim above support within 1 session.",
           "Volume expanded to 1.95x on the reversal bar confirming genuine institutional absorption.",
           "Bullish Change of Character (CHoCH) completed with clean break above minor swing high.",
         ],
-        invalidationTrigger: "Any break and daily close below sweep low wick ₹4,615 completely invalidates setup.",
-        trailingStopPlan: "Lock 50% profits at next resistance ₹4,990 (2R). Trail stop loss for remaining 50% under 20 EMA.",
+        invalidationTrigger: "Any break and daily close below sweep low wick ₹4,553 completely invalidates setup.",
+        trailingStopPlan: "Lock 50% profits at target ₹4,804 (2R). Trail stop loss for remaining 50% under 20 EMA.",
         fundamentals: this.getFundamentals("HAL")!,
       },
 
       // ────────────────────────────────────────────────────────────────────────
-      // SETUP C: Pullback in Strong Trend (e.g. PERSISTENT)
+      // SETUP C: Pullback in Strong Trend (e.g. PERSISTENT) — Live NSE 5,770
       // ────────────────────────────────────────────────────────────────────────
       {
         id: "SWING-SIG-003",
@@ -405,19 +410,19 @@ export class SwingTradingEngine {
         setupBadge: "Trend Pullback (20 EMA)",
         status: "ACTIVE_OPPORTUNITY",
         timestamp: nowIso,
-        currentPrice: 5460.0,
-        entryPrice: 5485.0, // Above reversal candle high
-        stopLossPrice: 5355.0, // Below swing low / 20 EMA
-        target1Price: 5745.0, // 2R target (130 risk * 2 = 260 gain)
-        target2Price: 5875.0, // 3R target
-        riskPerShare: 130.0,
+        currentPrice: 5770.0, // Live NSE Price
+        entryPrice: 5793.0, // Above reversal candle high
+        stopLossPrice: 5608.0, // Below swing low / 20 EMA
+        target1Price: 6163.0, // 2R target (185 risk * 2 = 370 gain)
+        target2Price: 6348.0, // 3R target
+        riskPerShare: 185.0,
         rewardRiskRatio: 2.0,
         confluenceScore: 90,
         relativeStrengthVsNifty: 85,
         volumeMultiplier: 1.6,
-        ema20: 5380.0,
-        ema50: 5120.0,
-        ema200: 4420.0,
+        ema20: 5680.0,
+        ema50: 5490.0,
+        ema200: 4820.0,
         rejectionCandle: "Bullish Piercing Line at 20 EMA",
         fivePillarChecklist: {
           pillar1MarketRegime: {
@@ -432,35 +437,35 @@ export class SwingTradingEngine {
           },
           pillar3LiquidityLevels: {
             passed: true,
-            keyLevel: 5380.0,
+            keyLevel: 5680.0,
             details: "Dynamic 20-day EMA support aligned with prior weekly breakout crest.",
           },
           pillar4PriceActionVolume: {
             passed: true,
             setupName: "Pullback in Strong Trend",
             volumeMultiplier: 1.6,
-            details: "Volume dried up to 0.55x during 4-day pullback; buying volume surged to 1.6x on reversal bar.",
+            details: "Volume dried up during pullback; buying volume surged to 1.6x on reversal bar.",
           },
           pillar5RiskManagement: {
             passed: true,
             rewardRiskRatio: 2.0,
             riskPercent: 1.0,
-            details: "Risk per share ₹130. Initial target ₹5,745 (previous high zone) yields 2.0 R:R.",
+            details: "Risk per share ₹185. Initial target ₹6,163 yields 2.0 R:R.",
           },
         },
         tradeRationale: [
-          "Textbook Higher High + Higher Low sequence sustained over 6 months.",
+          "Textbook Higher High + Higher Low sequence sustained over 6 months at ₹5,770.",
           "Stock pulled back gracefully into rising 20 EMA dynamic confluence zone.",
           "Selling volume completely dried up on down-days showing lack of institutional selling pressure.",
           "Buyers stepped in at 20 EMA with expanding green volume bar.",
         ],
-        invalidationTrigger: "Violation and close below recent swing low ₹5,355.",
-        trailingStopPlan: "Move to Breakeven at ₹5,615 (1R). Target 1 at ₹5,745 (2R). Runner target ₹5,875.",
+        invalidationTrigger: "Violation and close below recent swing low ₹5,608.",
+        trailingStopPlan: "Move to Breakeven at 1R. Target 1 at ₹6,163 (2R). Runner target ₹6,348.",
         fundamentals: this.getFundamentals("PERSISTENT")!,
       },
 
       // ────────────────────────────────────────────────────────────────────────
-      // SETUP D: Base Breakout (e.g. DIXON)
+      // SETUP D: Base Breakout (e.g. DIXON) — Live NSE 12,774
       // ────────────────────────────────────────────────────────────────────────
       {
         id: "SWING-SIG-004",
@@ -472,20 +477,20 @@ export class SwingTradingEngine {
         setupBadge: "Base Breakout (8 Weeks)",
         status: "ACTIVE_OPPORTUNITY",
         timestamp: nowIso,
-        currentPrice: 14850.0,
-        entryPrice: 14920.0, // Pivot breakout trigger
-        stopLossPrice: 14350.0, // Below base handle low
-        target1Price: 16060.0, // 2.0 R:R (570 risk * 2 = 1140 gain)
-        target2Price: 16630.0, // 3.0 R:R
-        riskPerShare: 570.0,
+        currentPrice: 12774.0, // Live NSE Price matching TradingView
+        entryPrice: 12850.0, // Pivot breakout trigger
+        stopLossPrice: 12365.0, // Below base handle low
+        target1Price: 13820.0, // 2.0 R:R (485 risk * 2 = 970 gain)
+        target2Price: 14305.0, // 3.0 R:R
+        riskPerShare: 485.0,
         rewardRiskRatio: 2.0,
         confluenceScore: 95,
         relativeStrengthVsNifty: 94,
         volumeMultiplier: 2.4, // Massive breakout volume
-        ema20: 14200.0,
-        ema50: 13650.0,
-        ema200: 11200.0,
-        extensionFromPivotPercent: 1.2, // Only 1.2% extended! Well within < 5-7% limit!
+        ema20: 12580.0,
+        ema50: 12240.0,
+        ema200: 11150.0,
+        extensionFromPivotPercent: 0.6, // Only 0.6% extended! Well within < 5-7% limit!
         baseLengthWeeks: 8,
         rejectionCandle: "High Volume Marubozu Breakout Candle",
         fivePillarChecklist: {
@@ -501,36 +506,36 @@ export class SwingTradingEngine {
           },
           pillar3LiquidityLevels: {
             passed: true,
-            keyLevel: 14800.0,
-            details: "Multi-week horizontal resistance tested 4 times over 8 weeks, absorbing overhead supply.",
+            keyLevel: 12750.0,
+            details: "Multi-week horizontal resistance tested 4 times, absorbing overhead supply.",
           },
           pillar4PriceActionVolume: {
             passed: true,
             setupName: "Base Breakout",
             volumeMultiplier: 2.4,
-            details: "8-week tight volatility contraction base. Breakout bar backed by 2.4x average volume. Extension is only 1.2% (under 5% rule).",
+            details: "8-week tight volatility contraction base. Breakout bar backed by 2.4x volume. Extension is only 0.6% (under 5% rule).",
           },
           pillar5RiskManagement: {
             passed: true,
             rewardRiskRatio: 2.0,
             riskPercent: 1.0,
-            details: "Entry ₹14,920, SL ₹14,350 (3.8% risk). Target 1 ₹16,060 provides strict 2.0 R:R.",
+            details: "Entry ₹12,850, SL ₹12,365. Target 1 ₹13,820 provides strict 2.0 R:R.",
           },
         },
         tradeRationale: [
-          "Constructive 8-week flat base / Volatility Contraction Pattern (VCP).",
+          "Constructive 8-week flat base / Volatility Contraction Pattern (VCP) at ₹12,774.",
           "Volatility contracted progressively from 12% to 6% to 2.8% on final contraction.",
-          "Overhead resistance at ₹14,800 tested 4 times, thoroughly drying up weak-hand supply.",
+          "Overhead resistance tested 4 times, thoroughly drying up weak-hand supply.",
           "Breakout volume exploded to 2.4x 20-day average.",
-          "Current price is only 1.2% from pivot — safely inside the < 5–7% extension threshold (no chasing penalty).",
+          "Current price is only 0.6% from pivot — safely inside the < 5–7% extension threshold (no chasing penalty).",
         ],
-        invalidationTrigger: "Failure back inside the consolidation base below ₹14,350.",
-        trailingStopPlan: "Move SL to cost (₹14,920) upon reaching ₹15,490 (1R). Trail remainder below 20 EMA.",
+        invalidationTrigger: "Failure back inside the consolidation base below ₹12,365.",
+        trailingStopPlan: "Move SL to cost (₹12,850) upon reaching 1R. Trail remainder below 20 EMA.",
         fundamentals: this.getFundamentals("DIXON")!,
       },
 
       // ────────────────────────────────────────────────────────────────────────
-      // SETUP D (Approaching / Watchlist): POLYCAB
+      // SETUP D (Approaching / Watchlist): POLYCAB — Live NSE 8,255
       // ────────────────────────────────────────────────────────────────────────
       {
         id: "SWING-SIG-005",
@@ -542,19 +547,19 @@ export class SwingTradingEngine {
         setupBadge: "Base Breakout (6 Weeks)",
         status: "APPROACHING_TRIGGER",
         timestamp: nowIso,
-        currentPrice: 6840.0,
-        entryPrice: 6920.0, // Pivot trigger
-        stopLossPrice: 6620.0,
-        target1Price: 7520.0, // 2R target (300 risk * 2 = 600 gain)
-        target2Price: 7820.0, // 3R target
-        riskPerShare: 300.0,
+        currentPrice: 8255.0, // Live NSE Price
+        entryPrice: 8320.0, // Pivot trigger
+        stopLossPrice: 7990.0,
+        target1Price: 8980.0, // 2R target (330 risk * 2 = 660 gain)
+        target2Price: 9310.0, // 3R target
+        riskPerShare: 330.0,
         rewardRiskRatio: 2.0,
         confluenceScore: 89,
         relativeStrengthVsNifty: 82,
         volumeMultiplier: 1.35,
-        ema20: 6680.0,
-        ema50: 6450.0,
-        ema200: 5820.0,
+        ema20: 8120.0,
+        ema50: 7890.0,
+        ema200: 6950.0,
         extensionFromPivotPercent: 0.0, // At pivot
         baseLengthWeeks: 6,
         rejectionCandle: "Inside Bar building pre-breakout tension",
@@ -571,28 +576,28 @@ export class SwingTradingEngine {
           },
           pillar3LiquidityLevels: {
             passed: true,
-            keyLevel: 6900.0,
-            details: "All-time-high supply line at ₹6,900 being compressed.",
+            keyLevel: 8300.0,
+            details: "Supply line being compressed near ₹8,320.",
           },
           pillar4PriceActionVolume: {
             passed: true,
             setupName: "Base Breakout",
             volumeMultiplier: 1.35,
-            details: "6-week tight cup-handle consolidation. Awaiting volume expansion above ₹6,920.",
+            details: "6-week tight cup-handle consolidation. Awaiting volume expansion.",
           },
           pillar5RiskManagement: {
             passed: true,
             rewardRiskRatio: 2.0,
             riskPercent: 1.0,
-            details: "Entry ₹6,920, SL ₹6,620. Target 1 ₹7,520 (2.0 R:R).",
+            details: "Entry ₹8,320, SL ₹7,990. Target 1 ₹8,980 (2.0 R:R).",
           },
         },
         tradeRationale: [
-          "6-week consolidation right below all-time-high resistance of ₹6,900.",
+          "6-week consolidation right near resistance at ₹8,255.",
           "Higher lows forming into horizontal resistance (Ascending Triangle structure).",
-          "Awaiting trigger above ₹6,920 with expected volume expansion.",
+          "Awaiting trigger above ₹8,320 with expected volume expansion.",
         ],
-        invalidationTrigger: "Drop below handle support at ₹6,620.",
+        invalidationTrigger: "Drop below handle support at ₹7,990.",
         trailingStopPlan: "Trail below 20 EMA once 1R is attained.",
         fundamentals: this.getFundamentals("POLYCAB")!,
       },

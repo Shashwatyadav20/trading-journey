@@ -5,7 +5,7 @@ describe("5-Pillar Swing Trading Engine Suite", () => {
   // ── Pillar 1: Market Regime ──────────────────────────────────────────────────
   describe("Pillar 1: Market Regime (NIFTY Trend & Range)", () => {
     it("classifies bullish trend when price > 20 EMA > 50 EMA", () => {
-      const regime = swingTradingEngine.evaluateMarketRegime(24700.45);
+      const regime = swingTradingEngine.evaluateMarketRegime(22520.45);
       expect(regime.bias).toBe("BULLISH_TREND");
       expect(regime.clearance).toBe("HIGH_CONVICTION");
       expect(regime.regimeScore).toBeGreaterThanOrEqual(80);
@@ -13,13 +13,13 @@ describe("5-Pillar Swing Trading Engine Suite", () => {
     });
 
     it("classifies range-bound regime when price is between 50 EMA and 20 EMA", () => {
-      const regime = swingTradingEngine.evaluateMarketRegime(24450.0);
+      const regime = swingTradingEngine.evaluateMarketRegime(22250.0);
       expect(regime.bias).toBe("RANGE_BOUND");
       expect(regime.clearance).toBe("SELECTIVE_OPPORTUNITIES");
     });
 
     it("classifies defensive regime when price is below 50 EMA", () => {
-      const regime = swingTradingEngine.evaluateMarketRegime(24100.0);
+      const regime = swingTradingEngine.evaluateMarketRegime(21900.0);
       expect(regime.bias).toBe("BEARISH_CORRECTION");
       expect(regime.clearance).toBe("DEFENSIVE_CASH");
     });

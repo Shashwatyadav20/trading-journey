@@ -12,16 +12,21 @@
  * NEVER hardcode http://localhost:4000 in component files.
  */
 export const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") ??
-  "http://localhost:4000";
+  process.env.NEXT_PUBLIC_BACKEND_URL && !process.env.NEXT_PUBLIC_BACKEND_URL.includes("localhost")
+    ? process.env.NEXT_PUBLIC_BACKEND_URL.replace(/\/$/, "")
+    : typeof window !== "undefined" && !window.location.hostname.includes("localhost")
+    ? "https://trading-journey-backend.onrender.com"
+    : process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") ?? "http://localhost:4000";
 
 /**
  * Returns the full URL for an Indian-market backend API path.
- *
- * @example
- *   apiUrl("/api/indian/signal")
- *   // → "https://my-app.onrender.com/api/indian/signal"
  */
 export function apiUrl(path: string): string {
+  // If we're in the browser on Vercel and the path is /api/indian/swing/*, use relative URL
+  // so Next.js App Router API route handles it directly with zero latency!
+  if (typeof window !== "undefined" && path.startsWith("/api/indian/swing")) {
+    return path;
+  }
   return `${BACKEND_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
+

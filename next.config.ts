@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
-const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+const backendUrl =
+  process.env.NEXT_PUBLIC_BACKEND_URL && !process.env.NEXT_PUBLIC_BACKEND_URL.includes("localhost")
+    ? process.env.NEXT_PUBLIC_BACKEND_URL
+    : "https://trading-journey-backend.onrender.com";
 
 const nextConfig: NextConfig = {
   async rewrites() {
