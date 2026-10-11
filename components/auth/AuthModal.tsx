@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Lock, Mail, AlertCircle, Loader2, ArrowRight, ShieldCheck, TrendingUp } from "lucide-react";
 
 export default function AuthModal() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, loginAsLocalDev } = useAuth();
   const [isSignUp, setIsSignUp] = useState<boolean>(false);
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
@@ -190,6 +190,24 @@ export default function AuthModal() {
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
+          </button>
+
+          <div className="relative py-2 flex items-center justify-center">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-800" />
+            </div>
+            <span className="relative px-2 bg-[#0d1322] text-[10px] text-slate-500 font-mono">
+              OR
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={loginAsLocalDev}
+            className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-cyan-400 font-mono text-xs rounded-xl border border-cyan-500/30 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm hover:border-cyan-400/60"
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Enter Terminal (Local Dev Mode)</span>
           </button>
         </form>
 

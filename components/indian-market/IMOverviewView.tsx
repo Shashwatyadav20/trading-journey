@@ -102,8 +102,9 @@ function ModeToggle({
 }
 
 export default function IMOverviewView() {
-  const [viewMode, setViewMode] = useState<"overview" | "paper_validation">("paper_validation");
+  const [viewMode, setViewMode] = useState<"overview" | "paper_validation">("overview");
   const [signalData, setSignalData] = useState<any>(null);
+  const [sessionInfo, setSessionInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [executing, setExecuting] = useState(false);
   const [autoTrade, setAutoTrade] = useState(false);
@@ -112,13 +113,24 @@ export default function IMOverviewView() {
 
   const fetchSignal = async () => {
     try {
-      const res = await fetch(apiUrl("/api/indian/signal"), { cache: "no-store" });
-      if (res.ok) {
+      const [res, sessRes] = await Promise.all([
+        fetch(apiUrl("/api/indian/signal"), { cache: "no-store" }).catch(() => null),
+        fetch(apiUrl("/api/indian/paper/session"), { cache: "no-store" }).catch(() => null),
+      ]);
+
+      if (res && res.ok) {
         const data = await res.json();
         if (data.success && data.signal) {
           setSignalData(data);
           setAutoTrade(!!data.autoTradeActive);
           setEmergency(!!data.emergencyStopActive);
+        }
+      }
+
+      if (sessRes && sessRes.ok) {
+        const sessData = await sessRes.json();
+        if (sessData.success && sessData.session) {
+          setSessionInfo(sessData.session);
         }
       }
     } catch {
@@ -270,8 +282,14 @@ export default function IMOverviewView() {
           />
           <StatCard
             label="Session Status"
-            value={<IMStatusBadge status="MARKET OPEN" size="sm" />}
-            sub="09:15 – 15:30 IST"
+            value={
+              <IMStatusBadge
+                status={sessionInfo?.state === "MARKET_CLOSED" ? "MARKET CLOSED" : "MARKET OPEN"}
+                size="sm"
+              />
+            }
+            sub={sessionInfo?.reason || "09:15 – 15:30 IST"}
+            accent={sessionInfo?.state === "MARKET_CLOSED" ? "amber" : "emerald"}
           />
           <StatCard
             label="Expiry"

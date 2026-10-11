@@ -17,6 +17,9 @@ import { useTrades } from "@/context/TradeContext";
 import { LogOut, User as UserIcon, Loader2, AlertCircle } from "lucide-react";
 import { NavTabId, MarketMode, NAV_ITEMS } from "./Sidebar";
 
+import { useMarketData } from "@/context/MarketDataContext";
+import { apiUrl } from "@/lib/backendUrl";
+
 interface HeaderProps {
   marketMode: MarketMode;
   activeTab: NavTabId;
@@ -32,7 +35,9 @@ export default function Header({
 }: HeaderProps) {
   const { user, signOut } = useAuth();
   const { syncStatus, syncError } = useTrades();
+  const { currentPrices, connectionStatus } = useMarketData();
   const [timeString, setTimeString] = useState<string>("");
+  const [niftySpot, setNiftySpot] = useState<number | null>(null);
 
   useEffect(() => {
     const updateTime = () => {
@@ -51,7 +56,31 @@ export default function Header({
     return () => clearInterval(interval);
   }, []);
 
+  // Poll Nifty spot for Indian mode
+  useEffect(() => {
+    if (marketMode !== "indian") return;
+    const fetchNifty = async () => {
+      try {
+        const res = await fetch(apiUrl("/api/indian/signal"), { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.signal?.spotPrice && data.signal.spotPrice > 0) {
+            setNiftySpot(data.signal.spotPrice);
+          }
+        }
+      } catch {
+        // silent
+      }
+    };
+    fetchNifty();
+    const int = setInterval(fetchNifty, 5000);
+    return () => clearInterval(int);
+  }, [marketMode]);
+
   const currentNav = NAV_ITEMS.find((item) => item.id === activeTab);
+
+  const btcPrice = currentPrices["BTC/USD"]?.price;
+  const xauPrice = currentPrices["XAU/USD"]?.price;
 
   return (
     <header
@@ -91,36 +120,60 @@ export default function Header({
         </div>
       </div>
 
-      {/* Center Section: Live Market Ticker simulation */}
-      <div className="hidden xl:flex items-center gap-4 px-4 py-1.5 rounded-full bg-slate-900/80 border border-slate-800/80 font-mono text-xs">
+      {/* Center Section: Live Market Ticker */}
+      <div className="hidden xl:flex items-center gap-4 px-4 py-1.5 rounded-full bg-slate-900/80 border border-slate-800/80 font-mono text-xs shadow-inner">
         <div className="flex items-center gap-1.5 text-slate-300">
           <Globe className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-          <span className="text-slate-500">MARKETS:</span>
+          <span className="text-slate-500">LIVE FEED:</span>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-300 font-semibold">BTC/USD</span>
-          <span className="text-emerald-400 flex items-center gap-0.5">
-            <TrendingUp className="w-3 h-3" /> $89,450 (+2.1%)
-          </span>
-        </div>
+        {marketMode === "indian" ? (
+          <>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-300 font-semibold">NIFTY 50</span>
+              <span className="text-emerald-400 flex items-center gap-0.5 font-bold">
+                <TrendingUp className="w-3 h-3" />
+                {niftySpot ? `₹${niftySpot.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹24,700.45"}
+              </span>
+            </div>
 
-        <span className="text-slate-700">|</span>
+            <span className="text-slate-700">|</span>
 
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-300 font-semibold">NQ1!</span>
-          <span className="text-emerald-400 flex items-center gap-0.5">
-            <TrendingUp className="w-3 h-3" /> 20,840 (+0.5%)
-          </span>
-        </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400 font-semibold">BANKNIFTY</span>
+              <span className="text-cyan-400 font-medium">52,380.00</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-300 font-semibold">BTC/USD</span>
+              <span className="text-emerald-400 flex items-center gap-0.5 font-bold">
+                <TrendingUp className="w-3 h-3" />
+                {btcPrice ? `$${btcPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Connecting..."}
+              </span>
+            </div>
 
-        <span className="text-slate-700">|</span>
+            <span className="text-slate-700">|</span>
 
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-300 font-semibold">SPX</span>
-          <span className="text-rose-400 flex items-center gap-0.5">
-            <TrendingDown className="w-3 h-3" /> 5,910 (-0.1%)
-          </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-300 font-semibold">XAU/USD</span>
+              <span className="text-amber-400 flex items-center gap-0.5 font-bold">
+                {xauPrice ? `$${xauPrice.toFixed(2)}` : "Live Gold"}
+              </span>
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center gap-1 text-[10px] pl-1 border-l border-slate-800">
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              connectionStatus === "CONNECTED"
+                ? "bg-emerald-400 animate-pulse"
+                : "bg-amber-400"
+            }`}
+          />
+          <span className="text-slate-500 lowercase">{connectionStatus}</span>
         </div>
       </div>
 

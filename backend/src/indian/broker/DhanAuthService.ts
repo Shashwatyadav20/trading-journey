@@ -125,7 +125,7 @@ export class DhanAuthService {
   }
 
   public reloadCredentials(credentials?: DhanAuthCredentials): void {
-    this.clientId = this.cleanToken(credentials?.clientId ?? process.env.DHAN_CLIENT_ID);
+    this.clientId = this.cleanToken(credentials?.clientId ?? (process.env.DHAN_CLIENT_ID || process.env.BROKER_CLIENT_ID));
     this.pin = (credentials?.pin ?? process.env.DHAN_PIN ?? "").trim();
     this.totpSecret = (credentials?.totpSecret ?? process.env.DHAN_TOTP_SECRET ?? "").trim();
     this.apiKey = (credentials?.apiKey ?? process.env.DHAN_API_KEY ?? "").trim();
@@ -134,7 +134,7 @@ export class DhanAuthService {
     this.baseUrl = (credentials?.baseUrl ?? process.env.DHAN_BASE_URL ?? "https://api.dhan.co/v2").trim();
     this.authUrl = (credentials?.authUrl ?? process.env.DHAN_AUTH_URL ?? "https://auth.dhan.co").trim();
 
-    const directToken = this.cleanToken(credentials?.accessToken ?? process.env.DHAN_ACCESS_TOKEN);
+    const directToken = this.cleanToken(credentials?.accessToken ?? (process.env.DHAN_ACCESS_TOKEN || process.env.BROKER_ACCESS_TOKEN));
     if (directToken) {
       this.accessToken = directToken;
       if (this.tokenExpiryMs === 0) {
@@ -147,12 +147,12 @@ export class DhanAuthService {
    * Evaluates if any official DhanHQ authentication flow is configured.
    */
   public getClientId(): string {
-    return this.clientId || this.cleanToken(process.env.DHAN_CLIENT_ID) || "";
+    return this.clientId || this.cleanToken(process.env.DHAN_CLIENT_ID || process.env.BROKER_CLIENT_ID) || "";
   }
 
   public isConfigured(): boolean {
-    const activeToken = this.accessToken || this.cleanToken(process.env.DHAN_ACCESS_TOKEN);
-    const activeClientId = this.clientId || this.cleanToken(process.env.DHAN_CLIENT_ID);
+    const activeToken = this.accessToken || this.cleanToken(process.env.DHAN_ACCESS_TOKEN || process.env.BROKER_ACCESS_TOKEN);
+    const activeClientId = this.clientId || this.cleanToken(process.env.DHAN_CLIENT_ID || process.env.BROKER_CLIENT_ID);
     const hasTotpPinFlow = !!(activeClientId && this.pin && this.totpSecret);
     const hasDirectToken = !!activeToken;
     const hasConsentFlow = !!(activeClientId && this.apiKey && this.apiSecret && this.tokenId);

@@ -24,6 +24,8 @@ import {
   Check,
   XCircle,
 } from "lucide-react";
+import { apiUrl } from "../../lib/backendUrl";
+
 
 export function IMPaperTradingView() {
   const [activeTab, setActiveTab] = useState<
@@ -153,17 +155,17 @@ export function IMPaperTradingView() {
     setIsLoading(true);
     try {
       const [sessRes, perfRes, healthRes, compRes, genuineRes, p18Res, p19Res, brokerRes, p21StatusRes, p21CompRes, p21AlertsRes] = await Promise.all([
-        fetch("/api/indian/paper/session").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/paper/performance").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/paper/system-health").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/paper/comparison").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/genuine-data/status").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/phase18/operational-gate").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/phase19/summary").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/broker/status").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/phase21/operational-status").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/phase21/quote-comparison").then((r) => r.json()).catch(() => null),
-        fetch("/api/indian/phase21/alerts").then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/paper/session")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/paper/performance")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/paper/system-health")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/paper/comparison")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/genuine-data/status")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/phase18/operational-gate")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/phase19/summary")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/broker/status")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/phase21/operational-status")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/phase21/quote-comparison")).then((r) => r.json()).catch(() => null),
+        fetch(apiUrl("/api/indian/phase21/alerts")).then((r) => r.json()).catch(() => null),
       ]);
 
       if (sessRes?.success) {

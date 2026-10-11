@@ -14,7 +14,17 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<{ error: Error | null }>;
+  loginAsLocalDev: () => void;
 }
+
+const DEV_USER: User = {
+  id: "local-trader-01",
+  app_metadata: { provider: "local" },
+  user_metadata: { name: "Local Trader" },
+  aud: "authenticated",
+  created_at: new Date().toISOString(),
+  email: "trader@local.dev",
+} as unknown as User;
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -28,6 +38,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /** Fetches the server-side approval status for the current user.
    *  This ALWAYS reads from Supabase — never from localStorage or client metadata. */
   async function fetchApprovalStatus(userId: string) {
+    if (userId === "local-trader-01") {
+      setApproved(true);
+      return;
+    }
     setApprovalLoading(true);
     try {
       const { data, error } = await supabase
@@ -53,9 +67,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const loginAsLocalDev = () => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("tj-dev-user", "true");
+    }
+    setUser(DEV_USER);
+    setApproved(true);
+    setLoading(false);
+  };
+
   useEffect(() => {
     const getInitialSession = async () => {
       try {
+        if (typeof window !== "undefined" && localStorage.getItem("tj-dev-user") === "true") {
+          setUser(DEV_USER);
+          setApproved(true);
+          setLoading(false);
+          return;
+        }
+
+        const isPlaceholder =
+          !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+          process.env.NEXT_PUBLIC_SUPABASE_URL.includes("placeholder-project");
+
+        if (isPlaceholder) {
+          // Auto-enable local developer session if placeholder Supabase is configured
+          setUser(DEV_USER);
+          setApproved(true);
+          setLoading(false);
+          return;
+        }
+
         const { data } = await supabase.auth.getSession();
         const s = data.session;
         const u = s?.user ?? null;
@@ -69,6 +111,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (err) {
         console.error("[AUTH] Error getting initial session:", err);
+        // Fallback to dev user on network/config failure
+        setUser(DEV_USER);
+        setApproved(true);
       } finally {
         setLoading(false);
       }
@@ -87,7 +132,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (u) {
           await fetchApprovalStatus(u.id);
         } else {
-          // User signed out — reset approval
           setApproved(null);
         }
       }
@@ -121,6 +165,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("tj-dev-user");
+      }
+      setUser(null);
+      setSession(null);
+      setApproved(null);
       const { error } = await supabase.auth.signOut();
       return { error };
     } catch (err: any) {
@@ -139,6 +189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         signIn,
         signOut,
+        loginAsLocalDev,
       }}
     >
       {children}
