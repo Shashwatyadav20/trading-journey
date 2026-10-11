@@ -3,6 +3,10 @@ import {
   fetchLiveStockCandles,
   evaluateLiveStockStrategy,
 } from "@/lib/indian/liveSwingScanner";
+import {
+  buildStockIndicatorProfile,
+  evaluateAllStrategiesForStock,
+} from "@/lib/indian/dailyStrategyScanner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,6 +31,7 @@ export async function GET(req: NextRequest) {
 
     // 2. Fetch or evaluate NIFTY regime for relative strength comparison
     let niftySpot = 22520.45;
+    let niftyChangePercent = 1.3;
     let niftyEma20 = 22380.0;
     try {
       const niftyCandles = await fetchLiveStockCandles("^NSEI");
@@ -35,6 +40,7 @@ export async function GET(req: NextRequest) {
         const closes = niftyCandles.candles.map((c) => c.close);
         const len = closes.length;
         niftySpot = Number((meta.regularMarketPrice || closes[len - 1]).toFixed(2));
+        niftyChangePercent = Number((meta.regularMarketChangePercent || 1.3).toFixed(2));
         const k20 = 2 / 21;
         let e20 = closes[0];
         for (let i = 1; i < len; i++) e20 = closes[i] * k20 + e20 * (1 - k20);
@@ -53,11 +59,22 @@ export async function GET(req: NextRequest) {
       niftyEma20
     );
 
+    // 4. Run 8-strategy comprehensive profiler
+    const profile = buildStockIndicatorProfile(
+      cleanSymbol,
+      candleData.candles,
+      candleData.meta,
+      niftySpot,
+      niftyChangePercent
+    );
+    const multiOpportunity = evaluateAllStrategiesForStock(profile);
+
     return NextResponse.json({
       success: true,
       data: {
         symbol: `${cleanSymbol}.NS`,
         cleanSymbol,
+        companyName: profile.companyName,
         price: evaluatedSignal.currentPrice,
         prevClose: Number((evaluatedSignal.currentPrice - evaluatedSignal.change).toFixed(2)),
         change: evaluatedSignal.change,
@@ -67,20 +84,20 @@ export async function GET(req: NextRequest) {
         high52: evaluatedSignal.high52,
         low52: evaluatedSignal.low52,
         volume: candleData.meta.regularMarketVolume || 0,
-        avgVolume20D: Math.round(
-          candleData.candles
-            .slice(-20)
-            .map((c) => c.volume)
-            .reduce((a, b) => a + b, 0) / 20
-        ),
+        avgVolume20D: profile.avgVolume20D,
         volumeMultiplier: evaluatedSignal.volumeMultiplier,
         ema20: evaluatedSignal.ema20,
         ema50: evaluatedSignal.ema50,
+        ema200: profile.ema200,
+        rsi14: profile.rsi14,
+        macd: profile.macd,
+        trendStrength: profile.trendStrength,
+        relativeStrengthVsNifty: profile.relativeStrengthVsNifty,
         isAbove20EMA: evaluatedSignal.currentPrice >= evaluatedSignal.ema20,
         isAbove50EMA: evaluatedSignal.currentPrice >= evaluatedSignal.ema50,
-        resistanceLevel: evaluatedSignal.target1Price > evaluatedSignal.entryPrice ? evaluatedSignal.target1Price : evaluatedSignal.entryPrice * 1.05,
-        supportLevel: evaluatedSignal.stopLossPrice,
-        swingLow: evaluatedSignal.stopLossPrice,
+        resistanceLevel: profile.resistanceLevel,
+        supportLevel: profile.supportLevel,
+        swingLow: profile.swingLow,
         detectedSetup: {
           setupId: evaluatedSignal.setupId,
           setupName: evaluatedSignal.setupTitle,
@@ -96,6 +113,8 @@ export async function GET(req: NextRequest) {
           rationale: evaluatedSignal.tradeRationale,
           rejectionDescription: evaluatedSignal.rejectionCandle || evaluatedSignal.setupTitle,
         },
+        allMatchedStrategies: multiOpportunity?.allMatchedStrategies || [],
+        isMultiStrategyMatch: multiOpportunity?.isMultiStrategyMatch || false,
         candleHistory: candleData.candles.slice(-30),
       },
       timestamp: new Date().toISOString(),

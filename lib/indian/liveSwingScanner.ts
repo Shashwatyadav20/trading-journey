@@ -517,10 +517,10 @@ export function evaluateLiveStockStrategy(
   const confluenceScore = Math.min(
     98,
     (isNiftyBullish ? 25 : 15) +
-      (fund.roePercent > 18 ? 20 : 15) +
-      (volumeMultiplier >= 1.2 ? 20 : 15) +
-      (isAbove20 ? 20 : 10) +
-      15
+    (fund.roePercent > 18 ? 20 : 15) +
+    (volumeMultiplier >= 1.2 ? 20 : 15) +
+    (isAbove20 ? 20 : 10) +
+    15
   );
 
   return {

@@ -52,9 +52,8 @@ export async function GET() {
       advancingStocksCount: 36,
       decliningStocksCount: 14,
       regimeScore: niftySpot >= niftyEma20 ? 88 : 65,
-      analysisSummary: `NIFTY (₹${niftySpot.toLocaleString("en-IN")}) trading ${
-        niftySpot >= niftyEma20 ? "cleanly above" : "near"
-      } 20 EMA (₹${niftyEma20.toLocaleString("en-IN")}) & 50 EMA. Market breadth supports high-probability swing longs.`,
+      analysisSummary: `NIFTY (₹${niftySpot.toLocaleString("en-IN")}) trading ${niftySpot >= niftyEma20 ? "cleanly above" : "near"
+        } 20 EMA (₹${niftyEma20.toLocaleString("en-IN")}) & 50 EMA. Market breadth supports high-probability swing longs.`,
     };
 
     // 2. Scan core watchlist stocks dynamically

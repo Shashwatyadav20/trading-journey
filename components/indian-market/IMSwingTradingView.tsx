@@ -5,6 +5,11 @@ import IMHeader from "./IMHeader";
 import IMStatusBadge from "./IMStatusBadge";
 import { apiUrl } from "../../lib/backendUrl";
 import { SwingStrategyChart } from "../charts/SwingStrategyChart";
+import { BacktestModal } from "./BacktestModal";
+import {
+  StrategyId,
+  MatchedStockOpportunity,
+} from "../../lib/indian/dailyStrategyScanner";
 import {
   TrendingUp,
   TrendingDown,
@@ -28,11 +33,14 @@ import {
   Search,
   Filter,
   BarChart3,
+  BarChart2,
   ArrowUpRight,
   ShieldAlert,
   Percent,
   Check,
   RefreshCw,
+  Play,
+  Briefcase,
 } from "lucide-react";
 
 // Types matching backend
@@ -501,6 +509,28 @@ export default function IMSwingTradingView() {
   const [activeModalSignal, setActiveModalSignal] = useState<SwingSignalUI | null>(null);
   const [isLiveFeed, setIsLiveFeed] = useState<boolean>(true);
 
+  // ── 8-Strategy Automated Daily Scanner State ──────────────────────────────
+  const [selectedUniverse, setSelectedUniverse] = useState<string>("MOMENTUM_LEADERS");
+  const [selectedStrategyTab, setSelectedStrategyTab] = useState<string>("ALL");
+  const [dailyOpportunities, setDailyOpportunities] = useState<MatchedStockOpportunity[]>([]);
+  const [multiStrategyMatches, setMultiStrategyMatches] = useState<MatchedStockOpportunity[]>([]);
+  const [strategyCounts, setStrategyCounts] = useState<Record<string, number>>({});
+  const [isDailyScanning, setIsDailyScanning] = useState<boolean>(false);
+  const [lastScanTimestamp, setLastScanTimestamp] = useState<string>("Live Sync");
+  const [tableSearchQuery, setTableSearchQuery] = useState<string>("");
+  const [directionFilter, setDirectionFilter] = useState<string>("ALL");
+  const [minScoreFilter, setMinScoreFilter] = useState<number>(0);
+  const [minRRFilter, setMinRRFilter] = useState<number>(0);
+
+  // Backtest Modal State
+  const [backtestModalOpen, setBacktestModalOpen] = useState<boolean>(false);
+  const [backtestSymbol, setBacktestSymbol] = useState<string>("TRENT");
+  const [backtestStrategy, setBacktestStrategy] = useState<StrategyId>("STRATEGY_A_BREAKOUT");
+
+  // Paper Trading State
+  const [paperTrades, setPaperTrades] = useState<any[]>([]);
+  const [paperTradeNotice, setPaperTradeNotice] = useState<string | null>(null);
+
   // Live Stock Scanner state
   const [searchQuery, setSearchQuery] = useState<string>("TRENT");
   const [scannedStock, setScannedStock] = useState<any | null>(null);
@@ -569,12 +599,64 @@ export default function IMSwingTradingView() {
     if (el) el.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Fetch live from Next.js serverless route or backend
+  // ── Automated Daily Strategy Scanner Fetch ────────────────────────────────
+  const fetchDailyScannerData = async (
+    universe = selectedUniverse,
+    strategy = selectedStrategyTab,
+    forceRefresh = false
+  ) => {
+    setIsDailyScanning(true);
+    try {
+      const url = `/api/indian/swing/daily-scanner?universe=${encodeURIComponent(
+        universe
+      )}&strategy=${encodeURIComponent(strategy)}${
+        forceRefresh ? "&forceRefresh=true" : ""
+      }`;
+      const res = await fetch(url, { cache: "no-store" });
+      const json = await res.json();
+      if (json.success) {
+        if (json.opportunities) setDailyOpportunities(json.opportunities);
+        if (json.multiStrategyMatches)
+          setMultiStrategyMatches(json.multiStrategyMatches);
+        if (json.strategyCounts) setStrategyCounts(json.strategyCounts);
+        if (json.marketRegime) {
+          setRegime((prev) => ({
+            ...prev,
+            spotPrice: json.marketRegime.niftySpot,
+            ema20: json.marketRegime.niftyEma20,
+            bias: json.marketRegime.bias,
+            clearance: json.marketRegime.clearance,
+            analysisSummary: json.marketRegime.analysisSummary,
+          }));
+        }
+        setLastScanTimestamp(
+          new Date().toLocaleTimeString("en-IN", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          })
+        );
+      }
+    } catch (err) {
+      console.error("Daily scanner fetch error:", err);
+    } finally {
+      setIsDailyScanning(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDailyScannerData(selectedUniverse, selectedStrategyTab);
+    const interval = setInterval(
+      () => fetchDailyScannerData(selectedUniverse, selectedStrategyTab),
+      20000
+    );
+    return () => clearInterval(interval);
+  }, [selectedUniverse, selectedStrategyTab]);
+
+  // Fetch live signals for legacy compatibility
   const fetchSwingData = async () => {
     try {
-      // 1. Try local Next.js route first (direct Vercel execution)
       let res = await fetch("/api/indian/swing/signals", { cache: "no-store" }).catch(() => null);
-      // 2. If not ok, try backend via apiUrl
       if (!res || !res.ok) {
         res = await fetch(apiUrl("/api/indian/swing/signals"), { cache: "no-store" }).catch(() => null);
       }
@@ -593,17 +675,35 @@ export default function IMSwingTradingView() {
 
   useEffect(() => {
     fetchSwingData();
-    const interval = setInterval(fetchSwingData, 10000);
-    return () => clearInterval(interval);
   }, []);
 
-  // Filter signals
+  // Filter legacy signals
   const filteredSignals = signals.filter((s) => {
     if (selectedFilter === "ALL") return true;
     if (selectedFilter === "SETUP_A") return s.setupId === "SETUP_A_BREAKOUT_RETEST";
     if (selectedFilter === "SETUP_B") return s.setupId === "SETUP_B_LIQUIDITY_SWEEP";
     if (selectedFilter === "SETUP_C") return s.setupId === "SETUP_C_TREND_PULLBACK";
     if (selectedFilter === "SETUP_D") return s.setupId === "SETUP_D_BASE_BREAKOUT";
+    return true;
+  });
+
+  // Filter daily 8-strategy opportunities
+  const filteredOpportunities = dailyOpportunities.filter((opp) => {
+    if (selectedStrategyTab !== "ALL") {
+      const matchesStrat = opp.allMatchedStrategies.some((s) => s.strategyId === selectedStrategyTab);
+      if (!matchesStrat) return false;
+    }
+    if (directionFilter !== "ALL" && opp.direction !== directionFilter) return false;
+    if (minScoreFilter > 0 && opp.confluenceScore < minScoreFilter) return false;
+    if (minRRFilter > 0 && opp.rewardRiskRatio < minRRFilter) return false;
+    if (tableSearchQuery.trim()) {
+      const q = tableSearchQuery.trim().toUpperCase();
+      return (
+        opp.cleanSymbol.includes(q) ||
+        opp.companyName.toUpperCase().includes(q) ||
+        opp.sector.toUpperCase().includes(q)
+      );
+    }
     return true;
   });
 
@@ -625,9 +725,50 @@ export default function IMSwingTradingView() {
     setCalcTarget(sig.target1Price);
     setCalcNotice(`✓ Loaded ${sig.symbol} (Entry: ₹${sig.entryPrice}, SL: ₹${sig.stopLossPrice}) into Risk Calculator`);
     setTimeout(() => setCalcNotice(null), 5000);
-    // Smooth scroll to calculator
     const el = document.getElementById("risk-calculator-section");
     if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const loadOpportunityIntoCalculator = (opp: MatchedStockOpportunity) => {
+    setCalcSymbol(opp.cleanSymbol);
+    setCalcEntry(opp.entryTrigger);
+    setCalcStopLoss(opp.stopLoss);
+    setCalcTarget(opp.target1);
+    setCalcNotice(
+      `✓ Loaded ${opp.cleanSymbol} (${opp.primaryStrategy.strategyName}: Entry ₹${opp.entryTrigger}, SL ₹${opp.stopLoss}) into Risk Calculator`
+    );
+    setTimeout(() => setCalcNotice(null), 5000);
+    const el = document.getElementById("risk-calculator-section");
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const openBacktest = (sym: string, strat?: StrategyId) => {
+    setBacktestSymbol(sym);
+    if (strat) setBacktestStrategy(strat);
+    setBacktestModalOpen(true);
+  };
+
+  const executePaperOrder = () => {
+    const newTrade = {
+      id: `PAPER-${Date.now()}`,
+      symbol: calcSymbol,
+      entry: calcEntry,
+      stopLoss: calcStopLoss,
+      target1: calcTarget,
+      quantity: recommendedQuantity,
+      capital: totalCapitalRequired,
+      riskAmount: maxRiskAmount,
+      date: `${new Date().toLocaleDateString("en-IN")} ${new Date().toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}`,
+      status: "ACTIVE",
+    };
+    setPaperTrades((prev) => [newTrade, ...prev]);
+    setPaperTradeNotice(
+      `⚡ Simulated Paper Order: Bought ${recommendedQuantity} ${calcSymbol} at ₹${calcEntry} (Capital: ₹${totalCapitalRequired.toLocaleString("en-IN")})`
+    );
+    setTimeout(() => setPaperTradeNotice(null), 6000);
   };
 
   return (
@@ -737,11 +878,10 @@ export default function IMSwingTradingView() {
               <button
                 key={sym}
                 onClick={() => scanStock(sym)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition flex items-center gap-1.5 cursor-pointer ${
-                  isActive
-                    ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 shadow-sm"
-                    : "bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition flex items-center gap-1.5 cursor-pointer ${isActive
+                  ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 shadow-sm"
+                  : "bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
+                  }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-cyan-400 animate-pulse" : "bg-slate-600"}`} />
                 <span>{sym}</span>
@@ -810,47 +950,299 @@ export default function IMSwingTradingView() {
           </div>
         )}
 
-        {/* ── STRATEGY MATCHED STOCKS SCREENER LIST WITH LIVE CHART LINKAGE ── */}
-        <div className="space-y-3 pt-3 border-t border-slate-800/80">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
-            <div className="flex items-center gap-2">
-              <Crosshair className="w-4 h-4 text-cyan-400" />
-              <h4 className="text-xs font-bold font-mono text-slate-100 uppercase tracking-wider">
-                STRATEGY MATCHED STOCKS SCREENER ({filteredSignals.length})
-              </h4>
-              <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-semibold">
-                CLICK ANY ROW TO DISPLAY CHART
-              </span>
+        {/* ── 8-STRATEGY AUTOMATED DAILY SCANNER & MULTI-STRATEGY CONFLUENCE TERMINAL ── */}
+        <div className="space-y-4 pt-4 border-t border-slate-800/80">
+          {/* Header & Controls Strip */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#0a0f1d] p-3.5 rounded-xl border border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400">
+                <Layers className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold font-mono text-slate-100 flex items-center gap-2">
+                  DAILY STRATEGY SCANNER & MULTI-STRATEGY MATCHER
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+                    AUTO-SCAN ACTIVE
+                  </span>
+                </h4>
+                <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+                  <span>Last Scan: {lastScanTimestamp}</span>
+                  <span>•</span>
+                  <span>Scanned: {dailyOpportunities.length > 0 ? dailyOpportunities.length : signals.length} stocks</span>
+                  <span>•</span>
+                  <span className="text-emerald-400 font-bold">{multiStrategyMatches.length} Multi-Strategy Matches</span>
+                </div>
+              </div>
             </div>
+
+            {/* Universe Selector & Scan Market Now Button */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-mono uppercase text-slate-500 font-bold">Universe:</span>
+              {[
+                { id: "MOMENTUM_LEADERS", label: "🚀 Momentum Leaders" },
+                { id: "NIFTY_50", label: "🏛️ NIFTY 50" },
+                { id: "NIFTY_NEXT_50", label: "⚡ Midcap High Beta" },
+                { id: "ALL_LIQUID", label: "🌐 All Liquid" },
+              ].map((u) => (
+                <button
+                  key={u.id}
+                  onClick={() => {
+                    setSelectedUniverse(u.id);
+                    fetchDailyScannerData(u.id, selectedStrategyTab, true);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition cursor-pointer ${
+                    selectedUniverse === u.id
+                      ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 shadow-sm"
+                      : "bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800"
+                  }`}
+                >
+                  {u.label}
+                </button>
+              ))}
+
+              <button
+                onClick={() => fetchDailyScannerData(selectedUniverse, selectedStrategyTab, true)}
+                disabled={isDailyScanning}
+                className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isDailyScanning ? "animate-spin" : ""}`} />
+                <span>{isDailyScanning ? "Scanning Market..." : "Scan Market Now"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* ── 8 STRATEGY TABS ──────────────────────────────────────────────── */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+            {[
+              { id: "ALL", label: `All Setups (${dailyOpportunities.length > 0 ? dailyOpportunities.length : signals.length})` },
+              { id: "STRATEGY_A_BREAKOUT", label: `Strategy A: Breakout (${strategyCounts["STRATEGY_A_BREAKOUT"] || 0})` },
+              { id: "STRATEGY_B_PULLBACK", label: `Strategy B: Pullback (${strategyCounts["STRATEGY_B_PULLBACK"] || 0})` },
+              { id: "STRATEGY_C_SUPPORT_BOUNCE", label: `Strategy C: Support Bounce (${strategyCounts["STRATEGY_C_SUPPORT_BOUNCE"] || 0})` },
+              { id: "STRATEGY_D_MA_CROSSOVER", label: `Strategy D: MA Cross (${strategyCounts["STRATEGY_D_MA_CROSSOVER"] || 0})` },
+              { id: "STRATEGY_E_MOMENTUM", label: `Strategy E: Momentum (${strategyCounts["STRATEGY_E_MOMENTUM"] || 0})` },
+              { id: "STRATEGY_F_RANGE_BREAKOUT", label: `Strategy F: Range Breakout (${strategyCounts["STRATEGY_F_RANGE_BREAKOUT"] || 0})` },
+              { id: "STRATEGY_G_TREND_CONTINUATION", label: `Strategy G: Trend Cont. (${strategyCounts["STRATEGY_G_TREND_CONTINUATION"] || 0})` },
+              { id: "STRATEGY_H_VOLUME_BREAKOUT", label: `Strategy H: Volume Breakout (${strategyCounts["STRATEGY_H_VOLUME_BREAKOUT"] || 0})` },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setSelectedStrategyTab(tab.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition shrink-0 cursor-pointer ${
+                  selectedStrategyTab === tab.id
+                    ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 shadow-sm"
+                    : "bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-800"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── SECTION C: MULTI-STRATEGY MATCHES (CONFLUENCE RADAR) ─────────── */}
+          {multiStrategyMatches.length > 0 && (
+            <div className="p-4 rounded-xl bg-gradient-to-r from-[#0d1322] via-[#09152b] to-[#0d1322] border border-amber-500/30 space-y-3 shadow-xl">
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
+                <div className="flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-amber-400 animate-pulse" />
+                  <h4 className="text-xs font-bold font-mono text-amber-300 uppercase tracking-wider">
+                    MULTI-STRATEGY CONFLUENCE MATCHES ({multiStrategyMatches.length} STOCKS QUALIFIED FOR 2+ STRATEGIES)
+                  </h4>
+                </div>
+                <span className="text-[10px] font-mono text-amber-400/90 font-semibold">
+                  Highest Statistical Win Probability
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {multiStrategyMatches.map((opp) => (
+                  <div
+                    key={opp.id}
+                    onClick={() => {
+                      scanStock(opp.cleanSymbol);
+                      const el = document.getElementById("swing-strategy-chart-section");
+                      if (el) el.scrollIntoView({ behavior: "smooth" });
+                    }}
+                    className="p-3 rounded-xl bg-[#080d19] border border-amber-500/30 hover:border-cyan-400/60 transition cursor-pointer flex flex-col justify-between space-y-2 group"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-bold font-mono text-slate-100 group-hover:text-cyan-400 transition">
+                            {opp.cleanSymbol}
+                          </span>
+                          <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
+                            {opp.companyName}
+                          </span>
+                        </div>
+                        <div className="text-xs font-bold font-mono text-slate-200 mt-0.5">
+                          ₹{opp.currentPrice.toLocaleString("en-IN")}
+                          <span
+                            className={`ml-1 text-[10px] ${
+                              opp.changePercent >= 0 ? "text-emerald-400" : "text-rose-400"
+                            }`}
+                          >
+                            {opp.changePercent >= 0 ? "+" : ""}
+                            {opp.changePercent}%
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                          {opp.confluenceScore}/100
+                        </span>
+                        <span className="text-[9px] text-slate-500 font-mono block mt-0.5">
+                          {opp.matchedStrategyCount} Setups
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Matched Strategy Badges */}
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {opp.allMatchedStrategies.map((st) => (
+                        <span
+                          key={st.strategyId}
+                          className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/25"
+                        >
+                          {st.strategyName}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Trade Levels Strip */}
+                    <div className="grid grid-cols-3 gap-1 pt-1 border-t border-slate-800 text-[10px] font-mono">
+                      <div>
+                        <span className="text-slate-500 block text-[9px]">Entry</span>
+                        <span className="text-cyan-300 font-bold">₹{opp.entryTrigger}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[9px]">Stop Loss</span>
+                        <span className="text-rose-400 font-bold">₹{opp.stopLoss}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[9px]">Target 1 (2R)</span>
+                        <span className="text-emerald-400 font-bold">₹{opp.target1}</span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center justify-end gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => openBacktest(opp.cleanSymbol, opp.primaryStrategy.strategyId)}
+                        className="px-2 py-1 rounded text-[10px] font-mono font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <BarChart2 className="w-3 h-3 text-cyan-400" />
+                        <span>Backtest</span>
+                      </button>
+                      <button
+                        onClick={() => loadOpportunityIntoCalculator(opp)}
+                        className="px-2 py-1 rounded text-[10px] font-mono font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <Calculator className="w-3 h-3 text-cyan-400" />
+                        <span>Size 1%</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── FILTERS TOOLBAR ──────────────────────────────────────────────── */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Filter stock or sector..."
+                  value={tableSearchQuery}
+                  onChange={(e) => setTableSearchQuery(e.target.value)}
+                  className="px-3 py-1.5 pl-8 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 uppercase w-48"
+                />
+                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+              </div>
+
+              {/* Min Confluence Filter */}
+              <select
+                value={minScoreFilter}
+                onChange={(e) => setMinScoreFilter(Number(e.target.value))}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 focus:outline-none focus:border-cyan-400 cursor-pointer"
+              >
+                <option value={0}>All Confluence Scores</option>
+                <option value={75}>Score &ge; 75 (High)</option>
+                <option value={85}>Score &ge; 85 (Elite)</option>
+              </select>
+
+              {/* Min R:R Filter */}
+              <select
+                value={minRRFilter}
+                onChange={(e) => setMinRRFilter(Number(e.target.value))}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 focus:outline-none focus:border-cyan-400 cursor-pointer"
+              >
+                <option value={0}>All R:R Ratios</option>
+                <option value={1.5}>Min 1:1.5 R:R</option>
+                <option value={2.0}>Min 1:2.0 R:R</option>
+              </select>
+
+              {/* Direction Filter */}
+              <select
+                value={directionFilter}
+                onChange={(e) => setDirectionFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 focus:outline-none focus:border-cyan-400 cursor-pointer"
+              >
+                <option value="ALL">All Directions</option>
+                <option value="BULLISH">Bullish Longs Only</option>
+              </select>
+            </div>
+
             <div className="text-[10px] font-mono text-slate-400">
               Active on Chart: <span className="font-bold text-cyan-400">{scannedStock?.cleanSymbol || activeChip}</span>
             </div>
           </div>
 
-          {/* Screener Table */}
+          {/* ── TODAY'S OPPORTUNITIES SCREENER TABLE ─────────────────────────── */}
           <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-[#090e1a]">
             <table className="w-full text-[11px] font-mono whitespace-nowrap">
               <thead>
                 <tr className="bg-slate-900/90 text-slate-400 uppercase text-[10px] border-b border-slate-800">
-                  <th className="py-2.5 px-3 text-left">Stock / Asset</th>
+                  <th className="py-2.5 px-3 text-left">Stock / Company</th>
                   <th className="py-2.5 px-3 text-left">Live Price</th>
                   <th className="py-2.5 px-3 text-left">Matched Strategy</th>
-                  <th className="py-2.5 px-3 text-left">Volume Ratio</th>
+                  <th className="py-2.5 px-3 text-left">Direction</th>
                   <th className="py-2.5 px-3 text-left text-cyan-400">Entry Trigger</th>
                   <th className="py-2.5 px-3 text-left text-rose-400">Stop Loss</th>
                   <th className="py-2.5 px-3 text-left text-emerald-400">Target 1 (2R)</th>
+                  <th className="py-2.5 px-3 text-left">R:R</th>
+                  <th className="py-2.5 px-3 text-left">Rel Vol</th>
+                  <th className="py-2.5 px-3 text-left">RSI</th>
+                  <th className="py-2.5 px-3 text-left">Trend</th>
                   <th className="py-2.5 px-3 text-center">Score</th>
-                  <th className="py-2.5 px-3 text-right">Action</th>
+                  <th className="py-2.5 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/40">
-                {filteredSignals.map((sig) => {
-                  const isSelected = (scannedStock?.cleanSymbol || activeChip) === sig.symbol;
+                {(filteredOpportunities.length > 0 ? filteredOpportunities : filteredSignals).map((item: any) => {
+                  const sym = item.cleanSymbol || item.symbol;
+                  const isSelected = (scannedStock?.cleanSymbol || activeChip) === sym;
+                  const price = item.currentPrice;
+                  const changePct = item.changePercent;
+                  const entry = item.entryTrigger || item.entryPrice;
+                  const sl = item.stopLoss || item.stopLossPrice;
+                  const t1 = item.target1 || item.target1Price;
+                  const rr = item.rewardRiskRatio;
+                  const score = item.confluenceScore;
+                  const vol = item.relativeVolume || item.volumeMultiplier;
+                  const rsiVal = item.rsi || 58;
+                  const trendStr = item.trendStrength || "Strong Uptrend";
+                  const strategiesList: any[] = item.allMatchedStrategies || [
+                    { strategyId: item.setupId, strategyName: item.setupBadge },
+                  ];
+
                   return (
                     <tr
-                      key={sig.id}
+                      key={item.id}
                       onClick={() => {
-                        scanStock(sig.symbol);
+                        scanStock(sym);
                         const el = document.getElementById("swing-strategy-chart-section");
                         if (el) el.scrollIntoView({ behavior: "smooth" });
                       }}
@@ -860,49 +1252,102 @@ export default function IMSwingTradingView() {
                           : "hover:bg-slate-800/40"
                       }`}
                     >
+                      {/* Stock Symbol */}
                       <td className="py-2.5 px-3">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-slate-100">{sig.symbol}</span>
-                          <span className="text-[9px] text-slate-400 truncate max-w-[130px]">
-                            {sig.companyName}
+                          <span className="font-bold text-slate-100">{sym}</span>
+                          <span className="text-[9px] text-slate-400 truncate max-w-[120px]">
+                            {item.companyName}
                           </span>
                         </div>
                       </td>
+
+                      {/* Live Price */}
                       <td className="py-2.5 px-3">
-                        <span className="font-bold text-slate-200">
-                          ₹{sig.currentPrice.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        <div className="font-bold text-slate-200">
+                          ₹{price.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          <span
+                            className={`ml-1 text-[10px] ${
+                              changePct >= 0 ? "text-emerald-400" : "text-rose-400"
+                            }`}
+                          >
+                            {changePct >= 0 ? "+" : ""}
+                            {changePct}%
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Matched Strategy Badges */}
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {strategiesList.slice(0, 2).map((st: any, idx: number) => (
+                            <span
+                              key={idx}
+                              className="text-[10px] px-2 py-0.5 rounded font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30"
+                            >
+                              {st.strategyName || st.setupBadge}
+                            </span>
+                          ))}
+                          {strategiesList.length > 2 && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                              +{strategiesList.length - 2} more
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Direction */}
+                      <td className="py-2.5 px-3">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                          BULLISH
                         </span>
                       </td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
-                            sig.setupId === "SETUP_A_BREAKOUT_RETEST"
-                              ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
-                              : sig.setupId === "SETUP_B_LIQUIDITY_SWEEP"
-                              ? "bg-violet-500/10 text-violet-300 border-violet-500/30"
-                              : sig.setupId === "SETUP_C_TREND_PULLBACK"
-                              ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                              : "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                          }`}
-                        >
-                          {sig.setupBadge}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span className="text-amber-400 font-bold">{sig.volumeMultiplier}x</span>
-                      </td>
+
+                      {/* Entry Trigger */}
                       <td className="py-2.5 px-3 font-bold text-cyan-300">
-                        ₹{sig.entryPrice.toLocaleString("en-IN")}
+                        ₹{entry.toLocaleString("en-IN")}
                       </td>
+
+                      {/* Stop Loss */}
                       <td className="py-2.5 px-3 font-bold text-rose-400">
-                        ₹{sig.stopLossPrice.toLocaleString("en-IN")}
+                        ₹{sl.toLocaleString("en-IN")}
                       </td>
+
+                      {/* Target 1 */}
                       <td className="py-2.5 px-3 font-bold text-emerald-400">
-                        ₹{sig.target1Price.toLocaleString("en-IN")}
+                        ₹{t1.toLocaleString("en-IN")}
                       </td>
+
+                      {/* R:R */}
+                      <td className="py-2.5 px-3 font-bold text-slate-300">
+                        1:{typeof rr === "number" ? rr.toFixed(1) : rr}
+                      </td>
+
+                      {/* Rel Vol */}
+                      <td className="py-2.5 px-3 font-bold text-amber-400">
+                        {vol}x
+                      </td>
+
+                      {/* RSI */}
+                      <td className="py-2.5 px-3 text-slate-300 font-bold">
+                        {rsiVal}
+                      </td>
+
+                      {/* Trend */}
+                      <td className="py-2.5 px-3">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                          {trendStr}
+                        </span>
+                      </td>
+
+                      {/* Confluence Score */}
                       <td className="py-2.5 px-3 text-center">
-                        <span className="text-emerald-400 font-bold">{sig.confluenceScore}/100</span>
+                        <span className="text-emerald-400 font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25">
+                          {score}/100
+                        </span>
                       </td>
+
+                      {/* Action Buttons */}
                       <td className="py-2.5 px-3 text-right">
                         <div
                           className="flex items-center justify-end gap-1.5"
@@ -910,7 +1355,7 @@ export default function IMSwingTradingView() {
                         >
                           <button
                             onClick={() => {
-                              scanStock(sig.symbol);
+                              scanStock(sym);
                               const el = document.getElementById("swing-strategy-chart-section");
                               if (el) el.scrollIntoView({ behavior: "smooth" });
                             }}
@@ -921,10 +1366,20 @@ export default function IMSwingTradingView() {
                             }`}
                           >
                             <BarChart3 className="w-3 h-3 text-cyan-400" />
-                            <span>{isSelected ? "Active on Chart" : "View Chart"}</span>
+                            <span>{isSelected ? "Chart Active" : "Chart"}</span>
                           </button>
                           <button
-                            onClick={() => loadSignalIntoCalculator(sig)}
+                            onClick={() => openBacktest(sym)}
+                            className="px-2 py-1 rounded text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <BarChart2 className="w-3 h-3 text-cyan-400" />
+                            <span>Backtest</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (item.entryTrigger) loadOpportunityIntoCalculator(item);
+                              else loadSignalIntoCalculator(item);
+                            }}
                             className="px-2 py-1 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30 transition flex items-center gap-1 cursor-pointer"
                           >
                             <Calculator className="w-3 h-3 text-cyan-400" />
@@ -1084,11 +1539,10 @@ export default function IMSwingTradingView() {
             <button
               key={tab.id}
               onClick={() => setSelectedFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all ${
-                selectedFilter === tab.id
-                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all ${selectedFilter === tab.id
+                ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                }`}
             >
               {tab.label}
             </button>
@@ -1122,15 +1576,14 @@ export default function IMSwingTradingView() {
                       {sig.sector}
                     </span>
                     <span
-                      className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold border ${
-                        sig.setupId === "SETUP_A_BREAKOUT_RETEST"
-                          ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
-                          : sig.setupId === "SETUP_B_LIQUIDITY_SWEEP"
+                      className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold border ${sig.setupId === "SETUP_A_BREAKOUT_RETEST"
+                        ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
+                        : sig.setupId === "SETUP_B_LIQUIDITY_SWEEP"
                           ? "bg-violet-500/10 text-violet-300 border-violet-500/30"
                           : sig.setupId === "SETUP_C_TREND_PULLBACK"
-                          ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                          : "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                      }`}
+                            ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                            : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                        }`}
                     >
                       {sig.setupBadge}
                     </span>
@@ -1198,9 +1651,8 @@ export default function IMSwingTradingView() {
                 </div>
                 {sig.extensionFromPivotPercent !== undefined && (
                   <div
-                    className={`text-[10px] ${
-                      isExtended ? "text-rose-400 font-bold" : "text-emerald-400"
-                    }`}
+                    className={`text-[10px] ${isExtended ? "text-rose-400 font-bold" : "text-emerald-400"
+                      }`}
                   >
                     Extension from Pivot: {sig.extensionFromPivotPercent}%{" "}
                     {isExtended ? "(EXTENDED — DO NOT CHASE)" : "(Safe to Enter &lt; 5-7% rule)"}
@@ -1495,11 +1947,10 @@ export default function IMSwingTradingView() {
                   Sizing Result for {calcSymbol}
                 </span>
                 <span
-                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
-                    rewardRiskRatio >= 2.0
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                      : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                  }`}
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${rewardRiskRatio >= 2.0
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                    : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                    }`}
                 >
                   {rewardRiskRatio >= 2.0 ? "R:R APPROVED" : "R:R REJECTED (< 2.0)"}
                 </span>
@@ -1569,12 +2020,86 @@ export default function IMSwingTradingView() {
               )}
             </div>
 
+            {/* Paper Execution Button */}
+            <div className="pt-2 border-t border-slate-800 space-y-2">
+              <button
+                onClick={executePaperOrder}
+                disabled={recommendedQuantity <= 0 || rewardRiskRatio < 2.0}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500/30 to-emerald-500/30 hover:from-cyan-500/40 hover:to-emerald-500/40 text-slate-100 border border-cyan-500/40 text-xs font-mono font-bold transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-lg"
+              >
+                <Briefcase className="w-4 h-4 text-emerald-400" />
+                <span>⚡ EXECUTE SIMULATED PAPER ORDER ({recommendedQuantity} Shares)</span>
+              </button>
+
+              {paperTradeNotice && (
+                <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{paperTradeNotice}</span>
+                </div>
+              )}
+            </div>
+
             <div className="text-[10px] text-slate-400 font-mono border-t border-slate-800 pt-2 flex items-center justify-between">
               <span>Trailing Rule: Move SL to Breakeven at 1R profit</span>
               <span className="text-cyan-400">Discipline First</span>
             </div>
           </div>
         </div>
+
+        {/* Paper Trades Portfolio Strip */}
+        {paperTrades.length > 0 && (
+          <div className="mt-4 p-4 rounded-xl bg-[#090e1a] border border-slate-800 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold font-mono text-slate-200 uppercase">
+                  Active Paper Portfolio Simulator ({paperTrades.length} Positions)
+                </span>
+              </div>
+              <button
+                onClick={() => setPaperTrades([])}
+                className="text-[10px] font-mono text-slate-500 hover:text-slate-300 cursor-pointer"
+              >
+                Clear Portfolio
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border border-slate-800">
+              <table className="w-full text-[11px] font-mono whitespace-nowrap">
+                <thead>
+                  <tr className="bg-slate-900 text-slate-400 uppercase text-[10px]">
+                    <th className="py-2 px-3 text-left">Stock</th>
+                    <th className="py-2 px-3 text-left">Qty</th>
+                    <th className="py-2 px-3 text-left">Entry Price</th>
+                    <th className="py-2 px-3 text-left">Stop Loss</th>
+                    <th className="py-2 px-3 text-left">Target 1</th>
+                    <th className="py-2 px-3 text-left">Capital Allocated</th>
+                    <th className="py-2 px-3 text-left">Execution Time</th>
+                    <th className="py-2 px-3 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/40">
+                  {paperTrades.map((pt) => (
+                    <tr key={pt.id} className="hover:bg-slate-800/30">
+                      <td className="py-2 px-3 text-cyan-300 font-bold">{pt.symbol}</td>
+                      <td className="py-2 px-3 text-slate-100 font-bold">{pt.quantity}</td>
+                      <td className="py-2 px-3 text-slate-200">₹{pt.entry}</td>
+                      <td className="py-2 px-3 text-rose-400">₹{pt.stopLoss}</td>
+                      <td className="py-2 px-3 text-emerald-400">₹{pt.target1}</td>
+                      <td className="py-2 px-3 text-slate-100">₹{pt.capital.toLocaleString("en-IN")}</td>
+                      <td className="py-2 px-3 text-slate-400 text-[10px]">{pt.date}</td>
+                      <td className="py-2 px-3 text-right">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
+                          ACTIVE PAPER ORDER
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ── INTERACTIVE 5-PILLAR DETAILS MODAL ─────────────────────────────── */}
@@ -1734,6 +2259,14 @@ export default function IMSwingTradingView() {
           </div>
         </div>
       )}
+
+      {/* ── HISTORICAL STRATEGY BACKTESTING SIMULATOR MODAL ──────────────── */}
+      <BacktestModal
+        isOpen={backtestModalOpen}
+        onClose={() => setBacktestModalOpen(false)}
+        defaultSymbol={backtestSymbol}
+        defaultStrategy={backtestStrategy}
+      />
     </div>
   );
 }
