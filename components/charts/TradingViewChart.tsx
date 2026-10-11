@@ -4,6 +4,8 @@ import React, { useEffect, useRef, memo } from "react";
 
 interface TradingViewChartProps {
   symbol: string;
+  interval?: string;
+  theme?: "dark" | "light";
 }
 
 declare global {
@@ -12,8 +14,14 @@ declare global {
   }
 }
 
-function TradingViewChartComponent({ symbol }: TradingViewChartProps) {
+function TradingViewChartComponent({ symbol, interval, theme = "dark" }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Normalize symbol: if Indian equity like "TRENT" or "DIXON", prefix with "NSE:"
+  const cleanSymbol = symbol.includes(":") ? symbol : `NSE:${symbol.replace(/\.NS$/, "").replace(/\.BO$/, "")}`;
+  const isIndianStock = cleanSymbol.startsWith("NSE:") || cleanSymbol.startsWith("BSE:");
+  const activeInterval = interval || (isIndianStock ? "D" : "15");
+  const timezone = isIndianStock ? "Asia/Kolkata" : "Etc/UTC";
 
   useEffect(() => {
     const containerId = `tv_chart_${Math.random().toString(36).substring(7)}`;
@@ -27,10 +35,10 @@ function TradingViewChartComponent({ symbol }: TradingViewChartProps) {
       if (typeof window.TradingView !== "undefined" && containerRef.current) {
         tvWidget = new window.TradingView.widget({
           autosize: true,
-          symbol: symbol,
-          interval: "15",
-          timezone: "Etc/UTC",
-          theme: "dark",
+          symbol: cleanSymbol,
+          interval: activeInterval,
+          timezone: timezone,
+          theme: theme,
           style: "1",
           locale: "en",
           enable_publishing: false,
@@ -68,7 +76,7 @@ function TradingViewChartComponent({ symbol }: TradingViewChartProps) {
         }
       }
     };
-  }, [symbol]);
+  }, [cleanSymbol, activeInterval, timezone, theme]);
 
   return (
     <div className="w-full h-full relative border border-slate-800/80 rounded-2xl overflow-hidden bg-[#090d16]">

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import IMHeader from "./IMHeader";
 import IMStatusBadge from "./IMStatusBadge";
 import { apiUrl } from "../../lib/backendUrl";
+import { SwingStrategyChart } from "../charts/SwingStrategyChart";
 import {
   TrendingUp,
   TrendingDown,
@@ -757,91 +758,36 @@ export default function IMSwingTradingView() {
           </div>
         )}
 
-        {/* Scanned Stock Live Technical Terminal Card */}
+        {/* Scanned Stock Live Technical Chart Terminal */}
         {scannedStock && (
-          <div className="p-4 rounded-xl bg-[#090e1a] border border-cyan-500/30 space-y-4">
-            {/* Top row: Symbol, Price, Day Change, Badges */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-              <div className="flex items-center gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl font-bold font-mono text-slate-100 tracking-tight">
-                      {scannedStock.cleanSymbol}
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded font-mono font-semibold bg-slate-800 text-slate-300 border border-slate-700">
-                      NSE: {scannedStock.cleanSymbol}
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                      {scannedStock.detectedSetup.setupBadge}
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-400 font-mono mt-0.5">
-                    Real-time market evaluation from live candle stream
-                  </div>
-                </div>
-              </div>
+          <div id="swing-strategy-chart-section" className="space-y-4">
+            <SwingStrategyChart
+              symbol={scannedStock.cleanSymbol}
+              companyName={scannedStock.companyName || `${scannedStock.cleanSymbol} India`}
+              currentPrice={scannedStock.price}
+              change={scannedStock.change}
+              changePercent={scannedStock.changePercent}
+              setupBadge={scannedStock.detectedSetup.setupBadge}
+              setupTitle={scannedStock.detectedSetup.setupName}
+              entryPrice={scannedStock.detectedSetup.entryPrice}
+              stopLossPrice={scannedStock.detectedSetup.stopLossPrice}
+              target1Price={scannedStock.detectedSetup.target1Price}
+              target2Price={scannedStock.detectedSetup.target2Price}
+              riskPerShare={scannedStock.detectedSetup.riskPerShare}
+              rewardRiskRatio={scannedStock.detectedSetup.rewardRiskRatio}
+              ema20={scannedStock.ema20}
+              ema50={scannedStock.ema50}
+              candles={scannedStock.candleHistory}
+              onLoadIntoCalculator={loadScannedStockIntoCalculator}
+            />
 
-              <div className="flex items-baseline gap-2.5">
-                <span className="text-2xl font-bold font-mono text-slate-100">
-                  ₹{scannedStock.price.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span
-                  className={`text-xs font-mono font-bold flex items-center gap-0.5 ${
-                    scannedStock.change >= 0 ? "text-emerald-400" : "text-rose-400"
-                  }`}
-                >
-                  {scannedStock.change >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                  {scannedStock.change >= 0 ? "+" : ""}
-                  ₹{scannedStock.change.toFixed(2)} ({scannedStock.changePercent >= 0 ? "+" : ""}
-                  {scannedStock.changePercent.toFixed(2)}%)
-                </span>
-              </div>
-            </div>
-
-            {/* 4 Technical Indicators Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
-              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                <span className="text-[10px] text-slate-500 font-mono uppercase block">Day Range (L - H)</span>
-                <span className="text-xs font-bold font-mono text-slate-200">
-                  ₹{scannedStock.dayLow.toLocaleString("en-IN")} — ₹{scannedStock.dayHigh.toLocaleString("en-IN")}
-                </span>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                <span className="text-[10px] text-slate-500 font-mono uppercase block">52-Week Range</span>
-                <span className="text-xs font-bold font-mono text-slate-200">
-                  ₹{scannedStock.low52.toLocaleString("en-IN")} — ₹{scannedStock.high52.toLocaleString("en-IN")}
-                </span>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                <span className="text-[10px] text-slate-500 font-mono uppercase block">20 EMA / 50 EMA</span>
-                <span className="text-xs font-bold font-mono text-cyan-400">
-                  ₹{scannedStock.ema20.toLocaleString("en-IN")} / ₹{scannedStock.ema50.toLocaleString("en-IN")}
-                </span>
-                <span className="text-[9px] font-mono text-emerald-400 block mt-0.5">
-                  {scannedStock.isAbove20EMA ? "Above 20 EMA (Bullish)" : "Below 20 EMA"}
-                </span>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
-                <span className="text-[10px] text-slate-500 font-mono uppercase block">Volume Multiplier</span>
-                <span className="text-xs font-bold font-mono text-amber-400">
-                  {scannedStock.volumeMultiplier}x 20D Avg
-                </span>
-                <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
-                  Vol: {scannedStock.volume.toLocaleString("en-IN")}
-                </span>
-              </div>
-            </div>
-
-            {/* Strategy Trade Levels & Rationale */}
-            <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800/80 space-y-3">
+            {/* Strategy Trade Levels & Rationale Breakdown Strip */}
+            <div className="p-4 rounded-xl bg-[#090e1a] border border-cyan-500/25 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
                 <div className="flex items-center gap-2">
                   <Flame className="w-4 h-4 text-amber-400" />
                   <span className="text-xs font-bold font-mono text-slate-200">
-                    {scannedStock.detectedSetup.setupName}
+                    5-Pillar Rationale: {scannedStock.detectedSetup.setupName}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -854,72 +800,145 @@ export default function IMSwingTradingView() {
                 </div>
               </div>
 
-              {/* Exact levels */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div>
-                  <span className="text-[9px] text-slate-500 font-mono uppercase block">Entry Trigger</span>
-                  <span className="text-sm font-bold font-mono text-cyan-300">
-                    ₹{scannedStock.detectedSetup.entryPrice.toLocaleString("en-IN")}
-                  </span>
-                </div>
-
-                <div>
-                  <span className="text-[9px] text-rose-400 font-mono uppercase block">Stop Loss (SL)</span>
-                  <span className="text-sm font-bold font-mono text-rose-400">
-                    ₹{scannedStock.detectedSetup.stopLossPrice.toLocaleString("en-IN")}
-                  </span>
-                  <span className="text-[9px] text-slate-500 font-mono block">
-                    Risk: ₹{scannedStock.detectedSetup.riskPerShare}/sh
-                  </span>
-                </div>
-
-                <div>
-                  <span className="text-[9px] text-emerald-400 font-mono uppercase block">Target 1 (2R)</span>
-                  <span className="text-sm font-bold font-mono text-emerald-400">
-                    ₹{scannedStock.detectedSetup.target1Price.toLocaleString("en-IN")}
-                  </span>
-                  <span className="text-[9px] text-slate-500 font-mono block">
-                    +₹{(scannedStock.detectedSetup.target1Price - scannedStock.detectedSetup.entryPrice).toFixed(1)} gain
-                  </span>
-                </div>
-
-                <div>
-                  <span className="text-[9px] text-amber-300 font-mono uppercase block">Target 2 (3R)</span>
-                  <span className="text-sm font-bold font-mono text-amber-300">
-                    ₹{scannedStock.detectedSetup.target2Price.toLocaleString("en-IN")}
-                  </span>
-                </div>
-              </div>
-
               {/* Rationale items */}
-              <ul className="text-xs font-mono text-slate-400 space-y-1 list-disc list-inside pt-1">
+              <ul className="text-xs font-mono text-slate-300 space-y-1 list-disc list-inside">
                 {scannedStock.detectedSetup.rationale.map((r: string, idx: number) => (
                   <li key={idx}>{r}</li>
                 ))}
               </ul>
             </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              <button
-                onClick={() => scanStock(scannedStock.cleanSymbol)}
-                disabled={isScanning}
-                className="px-3 py-1.5 rounded-lg text-xs font-mono text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? "animate-spin text-cyan-400" : ""}`} />
-                <span>Refresh Live Quote</span>
-              </button>
-
-              <button
-                onClick={loadScannedStockIntoCalculator}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-emerald-500/20 hover:from-cyan-500/30 hover:to-emerald-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold transition flex items-center gap-2 cursor-pointer shadow-lg"
-              >
-                <Calculator className="w-4 h-4 text-cyan-400" />
-                <span>⚡ LOAD INTO 1% RISK POSITION CALCULATOR</span>
-              </button>
-            </div>
           </div>
         )}
+
+        {/* ── STRATEGY MATCHED STOCKS SCREENER LIST WITH LIVE CHART LINKAGE ── */}
+        <div className="space-y-3 pt-3 border-t border-slate-800/80">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+            <div className="flex items-center gap-2">
+              <Crosshair className="w-4 h-4 text-cyan-400" />
+              <h4 className="text-xs font-bold font-mono text-slate-100 uppercase tracking-wider">
+                STRATEGY MATCHED STOCKS SCREENER ({filteredSignals.length})
+              </h4>
+              <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-semibold">
+                CLICK ANY ROW TO DISPLAY CHART
+              </span>
+            </div>
+            <div className="text-[10px] font-mono text-slate-400">
+              Active on Chart: <span className="font-bold text-cyan-400">{scannedStock?.cleanSymbol || activeChip}</span>
+            </div>
+          </div>
+
+          {/* Screener Table */}
+          <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-[#090e1a]">
+            <table className="w-full text-[11px] font-mono whitespace-nowrap">
+              <thead>
+                <tr className="bg-slate-900/90 text-slate-400 uppercase text-[10px] border-b border-slate-800">
+                  <th className="py-2.5 px-3 text-left">Stock / Asset</th>
+                  <th className="py-2.5 px-3 text-left">Live Price</th>
+                  <th className="py-2.5 px-3 text-left">Matched Strategy</th>
+                  <th className="py-2.5 px-3 text-left">Volume Ratio</th>
+                  <th className="py-2.5 px-3 text-left text-cyan-400">Entry Trigger</th>
+                  <th className="py-2.5 px-3 text-left text-rose-400">Stop Loss</th>
+                  <th className="py-2.5 px-3 text-left text-emerald-400">Target 1 (2R)</th>
+                  <th className="py-2.5 px-3 text-center">Score</th>
+                  <th className="py-2.5 px-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/40">
+                {filteredSignals.map((sig) => {
+                  const isSelected = (scannedStock?.cleanSymbol || activeChip) === sig.symbol;
+                  return (
+                    <tr
+                      key={sig.id}
+                      onClick={() => {
+                        scanStock(sig.symbol);
+                        const el = document.getElementById("swing-strategy-chart-section");
+                        if (el) el.scrollIntoView({ behavior: "smooth" });
+                      }}
+                      className={`cursor-pointer transition-colors ${
+                        isSelected
+                          ? "bg-cyan-500/15 font-medium border-l-2 border-l-cyan-400"
+                          : "hover:bg-slate-800/40"
+                      }`}
+                    >
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-100">{sig.symbol}</span>
+                          <span className="text-[9px] text-slate-400 truncate max-w-[130px]">
+                            {sig.companyName}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="font-bold text-slate-200">
+                          ₹{sig.currentPrice.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
+                            sig.setupId === "SETUP_A_BREAKOUT_RETEST"
+                              ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
+                              : sig.setupId === "SETUP_B_LIQUIDITY_SWEEP"
+                              ? "bg-violet-500/10 text-violet-300 border-violet-500/30"
+                              : sig.setupId === "SETUP_C_TREND_PULLBACK"
+                              ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                              : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                          }`}
+                        >
+                          {sig.setupBadge}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="text-amber-400 font-bold">{sig.volumeMultiplier}x</span>
+                      </td>
+                      <td className="py-2.5 px-3 font-bold text-cyan-300">
+                        ₹{sig.entryPrice.toLocaleString("en-IN")}
+                      </td>
+                      <td className="py-2.5 px-3 font-bold text-rose-400">
+                        ₹{sig.stopLossPrice.toLocaleString("en-IN")}
+                      </td>
+                      <td className="py-2.5 px-3 font-bold text-emerald-400">
+                        ₹{sig.target1Price.toLocaleString("en-IN")}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className="text-emerald-400 font-bold">{sig.confluenceScore}/100</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <div
+                          className="flex items-center justify-end gap-1.5"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => {
+                              scanStock(sig.symbol);
+                              const el = document.getElementById("swing-strategy-chart-section");
+                              if (el) el.scrollIntoView({ behavior: "smooth" });
+                            }}
+                            className={`px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                              isSelected
+                                ? "bg-cyan-500/30 text-cyan-300 border border-cyan-500/50"
+                                : "bg-slate-800 text-slate-300 hover:bg-cyan-500/20 hover:text-cyan-300"
+                            }`}
+                          >
+                            <BarChart3 className="w-3 h-3 text-cyan-400" />
+                            <span>{isSelected ? "Active on Chart" : "View Chart"}</span>
+                          </button>
+                          <button
+                            onClick={() => loadSignalIntoCalculator(sig)}
+                            className="px-2 py-1 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30 transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <Calculator className="w-3 h-3 text-cyan-400" />
+                            <span>Size</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       {/* ── 5 PILLARS SYSTEM STATUS STRIP ─────────────────────────────────── */}
