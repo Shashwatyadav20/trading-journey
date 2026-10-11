@@ -22,6 +22,7 @@ import IMStrategy from "../indian-market/IMStrategy";
 import IMPositions from "../indian-market/IMPositions";
 import IMBacktestView from "../indian-market/IMBacktestView";
 import IMPostPhase40OperationsDashboard from "../indian-market/IMPostPhase40OperationsDashboard";
+import IMSwingTradingView from "../indian-market/IMSwingTradingView";
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 import { TradeProvider, useTrades } from "../../context/TradeContext";
@@ -45,7 +46,7 @@ function loadPersisted<T extends string>(key: string, fallback: T, allowed: T[])
 
 // ─── All valid tab IDs per mode (used to validate persisted value) ────────────
 const FOREX_TABS: NavTabId[]  = ["dashboard","journal","live-charts","strategies","analytics","calendar","monthly-review","settings"];
-const INDIAN_TABS: NavTabId[] = ["im-overview","im-paper-trading","im-operations","im-option-chain","im-strategy","im-positions","im-backtest","settings"];
+const INDIAN_TABS: NavTabId[] = ["im-overview","im-swing-trade","im-paper-trading","im-operations","im-option-chain","im-strategy","im-positions","im-backtest","settings"];
 
 function MainContent() {
   const { user, loading, approved, approvalLoading } = useAuth();
@@ -175,6 +176,7 @@ function MainContent() {
 
           {/* ── Indian Market views ───────────────────── */}
           <div {...show("im-overview")}><IMOverviewView /></div>
+          <div {...show("im-swing-trade")}><IMSwingTradingView /></div>
           <div {...show("im-paper-trading")}><IMPaperTradingView /></div>
           <div {...show("im-operations")}><IMPostPhase40OperationsDashboard /></div>
           <div {...show("im-option-chain")}><IMOptionChain /></div>

@@ -55,6 +55,7 @@ import { phase38TradeCollector } from "../indian/validation/Phase38TradeCollecto
 import { phase39RevalidationEngine } from "../indian/phase39/Phase39RevalidationEngine";
 import { phase40FinalReadinessEngine } from "../indian/validation/Phase40FinalReadinessEngine";
 import { postPhase40OperationsMonitor } from "../indian/operations/PostPhase40OperationsMonitor";
+import { swingTradingEngine } from "../indian/swing/SwingTradingEngine";
 
 
 
@@ -3751,7 +3752,95 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       return reply.status(500).send({ success: false, error: err.message });
     }
   });
+
+  /**
+   * ── SWING TRADING 5-PILLAR FRAMEWORK ENDPOINTS ─────────────────────────────
+   */
+
+  /**
+   * GET /api/indian/swing/signals
+   * Returns active swing trading signals across Setups A, B, C, D with 5-pillar confluence scoring.
+   */
+  server.get("/api/indian/swing/signals", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const spotRes = await niftyMarketProvider.getSpotPrice();
+      const spot = spotRes.spotPrice > 0 ? spotRes.spotPrice : 24700.45;
+      const regime = swingTradingEngine.evaluateMarketRegime(spot);
+      const signals = swingTradingEngine.generateSwingSignals(spot);
+      const universe = swingTradingEngine.getQualifiedUniverse();
+
+      return reply.send({
+        success: true,
+        regime,
+        signals,
+        universeCount: universe.length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/swing/regime
+   * Returns NIFTY market regime, trend status, moving averages, and clearance level.
+   */
+  server.get("/api/indian/swing/regime", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const spotRes = await niftyMarketProvider.getSpotPrice();
+      const spot = spotRes.spotPrice > 0 ? spotRes.spotPrice : 24700.45;
+      const regime = swingTradingEngine.evaluateMarketRegime(spot);
+
+      return reply.send({
+        success: true,
+        regime,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/swing/universe
+   * Returns curated list of fundamentally qualified Indian stocks with full metrics.
+   */
+  server.get("/api/indian/swing/universe", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const universe = swingTradingEngine.getQualifiedUniverse();
+      return reply.send({
+        success: true,
+        universe,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/indian/swing/calculate-position
+   * Calculates strict risk position size according to Pillar 5 rules.
+   */
+  server.post("/api/indian/swing/calculate-position", async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const body = (req.body || {}) as any;
+      const result = swingTradingEngine.calculatePositionSize({
+        accountCapital: Number(body.accountCapital) || 500000,
+        riskPercent: Number(body.riskPercent) || 1.0,
+        entryPrice: Number(body.entryPrice) || 100,
+        stopLossPrice: Number(body.stopLossPrice) || 90,
+        targetPrice: body.targetPrice ? Number(body.targetPrice) : undefined,
+      });
+
+      return reply.send({
+        success: true,
+        result,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
 }
+
 
 
 

@@ -22,6 +22,7 @@ import {
   FlaskConical,
   ShieldAlert,
   Layers3,
+  Crosshair,
 } from "lucide-react";
 
 // ─── Market Mode ─────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ export type NavTabId =
   | "settings"
   // Indian Market tabs
   | "im-overview"
+  | "im-swing-trade"
   | "im-paper-trading"
   | "im-option-chain"
   | "im-strategy"
@@ -69,6 +71,7 @@ export const FOREX_NAV_ITEMS: NavItem[] = [
 // Indian Market nav items
 export const INDIAN_NAV_ITEMS: NavItem[] = [
   { id: "im-overview", label: "Overview", icon: LayoutDashboard },
+  { id: "im-swing-trade", label: "Swing Trading", icon: Crosshair, badge: "5-Pillar" },
   { id: "im-paper-trading", label: "Paper Trading", icon: ShieldAlert, badge: "Paper" },
   { id: "im-operations", label: "Operations Monitor", icon: ShieldCheck, badge: "Ops" },
   { id: "im-option-chain", label: "Option Chain", icon: Layers3, badge: "Live" },
