@@ -31,6 +31,7 @@ import {
   ShieldAlert,
   Percent,
   Check,
+  RefreshCw,
 } from "lucide-react";
 
 // Types matching backend
@@ -499,6 +500,14 @@ export default function IMSwingTradingView() {
   const [activeModalSignal, setActiveModalSignal] = useState<SwingSignalUI | null>(null);
   const [isLiveFeed, setIsLiveFeed] = useState<boolean>(true);
 
+  // Live Stock Scanner state
+  const [searchQuery, setSearchQuery] = useState<string>("TRENT");
+  const [scannedStock, setScannedStock] = useState<any | null>(null);
+  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [calcNotice, setCalcNotice] = useState<string | null>(null);
+  const [activeChip, setActiveChip] = useState<string>("TRENT");
+
   // Position Sizing Calculator state - defaulted to real TRENT prices
   const [accountCapital, setAccountCapital] = useState<number>(500000);
   const [riskPercent, setRiskPercent] = useState<number>(1.0);
@@ -513,6 +522,51 @@ export default function IMSwingTradingView() {
     volumeConfirmed: true,
     strictlyDefinedRisk: true,
   });
+
+  // Automated Real-Time Stock Scanner
+  const scanStock = async (ticker: string) => {
+    if (!ticker.trim()) return;
+    const clean = ticker.trim().toUpperCase().replace(/\.NS$/, "").replace(/\.BO$/, "");
+    setIsScanning(true);
+    setScanError(null);
+    setActiveChip(clean);
+    try {
+      const res = await fetch(`/api/indian/swing/quote?symbol=${encodeURIComponent(clean)}`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setScannedStock(json.data);
+          setSearchQuery(clean);
+        } else {
+          setScanError(json.error || `Unable to fetch quote for ${clean}`);
+        }
+      } else {
+        setScanError(`Failed to fetch live quote for ${clean} (HTTP ${res.status})`);
+      }
+    } catch (err: any) {
+      setScanError(err.message || "Failed to reach market data service");
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  useEffect(() => {
+    scanStock("TRENT");
+  }, []);
+
+  const loadScannedStockIntoCalculator = () => {
+    if (!scannedStock) return;
+    setCalcSymbol(scannedStock.cleanSymbol);
+    setCalcEntry(scannedStock.detectedSetup.entryPrice);
+    setCalcStopLoss(scannedStock.detectedSetup.stopLossPrice);
+    setCalcTarget(scannedStock.detectedSetup.target1Price);
+    setCalcNotice(`✓ Loaded ${scannedStock.cleanSymbol} (Entry: ₹${scannedStock.detectedSetup.entryPrice}, SL: ₹${scannedStock.detectedSetup.stopLossPrice}) into Risk Calculator`);
+    setTimeout(() => setCalcNotice(null), 5000);
+    const el = document.getElementById("risk-calculator-section");
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
 
   // Fetch live from Next.js serverless route or backend
   const fetchSwingData = async () => {
@@ -568,6 +622,8 @@ export default function IMSwingTradingView() {
     setCalcEntry(sig.entryPrice);
     setCalcStopLoss(sig.stopLossPrice);
     setCalcTarget(sig.target1Price);
+    setCalcNotice(`✓ Loaded ${sig.symbol} (Entry: ₹${sig.entryPrice}, SL: ₹${sig.stopLossPrice}) into Risk Calculator`);
+    setTimeout(() => setCalcNotice(null), 5000);
     // Smooth scroll to calculator
     const el = document.getElementById("risk-calculator-section");
     if (el) el.scrollIntoView({ behavior: "smooth" });
@@ -609,6 +665,262 @@ export default function IMSwingTradingView() {
       </div>
 
       <IMHeader />
+
+      {/* ── REAL-TIME STOCK SCANNER & STRATEGY MATCHER ──────────────────────── */}
+      <section className="p-5 rounded-2xl bg-[#0d1322]/90 border border-slate-800/90 shadow-2xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+              <Search className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold font-mono text-slate-100 flex items-center gap-2">
+                LIVE REAL-TIME STOCK SCANNER & STRATEGY MATCHER
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  DYNAMIC FEED
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400 font-mono">
+                Type any NSE ticker or select a watchlist stock to analyze live candles & 5-pillar setups
+              </p>
+            </div>
+          </div>
+
+          {/* Search Input Box */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              scanStock(searchQuery);
+            }}
+            className="flex items-center gap-2 w-full sm:w-auto"
+          >
+            <div className="relative flex-1 sm:w-64">
+              <input
+                type="text"
+                placeholder="e.g. BSE, CDSL, TRENT, DIXON, RELIANCE..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-2 pl-8 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 uppercase"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-3" />
+            </div>
+            <button
+              type="submit"
+              disabled={isScanning || !searchQuery.trim()}
+              className="px-4 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold transition flex items-center gap-1.5 shrink-0 disabled:opacity-50 cursor-pointer"
+            >
+              {isScanning ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                  <span>Scanning...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Scan Live</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Quick Watchlist Chips */}
+        <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-800/60">
+          <span className="text-[10px] font-mono uppercase text-slate-500 font-semibold tracking-wider">
+            Quick Watchlist:
+          </span>
+          {["TRENT", "DIXON", "BSE", "CDSL", "HAL", "PERSISTENT", "POLYCAB", "RELIANCE"].map((sym) => {
+            const isActive = activeChip === sym;
+            return (
+              <button
+                key={sym}
+                onClick={() => scanStock(sym)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                  isActive
+                    ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 shadow-sm"
+                    : "bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-cyan-400 animate-pulse" : "bg-slate-600"}`} />
+                <span>{sym}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Scan Error Notice */}
+        {scanError && (
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs font-mono text-rose-300 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{scanError}</span>
+          </div>
+        )}
+
+        {/* Scanned Stock Live Technical Terminal Card */}
+        {scannedStock && (
+          <div className="p-4 rounded-xl bg-[#090e1a] border border-cyan-500/30 space-y-4">
+            {/* Top row: Symbol, Price, Day Change, Badges */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl font-bold font-mono text-slate-100 tracking-tight">
+                      {scannedStock.cleanSymbol}
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded font-mono font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                      NSE: {scannedStock.cleanSymbol}
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                      {scannedStock.detectedSetup.setupBadge}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 font-mono mt-0.5">
+                    Real-time market evaluation from live candle stream
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-baseline gap-2.5">
+                <span className="text-2xl font-bold font-mono text-slate-100">
+                  ₹{scannedStock.price.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span
+                  className={`text-xs font-mono font-bold flex items-center gap-0.5 ${
+                    scannedStock.change >= 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  {scannedStock.change >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                  {scannedStock.change >= 0 ? "+" : ""}
+                  ₹{scannedStock.change.toFixed(2)} ({scannedStock.changePercent >= 0 ? "+" : ""}
+                  {scannedStock.changePercent.toFixed(2)}%)
+                </span>
+              </div>
+            </div>
+
+            {/* 4 Technical Indicators Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-500 font-mono uppercase block">Day Range (L - H)</span>
+                <span className="text-xs font-bold font-mono text-slate-200">
+                  ₹{scannedStock.dayLow.toLocaleString("en-IN")} — ₹{scannedStock.dayHigh.toLocaleString("en-IN")}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-500 font-mono uppercase block">52-Week Range</span>
+                <span className="text-xs font-bold font-mono text-slate-200">
+                  ₹{scannedStock.low52.toLocaleString("en-IN")} — ₹{scannedStock.high52.toLocaleString("en-IN")}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-500 font-mono uppercase block">20 EMA / 50 EMA</span>
+                <span className="text-xs font-bold font-mono text-cyan-400">
+                  ₹{scannedStock.ema20.toLocaleString("en-IN")} / ₹{scannedStock.ema50.toLocaleString("en-IN")}
+                </span>
+                <span className="text-[9px] font-mono text-emerald-400 block mt-0.5">
+                  {scannedStock.isAbove20EMA ? "Above 20 EMA (Bullish)" : "Below 20 EMA"}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-500 font-mono uppercase block">Volume Multiplier</span>
+                <span className="text-xs font-bold font-mono text-amber-400">
+                  {scannedStock.volumeMultiplier}x 20D Avg
+                </span>
+                <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                  Vol: {scannedStock.volume.toLocaleString("en-IN")}
+                </span>
+              </div>
+            </div>
+
+            {/* Strategy Trade Levels & Rationale */}
+            <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800/80 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
+                <div className="flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs font-bold font-mono text-slate-200">
+                    {scannedStock.detectedSetup.setupName}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
+                    Confluence: {scannedStock.detectedSetup.confluenceScore}/100
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-bold">
+                    Min 1:{scannedStock.detectedSetup.rewardRiskRatio.toFixed(1)} R:R
+                  </span>
+                </div>
+              </div>
+
+              {/* Exact levels */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div>
+                  <span className="text-[9px] text-slate-500 font-mono uppercase block">Entry Trigger</span>
+                  <span className="text-sm font-bold font-mono text-cyan-300">
+                    ₹{scannedStock.detectedSetup.entryPrice.toLocaleString("en-IN")}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[9px] text-rose-400 font-mono uppercase block">Stop Loss (SL)</span>
+                  <span className="text-sm font-bold font-mono text-rose-400">
+                    ₹{scannedStock.detectedSetup.stopLossPrice.toLocaleString("en-IN")}
+                  </span>
+                  <span className="text-[9px] text-slate-500 font-mono block">
+                    Risk: ₹{scannedStock.detectedSetup.riskPerShare}/sh
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[9px] text-emerald-400 font-mono uppercase block">Target 1 (2R)</span>
+                  <span className="text-sm font-bold font-mono text-emerald-400">
+                    ₹{scannedStock.detectedSetup.target1Price.toLocaleString("en-IN")}
+                  </span>
+                  <span className="text-[9px] text-slate-500 font-mono block">
+                    +₹{(scannedStock.detectedSetup.target1Price - scannedStock.detectedSetup.entryPrice).toFixed(1)} gain
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[9px] text-amber-300 font-mono uppercase block">Target 2 (3R)</span>
+                  <span className="text-sm font-bold font-mono text-amber-300">
+                    ₹{scannedStock.detectedSetup.target2Price.toLocaleString("en-IN")}
+                  </span>
+                </div>
+              </div>
+
+              {/* Rationale items */}
+              <ul className="text-xs font-mono text-slate-400 space-y-1 list-disc list-inside pt-1">
+                {scannedStock.detectedSetup.rationale.map((r: string, idx: number) => (
+                  <li key={idx}>{r}</li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <button
+                onClick={() => scanStock(scannedStock.cleanSymbol)}
+                disabled={isScanning}
+                className="px-3 py-1.5 rounded-lg text-xs font-mono text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? "animate-spin text-cyan-400" : ""}`} />
+                <span>Refresh Live Quote</span>
+              </button>
+
+              <button
+                onClick={loadScannedStockIntoCalculator}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-emerald-500/20 hover:from-cyan-500/30 hover:to-emerald-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold transition flex items-center gap-2 cursor-pointer shadow-lg"
+              >
+                <Calculator className="w-4 h-4 text-cyan-400" />
+                <span>⚡ LOAD INTO 1% RISK POSITION CALCULATOR</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* ── 5 PILLARS SYSTEM STATUS STRIP ─────────────────────────────────── */}
       <section className="space-y-2.5">
@@ -924,21 +1236,31 @@ export default function IMSwingTradingView() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800">
-                <button
-                  onClick={() => setActiveModalSignal(sig)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800 transition flex items-center gap-1.5"
-                >
-                  <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>5-Pillar Rationale & S/R</span>
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => scanStock(sig.symbol)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold text-cyan-400 hover:text-cyan-200 hover:bg-slate-800 transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Inspect Live</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveModalSignal(sig)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800 transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-slate-400" />
+                    <span>5-Pillars</span>
+                  </button>
+                </div>
 
                 <button
                   onClick={() => loadSignalIntoCalculator(sig)}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <Calculator className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Position Size Calculator</span>
+                  <span>Size Position</span>
                 </button>
               </div>
             </div>
@@ -969,6 +1291,13 @@ export default function IMSwingTradingView() {
             1:2 R:R ENFORCED
           </span>
         </div>
+
+        {calcNotice && (
+          <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-xs font-mono text-cyan-300 flex items-center justify-between">
+            <span>{calcNotice}</span>
+            <button onClick={() => setCalcNotice(null)} className="text-slate-400 hover:text-slate-200">✕</button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Inputs (7 cols) */}
