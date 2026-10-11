@@ -77,12 +77,11 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
         priceStore.setPrice("NIFTY", {
           instrument: "NIFTY",
           price: Number(price.toFixed(2)),
-          bid: Number((price - 1).toFixed(2)),
-          ask: Number((price + 1).toFixed(2)),
-          change: meta.fulldayChange ?? 0,
-          changePercent: meta.regularMarketChangePercent ?? 0,
-          status: "LIVE",
           timestamp: new Date().toISOString(),
+          source: "yahoo",
+          sourceSymbol: "^NSEI",
+          isProxy: false,
+          status: "LIVE",
         });
         return Number(price.toFixed(2));
       }
