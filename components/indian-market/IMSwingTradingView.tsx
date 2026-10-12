@@ -521,6 +521,17 @@ export default function IMSwingTradingView() {
   const [directionFilter, setDirectionFilter] = useState<string>("ALL");
   const [minScoreFilter, setMinScoreFilter] = useState<number>(0);
   const [minRRFilter, setMinRRFilter] = useState<number>(0);
+  const [scanRunInfo, setScanRunInfo] = useState<{
+    scanDate: string | null;
+    completedAt: string | null;
+    scanType: string | null;
+    status: string | null;
+    durationMs: number | null;
+    isPersisted: boolean;
+  } | null>(null);
+  const [selectedScanDate, setSelectedScanDate] = useState<string>("");
+  const [availableScanDates, setAvailableScanDates] = useState<string[]>([]);
+  const [scanHasRun, setScanHasRun] = useState<boolean>(false);
 
   // Backtest Modal State
   const [backtestModalOpen, setBacktestModalOpen] = useState<boolean>(false);
@@ -603,22 +614,37 @@ export default function IMSwingTradingView() {
   const fetchDailyScannerData = async (
     universe = selectedUniverse,
     strategy = selectedStrategyTab,
-    forceRefresh = false
+    forceRefresh = false,
+    targetDate = selectedScanDate
   ) => {
     setIsDailyScanning(true);
     try {
-      const url = `/api/indian/swing/daily-scanner?universe=${encodeURIComponent(
+      let url = `/api/indian/swing/daily-scanner?universe=${encodeURIComponent(
         universe
       )}&strategy=${encodeURIComponent(strategy)}${
         forceRefresh ? "&forceRefresh=true" : ""
       }`;
+      if (targetDate) {
+        url += `&date=${encodeURIComponent(targetDate)}`;
+      }
       const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
+      setScanHasRun(true);
       if (json.success) {
-        if (json.opportunities) setDailyOpportunities(json.opportunities);
+        setDailyOpportunities(json.opportunities || []);
         if (json.multiStrategyMatches)
           setMultiStrategyMatches(json.multiStrategyMatches);
         if (json.strategyCounts) setStrategyCounts(json.strategyCounts);
+        if (json.scanRun || json.scanDate) {
+          setScanRunInfo({
+            scanDate: json.scanDate || null,
+            completedAt: json.completedAt || null,
+            scanType: json.scanType || null,
+            status: json.scanStatus || null,
+            durationMs: json.durationMs || null,
+            isPersisted: Boolean(json.isPersisted),
+          });
+        }
         if (json.marketRegime) {
           setRegime((prev) => ({
             ...prev,
@@ -630,11 +656,17 @@ export default function IMSwingTradingView() {
           }));
         }
         setLastScanTimestamp(
-          new Date().toLocaleTimeString("en-IN", {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          })
+          json.completedAt
+            ? new Date(json.completedAt).toLocaleTimeString("en-IN", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })
+            : new Date().toLocaleTimeString("en-IN", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })
         );
       }
     } catch (err) {
@@ -644,14 +676,27 @@ export default function IMSwingTradingView() {
     }
   };
 
+  // Fetch available historical scan dates
   useEffect(() => {
-    fetchDailyScannerData(selectedUniverse, selectedStrategyTab);
+    fetch("/api/indian/swing/daily-scanner/history")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.success && d.runs) {
+          const dates = Array.from(new Set(d.runs.map((r: any) => r.scan_date))).filter(Boolean) as string[];
+          setAvailableScanDates(dates);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchDailyScannerData(selectedUniverse, selectedStrategyTab, false, selectedScanDate);
     const interval = setInterval(
-      () => fetchDailyScannerData(selectedUniverse, selectedStrategyTab),
-      20000
+      () => fetchDailyScannerData(selectedUniverse, selectedStrategyTab, false, selectedScanDate),
+      60000
     );
     return () => clearInterval(interval);
-  }, [selectedUniverse, selectedStrategyTab]);
+  }, [selectedUniverse, selectedStrategyTab, selectedScanDate]);
 
   // Fetch live signals for legacy compatibility
   const fetchSwingData = async () => {
@@ -959,24 +1004,69 @@ export default function IMSwingTradingView() {
                 <Layers className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-xs font-bold font-mono text-slate-100 flex items-center gap-2">
+                <h4 className="text-xs font-bold font-mono text-slate-100 flex items-center gap-2 flex-wrap">
                   DAILY STRATEGY SCANNER & MULTI-STRATEGY MATCHER
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
-                    AUTO-SCAN ACTIVE
-                  </span>
+                  {scanRunInfo?.scanType && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 font-semibold uppercase">
+                      {scanRunInfo.scanType === "scheduled" ? "Scheduled (15:45 IST)" : "Manual Scan"}
+                    </span>
+                  )}
+                  {scanRunInfo?.status && (
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold uppercase border ${
+                      scanRunInfo.status === "completed"
+                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                        : scanRunInfo.status === "partial"
+                        ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                        : "bg-slate-700/30 text-slate-400 border-slate-700/50"
+                    }`}>
+                      {scanRunInfo.status}
+                    </span>
+                  )}
                 </h4>
-                <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2 mt-0.5">
-                  <span>Last Scan: {lastScanTimestamp}</span>
+                <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2 mt-0.5 flex-wrap">
+                  {scanRunInfo?.scanDate && (
+                    <span>Date: <strong className="text-slate-200">{scanRunInfo.scanDate}</strong></span>
+                  )}
+                  {scanRunInfo?.scanDate && <span>•</span>}
+                  <span>Completed: {lastScanTimestamp}</span>
+                  {scanRunInfo?.durationMs ? (
+                    <>
+                      <span>•</span>
+                      <span>Duration: {(scanRunInfo.durationMs / 1000).toFixed(1)}s</span>
+                    </>
+                  ) : null}
                   <span>•</span>
-                  <span>Scanned: {dailyOpportunities.length > 0 ? dailyOpportunities.length : signals.length} stocks</span>
+                  <span>Opportunities: <strong className="text-cyan-300">{dailyOpportunities.length}</strong></span>
                   <span>•</span>
                   <span className="text-emerald-400 font-bold">{multiStrategyMatches.length} Multi-Strategy Matches</span>
                 </div>
               </div>
             </div>
 
-            {/* Universe Selector & Scan Market Now Button */}
+            {/* Universe & Date Selectors & Scan Market Now Button */}
             <div className="flex items-center gap-2 flex-wrap">
+              {availableScanDates.length > 0 && (
+                <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
+                  <span className="text-[10px] font-mono text-slate-400 font-bold">DATE:</span>
+                  <select
+                    value={selectedScanDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedScanDate(val);
+                      fetchDailyScannerData(selectedUniverse, selectedStrategyTab, false, val);
+                    }}
+                    className="bg-transparent text-xs font-mono text-cyan-300 focus:outline-none cursor-pointer"
+                  >
+                    <option value="" className="bg-slate-900 text-slate-200">Latest Completed</option>
+                    {availableScanDates.map((d) => (
+                      <option key={d} value={d} className="bg-slate-900 text-slate-200">
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <span className="text-[10px] font-mono uppercase text-slate-500 font-bold">Universe:</span>
               {[
                 { id: "MOMENTUM_LEADERS", label: "🚀 Momentum Leaders" },
@@ -988,7 +1078,7 @@ export default function IMSwingTradingView() {
                   key={u.id}
                   onClick={() => {
                     setSelectedUniverse(u.id);
-                    fetchDailyScannerData(u.id, selectedStrategyTab, true);
+                    fetchDailyScannerData(u.id, selectedStrategyTab, false, selectedScanDate);
                   }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition cursor-pointer ${
                     selectedUniverse === u.id
@@ -1001,7 +1091,7 @@ export default function IMSwingTradingView() {
               ))}
 
               <button
-                onClick={() => fetchDailyScannerData(selectedUniverse, selectedStrategyTab, true)}
+                onClick={() => fetchDailyScannerData(selectedUniverse, selectedStrategyTab, true, selectedScanDate)}
                 disabled={isDailyScanning}
                 className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
@@ -1221,7 +1311,32 @@ export default function IMSwingTradingView() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/40">
-                {(filteredOpportunities.length > 0 ? filteredOpportunities : filteredSignals).map((item: any) => {
+                {isDailyScanning && filteredOpportunities.length === 0 ? (
+                  <tr>
+                    <td colSpan={13} className="py-8 text-center text-slate-400">
+                      <div className="flex items-center justify-center gap-2 font-mono">
+                        <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+                        <span>Querying persisted daily scanner records...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : scanHasRun && filteredOpportunities.length === 0 ? (
+                  <tr>
+                    <td colSpan={13} className="py-8 text-center text-slate-400 font-mono">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <CheckCircle2 className="w-7 h-7 text-emerald-400/70" />
+                        <span className="text-sm font-semibold text-slate-200">
+                          No Stock Setups Qualified for this Session
+                        </span>
+                        <span className="text-xs text-slate-400 max-w-md">
+                          {scanRunInfo?.scanDate
+                            ? `Daily scanner executed for ${scanRunInfo.scanDate} (${scanRunInfo.status || "completed"}). Zero stocks met all strict 5-pillar filters — no forced trades.`
+                            : "No stocks matched the active strategy filter. Strict cash risk management preserved."}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (filteredOpportunities.length > 0 ? filteredOpportunities : filteredSignals).map((item: any) => {
                   const sym = item.cleanSymbol || item.symbol;
                   const isSelected = (scannedStock?.cleanSymbol || activeChip) === sym;
                   const price = item.currentPrice;
@@ -1288,6 +1403,22 @@ export default function IMSwingTradingView() {
                               {st.strategyName || st.setupBadge}
                             </span>
                           ))}
+                          {item.liquiditySweep && (
+                            <span
+                              className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                              title={item.liquiditySweep.description}
+                            >
+                              ⚡ Sweep: {item.liquiditySweep.levelType} ₹{item.liquiditySweep.sweptLevel}
+                            </span>
+                          )}
+                          {item.choch && (
+                            <span
+                              className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                              title={item.choch.description}
+                            >
+                              🔄 {item.choch.direction} CHoCH
+                            </span>
+                          )}
                           {strategiesList.length > 2 && (
                             <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
                               +{strategiesList.length - 2} more

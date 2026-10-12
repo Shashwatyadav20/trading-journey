@@ -88,6 +88,10 @@ closeListeners.forEach(signal => {
     server.log.info(`${signal} signal received: closing HTTP server`);
     marketDataService.stop();
     try {
+      const { dailyScannerScheduler } = await import("./indian/swing/DailyScannerScheduler");
+      dailyScannerScheduler.stop();
+    } catch {}
+    try {
       await server.close();
       server.log.info('HTTP server closed');
       process.exit(0);
@@ -139,6 +143,16 @@ const start = async () => {
       }
     } catch {
       // Ignore startup feed connection errors
+    }
+
+    // ─── Step 2d: Start Daily Scanner Scheduler if enabled ────────────────────
+    try {
+      const { dailyScannerScheduler } = await import("./indian/swing/DailyScannerScheduler");
+      if (env.ENABLE_AUTOMATIC_DAILY_SCAN) {
+        dailyScannerScheduler.start();
+      }
+    } catch (schedErr) {
+      server.log.warn(`[Scheduler] Failed to start Daily Scanner Scheduler: ${schedErr}`);
     }
 
     // ─── Step 3: Start HTTP server ────────────────────────────────────────────

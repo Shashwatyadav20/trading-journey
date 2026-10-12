@@ -47,7 +47,21 @@ export type SwingSetupId =
   | "SETUP_A_BREAKOUT_RETEST"
   | "SETUP_B_LIQUIDITY_SWEEP"
   | "SETUP_C_TREND_PULLBACK"
-  | "SETUP_D_BASE_BREAKOUT";
+  | "SETUP_D_BASE_BREAKOUT"
+  | "STRATEGY_A_BREAKOUT"
+  | "STRATEGY_B_PULLBACK"
+  | "STRATEGY_C_SUPPORT_BOUNCE"
+  | "STRATEGY_D_MA_CROSSOVER"
+  | "STRATEGY_E_MOMENTUM"
+  | "STRATEGY_F_RANGE_BREAKOUT"
+  | "STRATEGY_G_TREND_CONTINUATION"
+  | "STRATEGY_H_VOLUME_BREAKOUT";
+
+import {
+  MarketStructureResult,
+  LiquiditySweepEvent,
+  ChochEvent,
+} from "./marketStructure";
 
 export type SignalLifecycleState = "ACTIVE_OPPORTUNITY" | "APPROACHING_TRIGGER" | "TRIGGERED" | "WATCHLIST";
 
@@ -66,6 +80,10 @@ export interface FivePillarChecklist {
     passed: boolean;
     keyLevel: number;
     details: string;
+    sweep?: LiquiditySweepEvent | null;
+    choch?: ChochEvent | null;
+    pwh?: number | null;
+    pwl?: number | null;
   };
   pillar4PriceActionVolume: {
     passed: boolean;
@@ -101,14 +119,33 @@ export interface SwingSignal {
   confluenceScore: number; // 0-100 composite 5-pillar score
   relativeStrengthVsNifty: number; // 0-100 (Outperforming > 70)
   volumeMultiplier: number; // relative to 20-day avg volume (e.g. 1.8x)
-  ema20: number;
-  ema50: number;
-  ema200: number;
+  ema20: number | null; // null when < 20 completed daily candles available
+  ema50: number | null; // null when < 50 completed daily candles available
+  ema200: number | null; // null when < 200 completed daily candles available
   extensionFromPivotPercent?: number; // Setup D check (< 5-7%)
   baseLengthWeeks?: number; // Setup D consolidation duration
   sweepLow?: number; // Setup B liquidity sweep wick price
   retestLow?: number; // Setup A retest level
   rejectionCandle?: string; // e.g. "Bullish Hammer / Pin Bar"
+  // Dashboard display metadata
+  marketCapCr?: number;
+  changePercent?: number;
+  rsi14?: number | null;
+  trendStrength?: string;
+  scoreBreakdown?: {
+    trendConfirmation: number;
+    priceAction: number;
+    volumeConfirmation: number;
+    relativeStrength: number;
+    supportResistanceQuality: number;
+    momentumConfirmation: number;
+    rewardRiskRatio: number;
+  };
+  marketStructure?: MarketStructureResult;
+  liquiditySweep?: LiquiditySweepEvent | null;
+  choch?: ChochEvent | null;
+  pwh?: number | null;
+  pwl?: number | null;
   fivePillarChecklist: FivePillarChecklist;
   tradeRationale: string[];
   invalidationTrigger: string;

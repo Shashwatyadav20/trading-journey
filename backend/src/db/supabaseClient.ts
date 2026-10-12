@@ -12,13 +12,21 @@ import { env } from "../config/env";
 
 let _adminClient: ReturnType<typeof createClient> | null = null;
 
+export function isSupabaseConfigured(): boolean {
+  return Boolean(
+    env.SUPABASE_URL &&
+    env.SUPABASE_SERVICE_ROLE_KEY &&
+    !env.SUPABASE_URL.includes("placeholder")
+  );
+}
+
 /**
  * Returns the singleton admin Supabase client.
  * Only call this from backend (Node.js) code.
  */
 export function getAdminSupabaseClient(): ReturnType<typeof createClient> {
   if (!_adminClient) {
-    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (!isSupabaseConfigured()) {
       throw new Error(
         "[Supabase] SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set. " +
         "Copy backend/.env.example to backend/.env and fill in the values."
@@ -35,4 +43,8 @@ export function getAdminSupabaseClient(): ReturnType<typeof createClient> {
   }
 
   return _adminClient;
+}
+
+export function setAdminSupabaseClient(client: ReturnType<typeof createClient> | null): void {
+  _adminClient = client;
 }

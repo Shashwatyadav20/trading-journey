@@ -56,6 +56,9 @@ import { phase39RevalidationEngine } from "../indian/phase39/Phase39Revalidation
 import { phase40FinalReadinessEngine } from "../indian/validation/Phase40FinalReadinessEngine";
 import { postPhase40OperationsMonitor } from "../indian/operations/PostPhase40OperationsMonitor";
 import { swingTradingEngine } from "../indian/swing/SwingTradingEngine";
+import { dailyScannerScheduler } from "../indian/swing/DailyScannerScheduler";
+import { dailyScanPersistenceService } from "../db/DailyScanPersistenceService";
+import { env } from "../config/env";
 
 
 
@@ -3766,7 +3769,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       const spotRes = await niftyMarketProvider.getSpotPrice();
       const spot = spotRes.spotPrice > 0 ? spotRes.spotPrice : 24700.45;
       const regime = swingTradingEngine.evaluateMarketRegime(spot);
-      const signals = swingTradingEngine.generateSwingSignals(spot);
+      const signals = await swingTradingEngine.generateSwingSignals(spot);
       const universe = swingTradingEngine.getQualifiedUniverse();
 
       return reply.send({
@@ -3837,6 +3840,200 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/indian/swing/cron/daily-scan
+   * Secure scheduled job endpoint targeting 15:45 Asia/Kolkata post-market execution.
+   * Protected by server-side secret (SCANNER_CRON_SECRET).
+   */
+  server.post("/api/indian/swing/cron/daily-scan", async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      // 1. Authenticate cron secret
+      const authHeader = req.headers.authorization;
+      const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      const headerSecret = (req.headers["x-scanner-cron-secret"] as string) || bearerToken;
+      const expectedSecret = env.SCANNER_CRON_SECRET;
+
+      if (expectedSecret && headerSecret !== expectedSecret) {
+        return reply.status(401).send({
+          success: false,
+          error: "Unauthorized: Invalid or missing scanner cron secret",
+        });
+      }
+
+      // 2. Parse request options
+      const body = (req.body || {}) as any;
+      const force = body.force === true;
+      const dateOverride = body.date || body.dateOverride;
+
+      // 3. Execute daily scan
+      const summary = await dailyScannerScheduler.executeDailyScan({
+        triggerType: "EXTERNAL_CRON_HTTP",
+        force,
+        dateOverride,
+      });
+
+      return reply.send({
+        success: true,
+        summary,
+      });
+    } catch (err: any) {
+      if (err.message?.includes("Concurrent scan rejected")) {
+        return reply.status(409).send({ success: false, error: err.message });
+      }
+      if (err.message?.includes("Duplicate scan rejected") || err.message?.includes("not an NSE trading day") || err.message?.includes("not yet finalized")) {
+        return reply.status(400).send({ success: false, error: err.message });
+      }
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/indian/swing/manual-scan
+   * Manual dashboard scan trigger (bypasses cron secret, allows on-demand runs).
+   */
+  server.post("/api/indian/swing/manual-scan", async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const body = (req.body || {}) as any;
+      const summary = await dailyScannerScheduler.executeDailyScan({
+        triggerType: "MANUAL",
+        force: true,
+        symbols: body.symbols,
+      });
+
+      return reply.send({
+        success: true,
+        summary,
+      });
+    } catch (err: any) {
+      if (err.message?.includes("Concurrent scan rejected")) {
+        return reply.status(409).send({ success: false, error: err.message });
+      }
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/swing/scheduler-status
+   * Returns operational status of the daily scanner scheduler.
+   */
+  server.get("/api/indian/swing/scheduler-status", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const status = dailyScannerScheduler.getStatus();
+      return reply.send({
+        success: true,
+        status,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/swing/daily-scanner/latest
+   * Returns the latest persisted scan run and its genuine opportunities.
+   */
+  server.get("/api/indian/swing/daily-scanner/latest", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const result = await dailyScannerScheduler.getLatestPersistedScan();
+      if (!result) {
+        return reply.send({
+          success: true,
+          hasData: false,
+          run: null,
+          opportunities: [],
+          message: "No persisted scan run found yet.",
+        });
+      }
+
+      return reply.send({
+        success: true,
+        hasData: true,
+        run: result.run,
+        opportunities: result.opportunities,
+        opportunitiesCount: result.opportunities.length,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/swing/daily-scanner/history
+   * Returns historical scan runs list with pagination limit.
+   */
+  server.get("/api/indian/swing/daily-scanner/history", async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = (req.query || {}) as any;
+      const limitRaw = parseInt(query.limit, 10);
+      const limit = isNaN(limitRaw) || limitRaw <= 0 ? 30 : Math.min(limitRaw, 100);
+
+      const history = await dailyScannerScheduler.getPersistedHistory(limit);
+      return reply.send({
+        success: true,
+        count: history.length,
+        runs: history,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/swing/daily-scanner/date/:date
+   * Returns persisted scan run and opportunities for a specific date (YYYY-MM-DD).
+   */
+  server.get("/api/indian/swing/daily-scanner/date/:date", async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const params = (req.params || {}) as any;
+      const dateStr = params.date;
+      if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return reply.status(400).send({
+          success: false,
+          error: "Invalid date format. Expected YYYY-MM-DD.",
+        });
+      }
+
+      const result = await dailyScannerScheduler.getPersistedScanByDate(dateStr);
+      if (!result) {
+        return reply.status(404).send({
+          success: false,
+          hasData: false,
+          message: `No persisted scan found for date ${dateStr}.`,
+        });
+      }
+
+      return reply.send({
+        success: true,
+        hasData: true,
+        run: result.run,
+        opportunities: result.opportunities,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/swing/persistence-health
+   * Safe persistence diagnostic endpoint for the Indian swing scanner.
+   * Reports whether Supabase is configured and reachable without exposing credentials.
+   */
+  server.get("/api/indian/swing/persistence-health", async (_req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const health = await dailyScanPersistenceService.checkPersistenceHealth();
+      const statusCode = health.configured && !health.reachable ? 503 : 200;
+      return reply.status(statusCode).send({
+        success: true,
+        ...health,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        success: false,
+        error: "Failed to evaluate persistence health",
+      });
     }
   });
 }

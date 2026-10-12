@@ -19,6 +19,26 @@
  * - Historical Backtesting Engine with realistic costs and risk management
  */
 
+import {
+  MarketStructureResult,
+  analyzeMarketStructure,
+  LiquiditySweepEvent,
+  ChochEvent,
+  WeeklyLevel,
+  EqualLevel,
+  StructuralPivot,
+} from "./marketStructure";
+
+export type {
+  MarketStructureResult,
+  LiquiditySweepEvent,
+  ChochEvent,
+  WeeklyLevel,
+  EqualLevel,
+  StructuralPivot,
+};
+export { analyzeMarketStructure };
+
 export interface DailyCandle {
   date: string;
   open: number;
@@ -79,10 +99,25 @@ export interface StockIndicatorProfile {
   volume: number;
   avgVolume20D: number;
   volumeMultiplier: number;
-  ema20: number;
-  ema50: number;
-  ema200: number;
-  rsi14: number;
+  ema20: number | null;
+  ema50: number | null;
+  ema200: number | null;
+  rsi14: number | null;
+  indicatorsAvailable: {
+    ema20: boolean;
+    ema50: boolean;
+    ema200: boolean;
+    rsi14: boolean;
+    macd: boolean;
+  };
+  dataQuality?: {
+    totalCandles: number;
+    has200EMA: boolean;
+    has50EMA: boolean;
+    has20EMA: boolean;
+    hasRSI: boolean;
+    warnings: string[];
+  };
   macd: {
     macdLine: number;
     signalLine: number;
@@ -97,6 +132,11 @@ export interface StockIndicatorProfile {
   extensionFrom20EMAPercent: number;
   trendStrength: "STRONG_UPTREND" | "MODERATE_UPTREND" | "RANGE_BOUND" | "DOWNTREND";
   relativeStrengthVsNifty: number; // 0-100
+  marketStructure?: MarketStructureResult;
+  pwh?: number | null;
+  pwl?: number | null;
+  recentLiquiditySweep?: LiquiditySweepEvent | null;
+  recentChoch?: ChochEvent | null;
 }
 
 export interface MatchedStockOpportunity {
@@ -138,6 +178,15 @@ export interface MatchedStockOpportunity {
   tradeRationale: string[];
   invalidationTrigger: string;
   trailingStopPlan: string;
+  marketStructure?: MarketStructureResult;
+  liquiditySweep?: LiquiditySweepEvent | null;
+  choch?: ChochEvent | null;
+}
+
+export interface ScannerFilterOptions {
+  requireLiquiditySweep?: boolean;
+  requireChoch?: boolean;
+  structureDirection?: "BULLISH" | "BEARISH";
 }
 
 export interface BacktestTrade {
@@ -173,50 +222,406 @@ export interface BacktestResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TECHNICAL INDICATOR CALCULATORS
+// MARKET DATA VALIDATION & ASIA/KOLKATA SESSION HANDLING
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function calculateEMA(values: number[], period: number): number[] {
-  const k = 2 / (period + 1);
-  const ema: number[] = new Array(values.length);
-  if (values.length < period) return ema;
+export interface CandleValidationResult {
+  valid: boolean;
+  reason?: string;
+}
 
+export interface CandleCleanOptions {
+  requireCompleted?: boolean;
+  now?: Date;
+  minCandlesForScan?: number;
+  maxStaleDays?: number;
+}
+
+export interface CandleCleaningResult {
+  valid: boolean;
+  candles: DailyCandle[];
+  totalRaw: number;
+  discardedInvalid: number;
+  discardedDuplicates: number;
+  inProgressExcluded: boolean;
+  reason?: string;
+  warnings: string[];
+}
+
+/**
+ * Helper to get current Indian Standard Time (Asia/Kolkata) date and session state.
+ * NSE normal cash market trading session: 09:15 to 15:30 IST, Monday through Friday.
+ */
+export function getKolkataDateTime(date: Date = new Date()): {
+  year: number;
+  month: number;
+  day: number;
+  hours: number;
+  minutes: number;
+  dateStr: string; // "YYYY-MM-DD"
+  dayOfWeek: number; // 0 = Sunday, 6 = Saturday
+  isMarketSessionComplete: boolean;
+} {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    weekday: "short",
+  });
+  const parts = formatter.formatToParts(date);
+  const partMap: Record<string, string> = {};
+  for (const p of parts) {
+    partMap[p.type] = p.value;
+  }
+
+  const year = parseInt(partMap.year, 10);
+  const month = parseInt(partMap.month, 10);
+  const day = parseInt(partMap.day, 10);
+  const hours = parseInt(partMap.hour, 10);
+  const minutes = parseInt(partMap.minute, 10);
+  const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+  const weekdayStr = partMap.weekday;
+  const dayOfWeekMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const dayOfWeek = dayOfWeekMap[weekdayStr] ?? date.getDay();
+
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const isPastClosingTime = hours > 15 || (hours === 15 && minutes >= 30);
+  const isMarketSessionComplete = isWeekend || isPastClosingTime;
+
+  return {
+    year,
+    month,
+    day,
+    hours,
+    minutes,
+    dateStr,
+    dayOfWeek,
+    isMarketSessionComplete,
+  };
+}
+
+/**
+ * Checks if a daily candle with date string (YYYY-MM-DD) represents a confirmed completed daily bar.
+ * Never treats an in-progress intraday bar (< 15:30 IST on active trading day) as confirmed closing candle.
+ */
+export function isDailyCandleCompleted(
+  candleDate: string,
+  now: Date = new Date()
+): { isCompleted: boolean; reason?: string } {
+  const kolkata = getKolkataDateTime(now);
+
+  if (candleDate < kolkata.dateStr) {
+    return { isCompleted: true };
+  }
+
+  if (candleDate > kolkata.dateStr) {
+    return {
+      isCompleted: false,
+      reason: `Future-dated candle (${candleDate} > today ${kolkata.dateStr})`,
+    };
+  }
+
+  // candleDate === today in Asia/Kolkata
+  if (kolkata.isMarketSessionComplete) {
+    return { isCompleted: true };
+  }
+
+  return {
+    isCompleted: false,
+    reason: `In-progress intraday candle for ${candleDate} (current IST time ${kolkata.hours}:${String(
+      kolkata.minutes
+    ).padStart(2, "0")} is before 15:30 NSE market close)`,
+  };
+}
+
+/**
+ * Validates a single daily candle for OHLC integrity.
+ */
+export function isValidCandleOHLC(c: DailyCandle): { valid: boolean; reason?: string } {
+  if (!c || typeof c !== "object") {
+    return { valid: false, reason: "Candle is null or not an object" };
+  }
+  if (!c.date || typeof c.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(c.date)) {
+    return { valid: false, reason: `Invalid date format: ${c.date}` };
+  }
+  if (
+    typeof c.open !== "number" ||
+    typeof c.high !== "number" ||
+    typeof c.low !== "number" ||
+    typeof c.close !== "number" ||
+    isNaN(c.open) ||
+    isNaN(c.high) ||
+    isNaN(c.low) ||
+    isNaN(c.close)
+  ) {
+    return { valid: false, reason: `Non-numeric OHLC values in candle ${c.date}` };
+  }
+  if (c.open <= 0 || c.high <= 0 || c.low <= 0 || c.close <= 0) {
+    return { valid: false, reason: `Non-positive price in candle ${c.date}` };
+  }
+  if (c.high < c.low) {
+    return { valid: false, reason: `Inverted candle: High (${c.high}) < Low (${c.low}) in ${c.date}` };
+  }
+  if (c.high < Math.max(c.open, c.close) - 0.01) {
+    return { valid: false, reason: `High (${c.high}) lower than open/close in ${c.date}` };
+  }
+  if (c.low > Math.min(c.open, c.close) + 0.01) {
+    return { valid: false, reason: `Low (${c.low}) higher than open/close in ${c.date}` };
+  }
+  if (typeof c.volume !== "number" || isNaN(c.volume) || c.volume < 0) {
+    return { valid: false, reason: `Invalid volume (${c.volume}) in candle ${c.date}` };
+  }
+  return { valid: true };
+}
+
+/**
+ * Normalizes, validates, sorts chronologically, deduplicates, and filters completed daily candles.
+ */
+export function cleanAndValidateCandles(
+  rawCandles: DailyCandle[],
+  options: CandleCleanOptions = {}
+): CandleCleaningResult {
+  const requireCompleted = options.requireCompleted ?? true;
+  const now = options.now ?? new Date();
+  const minCandles = options.minCandlesForScan ?? 15;
+  const maxStaleDays = options.maxStaleDays ?? 7;
+
+  const warnings: string[] = [];
+
+  if (!rawCandles || !Array.isArray(rawCandles)) {
+    return {
+      valid: false,
+      candles: [],
+      totalRaw: 0,
+      discardedInvalid: 0,
+      discardedDuplicates: 0,
+      inProgressExcluded: false,
+      reason: "Candles dataset is null or not an array",
+      warnings,
+    };
+  }
+
+  const totalRaw = rawCandles.length;
+  let discardedInvalid = 0;
+  let discardedDuplicates = 0;
+
+  // 1. Filter OHLC valid candles
+  const validBars: DailyCandle[] = [];
+  for (const c of rawCandles) {
+    const ohlcCheck = isValidCandleOHLC(c);
+    if (!ohlcCheck.valid) {
+      discardedInvalid++;
+    } else {
+      validBars.push(c);
+    }
+  }
+
+  // 2. Sort chronologically by date
+  validBars.sort((a, b) => a.date.localeCompare(b.date));
+
+  // 3. Deduplicate by date (keep the latest valid occurrence)
+  const dateMap = new Map<string, DailyCandle>();
+  for (const bar of validBars) {
+    if (dateMap.has(bar.date)) {
+      discardedDuplicates++;
+    }
+    dateMap.set(bar.date, bar);
+  }
+
+  const uniqueBars = Array.from(dateMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+  // 4. Session completion check: if requireCompleted, drop in-progress bar
+  let inProgressExcluded = false;
+  const completedBars: DailyCandle[] = [];
+
+  for (let i = 0; i < uniqueBars.length; i++) {
+    const bar = uniqueBars[i];
+    const isLatest = i === uniqueBars.length - 1;
+    if (requireCompleted && isLatest) {
+      const completionCheck = isDailyCandleCompleted(bar.date, now);
+      if (!completionCheck.isCompleted) {
+        inProgressExcluded = true;
+        warnings.push(
+          `Excluded in-progress daily candle for ${bar.date}: ${completionCheck.reason}. Using latest confirmed EOD bar.`
+        );
+        continue; // drop unconfirmed bar
+      }
+    }
+    completedBars.push(bar);
+  }
+
+  // 5. Check minimum candle requirement
+  if (completedBars.length < minCandles) {
+    return {
+      valid: false,
+      candles: completedBars,
+      totalRaw,
+      discardedInvalid,
+      discardedDuplicates,
+      inProgressExcluded,
+      reason: `Insufficient valid historical candles: received ${completedBars.length}, minimum ${minCandles} required`,
+      warnings,
+    };
+  }
+
+  // 6. Recency check on the latest completed candle
+  const latestDate = completedBars[completedBars.length - 1].date;
+  const kolkata = getKolkataDateTime(now);
+  const diffDays = Math.floor(
+    (new Date(kolkata.dateStr).getTime() - new Date(latestDate).getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (diffDays > maxStaleDays) {
+    warnings.push(
+      `Market data may be delayed or stale: latest completed candle date is ${latestDate} (${diffDays} days prior to scan date ${kolkata.dateStr}).`
+    );
+  }
+
+  return {
+    valid: true,
+    candles: completedBars,
+    totalRaw,
+    discardedInvalid,
+    discardedDuplicates,
+    inProgressExcluded,
+    warnings,
+  };
+}
+
+/**
+ * Strict candle validation: checks that every candle in the dataset has valid OHLC relationships.
+ */
+export function validateDailyCandles(candles: DailyCandle[]): CandleValidationResult {
+  if (!candles || !Array.isArray(candles)) {
+    return { valid: false, reason: "Candles dataset is not an array" };
+  }
+  if (candles.length < 15) {
+    return {
+      valid: false,
+      reason: `Insufficient historical candles: received ${candles.length}, minimum 15 required for indicator calculation`,
+    };
+  }
+
+  for (let i = 0; i < candles.length; i++) {
+    const ohlcCheck = isValidCandleOHLC(candles[i]);
+    if (!ohlcCheck.valid) {
+      return { valid: false, reason: ohlcCheck.reason };
+    }
+  }
+
+  return { valid: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GENUINE TECHNICAL INDICATOR CALCULATORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Genuine Exponential Moving Average (EMA)
+ * 
+ * Formula:
+ * alpha = 2 / (period + 1)
+ * EMA_t = alpha * close_t + (1 - alpha) * EMA_{t-1}
+ * 
+ * Consistent Initialization:
+ * Initial seed EMA at index (period - 1) is the Simple Moving Average (SMA) of the first `period` prices:
+ * EMA_{period-1} = (1 / period) * sum(values[0 .. period-1])
+ * Indices 0 to period - 2 are null.
+ * If values.length < period, returns an array of nulls. Never manufactures synthetic values.
+ */
+export function calculateEMA(values: number[], period: number): (number | null)[] {
+  const ema: (number | null)[] = new Array(values.length).fill(null);
+  if (!values || values.length < period || period <= 0) return ema;
+
+  const k = 2 / (period + 1);
+
+  // SMA seed over the initial period
   let sum = 0;
-  for (let i = 0; i < period; i++) sum += values[i];
+  for (let i = 0; i < period; i++) {
+    sum += values[i];
+  }
   ema[period - 1] = sum / period;
 
+  // Exponential recursive smoothing for subsequent observations
   for (let i = period; i < values.length; i++) {
-    ema[i] = values[i] * k + ema[i - 1] * (1 - k);
+    ema[i] = values[i] * k + ema[i - 1]! * (1 - k);
   }
   return ema;
 }
 
-export function calculateRSI(closes: number[], period: number = 14): number {
-  if (closes.length < period + 1) return 50.0;
-  let gains = 0;
-  let losses = 0;
-
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) gains += diff;
-    else losses += Math.abs(diff);
+/**
+ * Wilder's Smoothed Relative Strength Index (RSI)
+ * 
+ * Formula:
+ * 1. Initial average gain and average loss over the first `period` changes (SMA seed):
+ *    avgGain = sum(gains[1..period]) / period
+ *    avgLoss = sum(losses[1..period]) / period
+ * 2. Wilder's recursive smoothing for subsequent observations t = period+1 .. N:
+ *    avgGain_t = (avgGain_{t-1} * (period - 1) + currentGain) / period
+ *    avgLoss_t = (avgLoss_{t-1} * (period - 1) + currentLoss) / period
+ * 3. Relative Strength:
+ *    - If avgLoss == 0 and avgGain == 0 => 50.0 (completely flat series)
+ *    - If avgLoss == 0 and avgGain > 0 => 100.0 (strictly rising series)
+ *    - If avgGain == 0 and avgLoss > 0 => 0.0 (strictly falling series)
+ *    - Else: RS = avgGain / avgLoss, RSI = 100 - (100 / (1 + RS))
+ * 
+ * Returns null if closes.length < period + 1. Never manufactures synthetic RSI.
+ */
+export function calculateRSI(closes: number[], period: number = 14): number | null {
+  if (!closes || closes.length < period + 1 || period <= 0) {
+    return null;
   }
 
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  if (avgLoss === 0) return 100.0;
+  // Calculate price changes for first `period` bars (indices 1 to period)
+  let sumGain = 0;
+  let sumLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) sumGain += diff;
+    else if (diff < 0) sumLoss += Math.abs(diff);
+  }
+
+  let avgGain = sumGain / period;
+  let avgLoss = sumLoss / period;
+
+  // Apply Wilder's smoothing for subsequent observations
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? Math.abs(diff) : 0;
+
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+
+  if (avgLoss === 0) {
+    if (avgGain === 0) return 50.0;
+    return 100.0;
+  }
+  if (avgGain === 0) {
+    return 0.0;
+  }
+
   const rs = avgGain / avgLoss;
-  return Number((100 - 100 / (1 + rs)).toFixed(1));
+  const rsi = 100 - 100 / (1 + rs);
+  return Number(rsi.toFixed(1));
 }
+
+export const calculateWilderRSI = calculateRSI;
 
 export function calculateMACD(
   closes: number[],
   fast: number = 12,
   slow: number = 26,
   signalPeriod: number = 9
-): { macdLine: number; signalLine: number; histogram: number; isBullishCross: boolean } {
+): { macdLine: number; signalLine: number; histogram: number; isBullishCross: boolean; isAvailable: boolean } {
   if (closes.length < slow + signalPeriod) {
-    return { macdLine: 0, signalLine: 0, histogram: 0, isBullishCross: false };
+    return { macdLine: 0, signalLine: 0, histogram: 0, isBullishCross: false, isAvailable: false };
   }
 
   const fastEMA = calculateEMA(closes, fast);
@@ -224,19 +629,25 @@ export function calculateMACD(
 
   const macdSeries: number[] = [];
   for (let i = slow - 1; i < closes.length; i++) {
-    if (fastEMA[i] !== undefined && slowEMA[i] !== undefined) {
-      macdSeries.push(fastEMA[i] - slowEMA[i]);
+    const f = fastEMA[i];
+    const s = slowEMA[i];
+    if (f !== null && s !== null) {
+      macdSeries.push(f - s);
     }
+  }
+
+  if (macdSeries.length < signalPeriod) {
+    return { macdLine: 0, signalLine: 0, histogram: 0, isBullishCross: false, isAvailable: false };
   }
 
   const signalEMA = calculateEMA(macdSeries, signalPeriod);
   const lastIdx = macdSeries.length - 1;
-  const macdVal = Number((macdSeries[lastIdx] || 0).toFixed(2));
-  const signalVal = Number((signalEMA[lastIdx] || 0).toFixed(2));
+  const macdVal = Number((macdSeries[lastIdx] ?? 0).toFixed(2));
+  const signalVal = Number((signalEMA[lastIdx] ?? 0).toFixed(2));
   const hist = Number((macdVal - signalVal).toFixed(2));
 
-  const prevMacd = macdSeries[lastIdx - 1] || 0;
-  const prevSignal = signalEMA[lastIdx - 1] || 0;
+  const prevMacd = macdSeries[lastIdx - 1] ?? 0;
+  const prevSignal = signalEMA[lastIdx - 1] ?? 0;
   const isBullishCross = prevMacd <= prevSignal && macdVal > signalVal;
 
   return {
@@ -244,6 +655,7 @@ export function calculateMACD(
     signalLine: signalVal,
     histogram: hist,
     isBullishCross,
+    isAvailable: true,
   };
 }
 
@@ -262,13 +674,13 @@ export function calculateATR(candles: DailyCandle[], period: number = 14): numbe
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STOCK PROFILE EXTRACTOR
+// STOCK PROFILE EXTRACTOR (GENUINE INDICATORS, ZERO SYNTHETIC FALLBACKS)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildStockIndicatorProfile(
   symbol: string,
   candles: DailyCandle[],
-  meta: any,
+  meta: any = {},
   niftySpot: number = 22520.45,
   niftyChangePercent: number = 1.3
 ): StockIndicatorProfile {
@@ -289,48 +701,87 @@ export function buildStockIndicatorProfile(
   const low52 = Number((meta.fiftyTwoWeekLow || Math.min(...lows)).toFixed(2));
   const currentVol = meta.regularMarketVolume || volumes[len - 1] || 1;
 
-  // EMAs
+  // Genuine EMA calculations (zero synthetic fallbacks: null if insufficient history)
   const ema20Arr = calculateEMA(closes, 20);
   const ema50Arr = calculateEMA(closes, 50);
-  const ema200Arr = calculateEMA(closes, Math.min(len - 1, 200));
+  const ema200Arr = calculateEMA(closes, 200);
 
-  const ema20 = Number((ema20Arr[len - 1] || currentPrice).toFixed(2));
-  const ema50 = Number((ema50Arr[len - 1] || ema20 * 0.98).toFixed(2));
-  const ema200 = Number((ema200Arr[len - 1] || ema50 * 0.94).toFixed(2));
+  const ema20Raw = len >= 20 ? ema20Arr[len - 1] : null;
+  const ema50Raw = len >= 50 ? ema50Arr[len - 1] : null;
+  const ema200Raw = len >= 200 ? ema200Arr[len - 1] : null;
 
-  // Volume
+  const ema20 = ema20Raw !== null ? Number(ema20Raw.toFixed(2)) : null;
+  const ema50 = ema50Raw !== null ? Number(ema50Raw.toFixed(2)) : null;
+  const ema200 = ema200Raw !== null ? Number(ema200Raw.toFixed(2)) : null;
+
+  // 20-day Volume Average
   const sliceVol = volumes.slice(-20);
   const avgVolume20D = Math.round(sliceVol.reduce((a, b) => a + b, 0) / sliceVol.length) || 1;
   const volumeMultiplier = Number((currentVol / avgVolume20D).toFixed(2));
 
-  // RSI & MACD
+  // Genuine Wilder RSI & MACD
   const rsi14 = calculateRSI(closes, 14);
   const macd = calculateMACD(closes, 12, 26, 9);
   const atr14 = calculateATR(candles, 14);
 
-  // S/R Levels
+  // Market Structure & Liquidity Detection (Pivots, PWH/PWL, EQH/EQL, Sweeps, CHOCH)
+  const marketStructure = analyzeMarketStructure(candles, { currentIndex: len - 1, atr: atr14 });
+
+  // S/R Levels and Confirmed Structural Pivots
   const lookback = Math.min(20, len);
   const resistanceLevel = Number(Math.max(...highs.slice(-lookback, -1)).toFixed(2));
   const supportLevel = Number(Math.min(...lows.slice(-lookback)).toFixed(2));
-  const swingLow = Number(Math.min(...lows.slice(-8)).toFixed(2));
-  const swingHigh = Number(Math.max(...highs.slice(-8)).toFixed(2));
+  const swingLow = marketStructure.confirmedLows.length > 0
+    ? marketStructure.confirmedLows[marketStructure.confirmedLows.length - 1].price
+    : Number(Math.min(...lows.slice(-8)).toFixed(2));
+  const swingHigh = marketStructure.confirmedHighs.length > 0
+    ? marketStructure.confirmedHighs[marketStructure.confirmedHighs.length - 1].price
+    : Number(Math.max(...highs.slice(-8)).toFixed(2));
 
-  const extensionFrom20EMAPercent = Number((((currentPrice - ema20) / ema20) * 100).toFixed(2));
+  const extensionFrom20EMAPercent =
+    ema20 !== null ? Number((((currentPrice - ema20) / ema20) * 100).toFixed(2)) : 0;
 
-  // Trend classification
+  // Trend classification (requires genuine moving averages)
   let trendStrength: "STRONG_UPTREND" | "MODERATE_UPTREND" | "RANGE_BOUND" | "DOWNTREND" = "RANGE_BOUND";
-  if (currentPrice > ema20 && ema20 > ema50 && ema50 > ema200) {
-    trendStrength = "STRONG_UPTREND";
-  } else if (currentPrice > ema50 && ema50 > ema200) {
-    trendStrength = "MODERATE_UPTREND";
-  } else if (currentPrice < ema50 && currentPrice < ema200) {
-    trendStrength = "DOWNTREND";
+  if (ema20 !== null && ema50 !== null && ema200 !== null) {
+    if (currentPrice > ema20 && ema20 > ema50 && ema50 > ema200) {
+      trendStrength = "STRONG_UPTREND";
+    } else if (currentPrice > ema50 && ema50 > ema200) {
+      trendStrength = "MODERATE_UPTREND";
+    } else if (currentPrice < ema50 && currentPrice < ema200) {
+      trendStrength = "DOWNTREND";
+    }
+  } else if (ema20 !== null && ema50 !== null) {
+    if (currentPrice > ema20 && ema20 > ema50) {
+      trendStrength = "MODERATE_UPTREND";
+    } else if (currentPrice < ema50) {
+      trendStrength = "DOWNTREND";
+    }
   }
 
   // Relative Strength vs NIFTY
   const stockGain = changePercent;
   const niftyGain = niftyChangePercent;
-  let relativeStrengthVsNifty = Math.min(98, Math.max(30, Math.round(50 + (stockGain - niftyGain) * 8 + (trendStrength === "STRONG_UPTREND" ? 20 : 0))));
+  const relativeStrengthVsNifty = Math.min(
+    98,
+    Math.max(30, Math.round(50 + (stockGain - niftyGain) * 8 + (trendStrength === "STRONG_UPTREND" ? 20 : 0)))
+  );
+
+  const dataQualityWarnings: string[] = [];
+  if (len < 200) {
+    dataQualityWarnings.push(
+      `Insufficient history for EMA 200: available ${len} candles, minimum 200 required for genuine calculation.`
+    );
+  }
+  if (len < 50) {
+    dataQualityWarnings.push(`Insufficient history for EMA 50: available ${len} candles, minimum 50 required.`);
+  }
+  if (len < 20) {
+    dataQualityWarnings.push(`Insufficient history for EMA 20: available ${len} candles, minimum 20 required.`);
+  }
+  if (rsi14 === null) {
+    dataQualityWarnings.push("Insufficient history for RSI 14: minimum 15 closing prices required.");
+  }
 
   return {
     symbol: `${cleanSymbol}.NS`,
@@ -353,6 +804,21 @@ export function buildStockIndicatorProfile(
     ema50,
     ema200,
     rsi14,
+    indicatorsAvailable: {
+      ema20: ema20 !== null,
+      ema50: ema50 !== null,
+      ema200: ema200 !== null,
+      rsi14: rsi14 !== null,
+      macd: macd.isAvailable,
+    },
+    dataQuality: {
+      totalCandles: len,
+      has200EMA: ema200 !== null,
+      has50EMA: ema50 !== null,
+      has20EMA: ema20 !== null,
+      hasRSI: rsi14 !== null,
+      warnings: dataQualityWarnings,
+    },
     macd,
     atr14,
     resistanceLevel,
@@ -362,6 +828,11 @@ export function buildStockIndicatorProfile(
     extensionFrom20EMAPercent,
     trendStrength,
     relativeStrengthVsNifty,
+    marketStructure,
+    pwh: marketStructure.pwh,
+    pwl: marketStructure.pwl,
+    recentLiquiditySweep: marketStructure.recentLiquiditySweep,
+    recentChoch: marketStructure.recentChoch,
   };
 }
 
@@ -369,20 +840,14 @@ export function buildStockIndicatorProfile(
 // 8 INDEPENDENT STRATEGY ENGINES
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * STRATEGY A: Breakout Trading
- * - Identifies historical resistance level
- * - Closes above resistance with Volume > 1.5x 20D avg
- * - Price not excessively extended (< 5-7%)
- * - Target minimum 1:2 R:R
- */
 export function evaluateStrategyA_Breakout(p: StockIndicatorProfile): StrategyMatchResult {
+  const isAvailable = p.ema20 !== null && p.ema50 !== null;
   const isBreakout = p.currentPrice >= p.resistanceLevel * 0.998;
   const hasVolume = p.volumeMultiplier >= 1.45;
-  const notExtended = p.extensionFrom20EMAPercent <= 6.5;
-  const isUptrend = p.currentPrice >= p.ema50;
+  const notExtended = p.ema20 !== null ? p.extensionFrom20EMAPercent <= 6.5 : false;
+  const isUptrend = p.ema50 !== null ? p.currentPrice >= p.ema50 : false;
 
-  const matched = isBreakout && hasVolume && notExtended && isUptrend;
+  const matched = isAvailable && isBreakout && hasVolume && notExtended && isUptrend;
   const entryTrigger = Number((p.currentPrice * 1.002).toFixed(1));
   const stopLoss = Number((Math.max(p.resistanceLevel * 0.985, p.swingLow)).toFixed(1));
   const risk = Math.max(1, Number((entryTrigger - stopLoss).toFixed(1)));
@@ -394,7 +859,7 @@ export function evaluateStrategyA_Breakout(p: StockIndicatorProfile): StrategyMa
     (matched ? 40 : 10) +
       (p.volumeMultiplier >= 2.0 ? 25 : p.volumeMultiplier >= 1.5 ? 20 : 10) +
       (p.trendStrength === "STRONG_UPTREND" ? 20 : 10) +
-      (p.rsi14 >= 55 && p.rsi14 <= 70 ? 15 : 5)
+      (p.rsi14 !== null && p.rsi14 >= 55 && p.rsi14 <= 70 ? 15 : 5)
   );
 
   return {
@@ -422,24 +887,22 @@ export function evaluateStrategyA_Breakout(p: StockIndicatorProfile): StrategyMa
       `Volume surged to ${p.volumeMultiplier}x 20-day average, signaling institutional demand.`,
       `Current price is ${p.extensionFrom20EMAPercent}% from 20 EMA, safely inside the non-extended threshold.`,
     ],
-    warnings: p.extensionFrom20EMAPercent > 5.0 ? ["Mild extension from 20 EMA, scale in on minor retest"] : [],
+    warnings: [
+      ...(!isAvailable ? ["Strategy A requires 20 and 50 EMA which are unavailable due to insufficient candle history."] : []),
+      ...(p.extensionFrom20EMAPercent > 5.0 ? ["Mild extension from 20 EMA, scale in on minor retest"] : []),
+    ],
   };
 }
 
-/**
- * STRATEGY B: Pullback in an Uptrend
- * - Trading above 50 EMA and 200 EMA
- * - Pullback toward 20 EMA or support zone
- * - Bullish price action (rejection candle)
- */
 export function evaluateStrategyB_Pullback(p: StockIndicatorProfile): StrategyMatchResult {
-  const isAbove50and200 = p.currentPrice >= p.ema50 && p.ema50 >= p.ema200 * 0.98;
-  const isNear20EMA = Math.abs(p.currentPrice - p.ema20) / p.ema20 <= 0.028;
+  const hasHistory = p.ema20 !== null && p.ema50 !== null && p.ema200 !== null;
+  const isAbove50and200 = hasHistory && p.currentPrice >= p.ema50! && p.ema50! >= p.ema200! * 0.98;
+  const isNear20EMA = p.ema20 !== null && Math.abs(p.currentPrice - p.ema20) / p.ema20 <= 0.028;
   const isRebounding = p.currentPrice >= p.dayLow + (p.dayHigh - p.dayLow) * 0.4;
-  const matched = isAbove50and200 && isNear20EMA && isRebounding;
+  const matched = hasHistory && isAbove50and200 && isNear20EMA && isRebounding;
 
   const entryTrigger = Number((p.dayHigh * 1.002).toFixed(1));
-  const stopLoss = Number((Math.min(p.dayLow * 0.995, p.ema20 * 0.985)).toFixed(1));
+  const stopLoss = Number((Math.min(p.dayLow * 0.995, p.ema20 !== null ? p.ema20 * 0.985 : p.dayLow * 0.985)).toFixed(1));
   const risk = Math.max(1, Number((entryTrigger - stopLoss).toFixed(1)));
   const target1 = Number((entryTrigger + risk * 2.1).toFixed(1));
   const target2 = Number((entryTrigger + risk * 3.2).toFixed(1));
@@ -448,8 +911,8 @@ export function evaluateStrategyB_Pullback(p: StockIndicatorProfile): StrategyMa
     95,
     (matched ? 40 : 10) +
       (p.trendStrength === "STRONG_UPTREND" ? 25 : 15) +
-      (p.rsi14 >= 45 && p.rsi14 <= 60 ? 20 : 10) +
-      (p.volumeMultiplier <= 1.2 ? 15 : 10) // Healthy low volume on pullback
+      (p.rsi14 !== null && p.rsi14 >= 45 && p.rsi14 <= 60 ? 20 : 10) +
+      (p.volumeMultiplier <= 1.2 ? 15 : 10)
   );
 
   return {
@@ -460,8 +923,8 @@ export function evaluateStrategyB_Pullback(p: StockIndicatorProfile): StrategyMa
     direction: "BULLISH",
     confirmationStatus: matched ? "CONFIRMED" : "WATCHLIST",
     entryZone: {
-      min: p.ema20,
-      max: Number((p.ema20 * 1.018).toFixed(1)),
+      min: p.ema20 ?? p.supportLevel,
+      max: Number(((p.ema20 ?? p.supportLevel) * 1.018).toFixed(1)),
       trigger: entryTrigger,
     },
     stopLoss,
@@ -470,22 +933,19 @@ export function evaluateStrategyB_Pullback(p: StockIndicatorProfile): StrategyMa
     riskPerShare: risk,
     rewardRiskRatio: 2.1,
     confidenceScore,
-    keyLevel: p.ema20,
-    rejectionCandle: `Bullish Rejection Wick at 20 EMA (₹${p.ema20})`,
-    rationale: [
+    keyLevel: p.ema20 ?? p.supportLevel,
+    rejectionCandle: p.ema20 !== null ? `Bullish Rejection Wick at 20 EMA (₹${p.ema20})` : undefined,
+    rationale: hasHistory ? [
       `Stock trading firmly above 50 EMA (₹${p.ema50}) and 200 EMA (₹${p.ema200}).`,
       `Orderly pullback into 20 EMA zone with drying supply.`,
       `Lower tail rejection on daily bar confirms buyers absorbing at dynamic support.`,
+    ] : [
+      `Insufficient candle history to calculate genuine 200 EMA (requires at least 200 daily bars). Strategy unavailable.`
     ],
+    warnings: !hasHistory ? ["Strategy B requires genuine 50 and 200 EMA. 200 EMA is unavailable due to insufficient history (minimum 200 daily candles required)."] : [],
   };
 }
 
-/**
- * STRATEGY C: Support Bounce
- * - Important historical support zone
- * - Price approaching or bouncing off support
- * - Bullish candle pattern, rejects if support breaks decisively
- */
 export function evaluateStrategyC_SupportBounce(p: StockIndicatorProfile): StrategyMatchResult {
   const isNearSupport = Math.abs(p.currentPrice - p.supportLevel) / p.supportLevel <= 0.035;
   const isHoldingAbove = p.currentPrice >= p.supportLevel * 0.99;
@@ -502,8 +962,8 @@ export function evaluateStrategyC_SupportBounce(p: StockIndicatorProfile): Strat
   const confidenceScore = Math.min(
     92,
     (matched ? 35 : 10) +
-      (p.rsi14 <= 45 ? 25 : 15) +
-      (p.currentPrice > p.ema200 ? 20 : 10) +
+      (p.rsi14 !== null && p.rsi14 <= 45 ? 25 : 15) +
+      (p.ema200 !== null && p.currentPrice > p.ema200 ? 20 : 10) +
       12
   );
 
@@ -535,20 +995,15 @@ export function evaluateStrategyC_SupportBounce(p: StockIndicatorProfile): Strat
   };
 }
 
-/**
- * STRATEGY D: Moving Average Crossover
- * - 20-day EMA crossing above 50-day EMA
- * - Bullish trend confirmation & volume
- */
 export function evaluateStrategyD_MACrossover(p: StockIndicatorProfile): StrategyMatchResult {
-  const emaSpreadPercent = ((p.ema20 - p.ema50) / p.ema50) * 100;
-  // Recent or fresh cross: 20 EMA is within 0% to 3.5% above 50 EMA
-  const isFreshCross = emaSpreadPercent >= -0.5 && emaSpreadPercent <= 3.5;
-  const isPriceAboveBoth = p.currentPrice >= p.ema20;
-  const matched = isFreshCross && isPriceAboveBoth;
+  const hasMAs = p.ema20 !== null && p.ema50 !== null;
+  const emaSpreadPercent = hasMAs ? ((p.ema20! - p.ema50!) / p.ema50!) * 100 : 0;
+  const isFreshCross = hasMAs && emaSpreadPercent >= -0.5 && emaSpreadPercent <= 3.5;
+  const isPriceAboveBoth = hasMAs && p.currentPrice >= p.ema20!;
+  const matched = hasMAs && isFreshCross && isPriceAboveBoth;
 
   const entryTrigger = Number((p.currentPrice * 1.003).toFixed(1));
-  const stopLoss = Number((Math.min(p.ema50 * 0.985, p.swingLow)).toFixed(1));
+  const stopLoss = Number((Math.min(p.ema50 !== null ? p.ema50 * 0.985 : p.swingLow, p.swingLow)).toFixed(1));
   const risk = Math.max(1, Number((entryTrigger - stopLoss).toFixed(1)));
   const target1 = Number((entryTrigger + risk * 2.0).toFixed(1));
   const target2 = Number((entryTrigger + risk * 3.0).toFixed(1));
@@ -557,7 +1012,7 @@ export function evaluateStrategyD_MACrossover(p: StockIndicatorProfile): Strateg
     93,
     (matched ? 40 : 10) +
       (p.volumeMultiplier >= 1.2 ? 20 : 10) +
-      (p.rsi14 >= 50 && p.rsi14 <= 65 ? 20 : 10) +
+      (p.rsi14 !== null && p.rsi14 >= 50 && p.rsi14 <= 65 ? 20 : 10) +
       13
   );
 
@@ -569,8 +1024,8 @@ export function evaluateStrategyD_MACrossover(p: StockIndicatorProfile): Strateg
     direction: "BULLISH",
     confirmationStatus: matched ? (p.volumeMultiplier >= 1.3 ? "CONFIRMED" : "DEVELOPING") : "WATCHLIST",
     entryZone: {
-      min: p.ema20,
-      max: Number((p.ema20 * 1.02).toFixed(1)),
+      min: p.ema20 ?? p.supportLevel,
+      max: Number(((p.ema20 ?? p.supportLevel) * 1.02).toFixed(1)),
       trigger: entryTrigger,
     },
     stopLoss,
@@ -579,32 +1034,29 @@ export function evaluateStrategyD_MACrossover(p: StockIndicatorProfile): Strateg
     riskPerShare: risk,
     rewardRiskRatio: 2.0,
     confidenceScore,
-    keyLevel: p.ema50,
-    rejectionCandle: `20 EMA (₹${p.ema20}) Bullish Golden Cross over 50 EMA (₹${p.ema50})`,
-    rationale: [
+    keyLevel: p.ema50 ?? p.supportLevel,
+    rejectionCandle: hasMAs ? `20 EMA (₹${p.ema20}) Bullish Golden Cross over 50 EMA (₹${p.ema50})` : undefined,
+    rationale: hasMAs ? [
       `20-day EMA crossed above 50-day EMA, initiating a medium-term trend reversal.`,
       `Price trades comfortably above both moving averages.`,
       `Momentum expanding in the direction of the golden cross.`,
+    ] : [
+      `Insufficient candle history for 20/50 EMA crossover evaluation.`
     ],
+    warnings: !hasMAs ? ["Strategy D requires 20 and 50 EMA. Unavailable due to insufficient candle history."] : [],
   };
 }
 
-/**
- * STRATEGY E: Momentum Trading
- * - Strong relative performance vs NIFTY 50 (> 60)
- * - RSI in acceleration zone (55 to 70)
- * - MACD bullish cross or positive histogram
- * - Flags overextended stocks (RSI > 80 or extension > 9%)
- */
 export function evaluateStrategyE_Momentum(p: StockIndicatorProfile): StrategyMatchResult {
+  const hasRSI = p.rsi14 !== null;
   const isRSStrong = p.relativeStrengthVsNifty >= 65;
-  const isRSIOptimal = p.rsi14 >= 54 && p.rsi14 <= 74;
+  const isRSIOptimal = hasRSI && p.rsi14! >= 54 && p.rsi14! <= 74;
   const isMACDBullish = p.macd.histogram > 0 || p.macd.isBullishCross;
-  const isOverextended = p.rsi14 > 80 || p.extensionFrom20EMAPercent > 9.0;
-  const matched = isRSStrong && isRSIOptimal && isMACDBullish && !isOverextended;
+  const isOverextended = (hasRSI && p.rsi14! > 80) || p.extensionFrom20EMAPercent > 9.0;
+  const matched = hasRSI && isRSStrong && isRSIOptimal && isMACDBullish && !isOverextended;
 
   const entryTrigger = Number((p.currentPrice * 1.003).toFixed(1));
-  const stopLoss = Number((p.ema20 * 0.985).toFixed(1));
+  const stopLoss = Number((p.ema20 !== null ? p.ema20 * 0.985 : p.supportLevel * 0.985).toFixed(1));
   const risk = Math.max(1, Number((entryTrigger - stopLoss).toFixed(1)));
   const target1 = Number((entryTrigger + risk * 2.2).toFixed(1));
   const target2 = Number((entryTrigger + risk * 3.5).toFixed(1));
@@ -635,22 +1087,20 @@ export function evaluateStrategyE_Momentum(p: StockIndicatorProfile): StrategyMa
     riskPerShare: risk,
     rewardRiskRatio: 2.2,
     confidenceScore,
-    keyLevel: p.ema20,
-    rejectionCandle: `RSI ${p.rsi14} + MACD Bullish Momentum Expansion`,
+    keyLevel: p.ema20 ?? p.supportLevel,
+    rejectionCandle: hasRSI ? `RSI ${p.rsi14} + MACD Bullish Momentum Expansion` : `MACD Bullish Momentum Expansion`,
     rationale: [
       `Outperforming NIFTY 50 with Relative Strength score of ${p.relativeStrengthVsNifty}/100.`,
-      `RSI at ${p.rsi14} in the sweet-spot momentum acceleration window (55-72).`,
+      `RSI at ${p.rsi14 ?? "N/A"} in the sweet-spot momentum acceleration window (55-72).`,
       `MACD histogram expanded positive (+${p.macd.histogram}), signaling institutional momentum.`,
     ],
-    warnings: isOverextended ? ["Stock overextended (RSI > 80). Avoid chasing until pullback."] : [],
+    warnings: [
+      ...(!hasRSI ? ["Wilder RSI-14 unavailable due to insufficient history."] : []),
+      ...(isOverextended ? ["Stock overextended (RSI > 80). Avoid chasing until pullback."] : []),
+    ],
   };
 }
 
-/**
- * STRATEGY F: Range Breakout
- * - Consolidating within defined horizontal range (box/rectangle)
- * - Breakout above upper range with volume expansion
- */
 export function evaluateStrategyF_RangeBreakout(p: StockIndicatorProfile): StrategyMatchResult {
   const rangeWidthPercent = ((p.resistanceLevel - p.supportLevel) / p.supportLevel) * 100;
   const isTightRange = rangeWidthPercent <= 9.0;
@@ -702,17 +1152,12 @@ export function evaluateStrategyF_RangeBreakout(p: StockIndicatorProfile): Strat
   };
 }
 
-/**
- * STRATEGY G: Trend Continuation
- * - Higher highs and higher lows
- * - 20 EMA > 50 EMA > 200 EMA
- * - Continuation entries near support or pullback
- */
 export function evaluateStrategyG_TrendContinuation(p: StockIndicatorProfile): StrategyMatchResult {
-  const isPerfectMAAlignment = p.currentPrice > p.ema20 && p.ema20 > p.ema50 && p.ema50 > p.ema200;
+  const hasAllMAs = p.ema20 !== null && p.ema50 !== null && p.ema200 !== null;
+  const isPerfectMAAlignment = hasAllMAs && p.currentPrice > p.ema20! && p.ema20! > p.ema50! && p.ema50! > p.ema200!;
   const isHigherLows = p.swingLow > p.supportLevel * 1.01;
-  const isHealthyRSI = p.rsi14 >= 52 && p.rsi14 <= 72;
-  const matched = isPerfectMAAlignment && isHigherLows && isHealthyRSI;
+  const isHealthyRSI = p.rsi14 !== null ? (p.rsi14 >= 52 && p.rsi14 <= 72) : true;
+  const matched = hasAllMAs && isPerfectMAAlignment && isHigherLows && isHealthyRSI;
 
   const entryTrigger = Number((p.currentPrice * 1.003).toFixed(1));
   const stopLoss = Number((p.swingLow * 0.99).toFixed(1));
@@ -746,22 +1191,19 @@ export function evaluateStrategyG_TrendContinuation(p: StockIndicatorProfile): S
     riskPerShare: risk,
     rewardRiskRatio: 2.1,
     confidenceScore,
-    keyLevel: p.ema20,
+    keyLevel: p.ema20 ?? p.supportLevel,
     rejectionCandle: `Higher High + Higher Low Continuation Pattern`,
-    rationale: [
+    rationale: hasAllMAs ? [
       `Structure confirms disciplined Higher Highs & Higher Lows sequence.`,
       `Triple moving average alignment: Price > 20 EMA > 50 EMA > 200 EMA.`,
       `High-probability continuation wave forming from dynamic support.`,
+    ] : [
+      `Strategy G requires genuine 20/50/200 EMA alignment. 200 EMA is unavailable (requires 200+ completed daily candles).`
     ],
+    warnings: !hasAllMAs ? ["Strategy G requires genuine 20/50/200 EMA alignment; 200 EMA is unavailable (requires 200+ completed daily candles). Strategy unavailable."] : [],
   };
 }
 
-/**
- * STRATEGY H: Volume Breakout
- * - Unusual volume >= 2.0x 20-day average
- * - Price spread expansion closing near highs
- * - Accumulation vs breakdown differentiation
- */
 export function evaluateStrategyH_VolumeBreakout(p: StockIndicatorProfile): StrategyMatchResult {
   const isHugeVolume = p.volumeMultiplier >= 1.85;
   const isPositiveDay = p.changePercent >= 0.8;
@@ -841,10 +1283,11 @@ export function evaluateAllStrategiesForStock(p: StockIndicatorProfile): Matched
   const volumeScore = p.volumeMultiplier >= 2.0 ? 20 : p.volumeMultiplier >= 1.4 ? 16 : 10;
   const relativeStrengthScore = Math.round((p.relativeStrengthVsNifty / 100) * 15);
   const srQualityScore = 15;
-  const momentumScore = p.rsi14 >= 55 && p.rsi14 <= 72 ? 10 : 5;
+  const momentumScore = p.rsi14 !== null && p.rsi14 >= 55 && p.rsi14 <= 72 ? 10 : 5;
   const rrScore = primaryStrategy.rewardRiskRatio >= 2.0 ? 10 : 6;
 
   const baseScore = trendScore + priceActionScore + volumeScore + relativeStrengthScore + srQualityScore + momentumScore + rrScore;
+  // Multi-strategy synergy bonus: +5 points for each additional strategy match (up to 98)
   // Multi-strategy synergy bonus: +5 points for each additional strategy match (up to 98)
   const confluenceScore = Math.min(98, Math.max(65, baseScore + (matchedList.length - 1) * 4));
 
@@ -873,7 +1316,7 @@ export function evaluateAllStrategiesForStock(p: StockIndicatorProfile): Matched
     riskPerShare: primaryStrategy.riskPerShare,
     rewardRiskRatio: primaryStrategy.rewardRiskRatio,
     relativeVolume: p.volumeMultiplier,
-    rsi: p.rsi14,
+    rsi: p.rsi14 ?? 50.0,
     trendStrength: p.trendStrength.replace(/_/g, " "),
     confirmationStatus: primaryStrategy.confirmationStatus,
     timestamp: new Date().toISOString(),
@@ -889,6 +1332,9 @@ export function evaluateAllStrategiesForStock(p: StockIndicatorProfile): Matched
     tradeRationale: allRationales,
     invalidationTrigger: `Daily close below stop-loss ₹${primaryStrategy.stopLoss} invalidates setup.`,
     trailingStopPlan: `Move stop-loss to breakeven (₹${primaryStrategy.entryZone.trigger}) upon hitting Target 1 (₹${primaryStrategy.target1}). Trail remainder below 20 EMA.`,
+    marketStructure: p.marketStructure,
+    liquiditySweep: p.recentLiquiditySweep ?? null,
+    choch: p.recentChoch ?? null,
   };
 }
 

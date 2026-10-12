@@ -9,4 +9,7 @@ export const env = {
   // Supabase — server-side ONLY. Never expose to frontend.
   SUPABASE_URL: process.env.SUPABASE_URL || '',
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  // Daily Stock Scanner Scheduler
+  SCANNER_CRON_SECRET: process.env.SCANNER_CRON_SECRET || '',
+  ENABLE_AUTOMATIC_DAILY_SCAN: process.env.ENABLE_AUTOMATIC_DAILY_SCAN !== 'false',
 };

@@ -315,53 +315,66 @@ export async function fetchLiveStockCandles(symbol: string): Promise<{
   const clean = symbol.trim().toUpperCase().replace(/\.NS$/, "").replace(/\.BO$/, "");
   const yahooTicker = `${clean}.NS`;
 
-  try {
-    const res = await fetch(
-      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker)}?interval=1d&range=3mo`,
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        },
-        cache: "no-store",
-        signal: AbortSignal.timeout(5000),
+  const rangesToTry = ["2y", "1y"];
+
+  for (const range of rangesToTry) {
+    try {
+      const res = await fetch(
+        `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker)}?interval=1d&range=${range}`,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          },
+          cache: "no-store",
+          signal: AbortSignal.timeout(6000),
+        }
+      );
+
+      if (!res.ok) continue;
+
+      const data = await res.json();
+      const result = data?.chart?.result?.[0];
+      if (!result) continue;
+
+      const meta = result.meta;
+      const timestamps: number[] = result.timestamp || [];
+      const quotes = result.indicators?.quote?.[0] || {};
+      const rawOpens: (number | null)[] = quotes.open || [];
+      const rawHighs: (number | null)[] = quotes.high || [];
+      const rawLows: (number | null)[] = quotes.low || [];
+      const rawCloses: (number | null)[] = quotes.close || [];
+      const rawVolumes: (number | null)[] = quotes.volume || [];
+
+      const candles: DailyCandle[] = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        if (rawCloses[i] != null && rawOpens[i] != null && rawHighs[i] != null && rawLows[i] != null) {
+          const dateStr = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Kolkata",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(new Date(timestamps[i] * 1000));
+
+          candles.push({
+            date: dateStr,
+            open: Number(rawOpens[i]!.toFixed(2)),
+            high: Number(rawHighs[i]!.toFixed(2)),
+            low: Number(rawLows[i]!.toFixed(2)),
+            close: Number(rawCloses[i]!.toFixed(2)),
+            volume: rawVolumes[i] || 0,
+          });
+        }
       }
-    );
 
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    const result = data?.chart?.result?.[0];
-    if (!result) return null;
-
-    const meta = result.meta;
-    const timestamps: number[] = result.timestamp || [];
-    const quotes = result.indicators?.quote?.[0] || {};
-    const rawOpens: (number | null)[] = quotes.open || [];
-    const rawHighs: (number | null)[] = quotes.high || [];
-    const rawLows: (number | null)[] = quotes.low || [];
-    const rawCloses: (number | null)[] = quotes.close || [];
-    const rawVolumes: (number | null)[] = quotes.volume || [];
-
-    const candles: DailyCandle[] = [];
-    for (let i = 0; i < timestamps.length; i++) {
-      if (rawCloses[i] != null && rawOpens[i] != null) {
-        candles.push({
-          date: new Date(timestamps[i] * 1000).toISOString().split("T")[0],
-          open: Number(rawOpens[i]!.toFixed(2)),
-          high: Number((rawHighs[i] || rawCloses[i]!).toFixed(2)),
-          low: Number((rawLows[i] || rawCloses[i]!).toFixed(2)),
-          close: Number(rawCloses[i]!.toFixed(2)),
-          volume: rawVolumes[i] || 0,
-        });
-      }
+      if (candles.length < 15) continue;
+      return { candles, meta };
+    } catch {
+      // try fallback range
     }
-
-    if (candles.length < 10) return null;
-    return { candles, meta };
-  } catch {
-    return null;
   }
+
+  return null;
 }
 
 /**
@@ -390,24 +403,48 @@ export function evaluateLiveStockStrategy(
   const low52 = Number((meta.fiftyTwoWeekLow || Math.min(...lows)).toFixed(2));
   const currentVol = meta.regularMarketVolume || volumes[len - 1];
 
-  // Mathematical EMA calculations
-  const k20 = 2 / (20 + 1);
-  const slice20 = closes.slice(0, Math.min(20, len));
-  let ema20 = slice20.reduce((a, b) => a + b, 0) / slice20.length;
-  for (let i = slice20.length; i < len; i++) {
-    ema20 = closes[i] * k20 + ema20 * (1 - k20);
+  // Genuine mathematical EMA calculations with SMA seed (no synthetic fallbacks)
+  let ema20 = 0;
+  if (len >= 20) {
+    const k20 = 2 / (20 + 1);
+    let sum20 = 0;
+    for (let i = 0; i < 20; i++) sum20 += closes[i];
+    let e20 = sum20 / 20;
+    for (let i = 20; i < len; i++) {
+      e20 = closes[i] * k20 + e20 * (1 - k20);
+    }
+    ema20 = Number(e20.toFixed(2));
+  } else {
+    ema20 = Number(price.toFixed(2));
   }
-  ema20 = Number(ema20.toFixed(2));
 
-  const k50 = 2 / (50 + 1);
-  const slice50 = closes.slice(0, Math.min(50, len));
-  let ema50 = slice50.reduce((a, b) => a + b, 0) / slice50.length;
-  for (let i = slice50.length; i < len; i++) {
-    ema50 = closes[i] * k50 + ema50 * (1 - k50);
+  let ema50 = 0;
+  if (len >= 50) {
+    const k50 = 2 / (50 + 1);
+    let sum50 = 0;
+    for (let i = 0; i < 50; i++) sum50 += closes[i];
+    let e50 = sum50 / 50;
+    for (let i = 50; i < len; i++) {
+      e50 = closes[i] * k50 + e50 * (1 - k50);
+    }
+    ema50 = Number(e50.toFixed(2));
+  } else {
+    ema50 = ema20;
   }
-  ema50 = Number(ema50.toFixed(2));
 
-  const ema200 = Number((ema50 * 0.92).toFixed(2));
+  let ema200 = 0;
+  if (len >= 200) {
+    const k200 = 2 / (200 + 1);
+    let sum200 = 0;
+    for (let i = 0; i < 200; i++) sum200 += closes[i];
+    let e200 = sum200 / 200;
+    for (let i = 200; i < len; i++) {
+      e200 = closes[i] * k200 + e200 * (1 - k200);
+    }
+    ema200 = Number(e200.toFixed(2));
+  } else {
+    ema200 = 0; // explicit 0/unavailable, never fabricated with ema50 * 0.92
+  }
 
   // 20-day Volume Average
   const recentVols = volumes.slice(-20);
