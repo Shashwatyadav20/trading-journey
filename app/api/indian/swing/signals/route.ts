@@ -4,6 +4,8 @@ import {
   evaluateLiveStockStrategy,
   EvaluatedSwingSignal,
 } from "@/lib/indian/liveSwingScanner";
+import { nseUniverseService } from "@/lib/indian/NSEUniverseService";
+import { BACKEND_URL } from "@/lib/backendUrl";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,26 +54,56 @@ export async function GET() {
       advancingStocksCount: 36,
       decliningStocksCount: 14,
       regimeScore: niftySpot >= niftyEma20 ? 88 : 65,
-      analysisSummary: `NIFTY (₹${niftySpot.toLocaleString("en-IN")}) trading ${niftySpot >= niftyEma20 ? "cleanly above" : "near"
-        } 20 EMA (₹${niftyEma20.toLocaleString("en-IN")}) & 50 EMA. Market breadth supports high-probability swing longs.`,
+      analysisSummary: `NIFTY (₹${niftySpot.toLocaleString("en-IN")}) trading ${
+        niftySpot >= niftyEma20 ? "cleanly above" : "near"
+      } 20 EMA (₹${niftyEma20.toLocaleString("en-IN")}) & 50 EMA. Market breadth supports high-probability swing longs.`,
     };
 
-    // 2. Scan core watchlist stocks dynamically
-    const watchlist = [
-      "TRENT",
-      "DIXON",
-      "BSE",
-      "CDSL",
-      "HAL",
-      "PERSISTENT",
-      "POLYCAB",
-      "BEL",
-      "TITAN",
-      "RELIANCE",
-    ];
+    // 2. Query persisted scanner opportunities from backend
+    try {
+      const backendRes = await fetch(`${BACKEND_URL}/api/indian/swing/daily-scanner/latest`, {
+        cache: "no-store",
+      });
+      if (backendRes.ok) {
+        const backendData = await backendRes.json();
+        if (backendData.success && backendData.hasData && backendData.opportunities) {
+          const quoteMap: Record<string, any> = {
+            "^NSEI": { price: niftySpot, changePercent: niftyChangePercent },
+          };
+          for (const opp of backendData.opportunities) {
+            quoteMap[`${opp.symbol}.NS`] = {
+              symbol: `${opp.symbol}.NS`,
+              price: opp.current_price,
+              change: 0,
+              changePercent: 0,
+              dayHigh: opp.current_price,
+              dayLow: opp.current_price,
+              volumeMultiplier: opp.indicator_snapshot?.volumeMultiplier || 1.0,
+            };
+          }
+          return NextResponse.json({
+            success: true,
+            isRealData: true,
+            dataSource: "PERSISTED_BACKEND_SCANNER",
+            regime,
+            signals: backendData.opportunities,
+            quotes: quoteMap,
+            scannedCount: backendData.run?.scanned_count || backendData.opportunities.length,
+            universeSize: backendData.run?.universe_size || 500,
+            timestamp: backendData.run?.completed_at || new Date().toISOString(),
+          });
+        }
+      }
+    } catch {
+      // Backend not available; evaluate dynamic NSE universe candidates below
+    }
+
+    // 3. Fallback: Evaluate dynamic NSE universe symbols dynamically (no hardcoded list)
+    const dynamicUniverse = nseUniverseService.getEligibleUniverse("NIFTY_50", { maxSymbols: 15 });
+    const symbolsToScan = dynamicUniverse.map((s) => s.symbol);
 
     const results = await Promise.allSettled(
-      watchlist.map(async (symbol) => {
+      symbolsToScan.map(async (symbol) => {
         const candleData = await fetchLiveStockCandles(symbol);
         if (!candleData) return null;
         return evaluateLiveStockStrategy(
@@ -107,11 +139,12 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       isRealData: true,
-      dataSource: "AUTOMATED_BACKEND_SCANNER",
+      dataSource: "DYNAMIC_NSE_UNIVERSE_SCANNER",
       regime,
       signals,
       quotes: quoteMap,
-      scannedCount: signals.length,
+      scannedCount: symbolsToScan.length,
+      universeSize: nseUniverseService.getUniverseMetadata().nifty500Count,
       timestamp: new Date().toISOString(),
     });
   } catch (err: any) {

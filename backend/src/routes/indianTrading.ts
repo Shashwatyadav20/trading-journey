@@ -58,6 +58,7 @@ import { postPhase40OperationsMonitor } from "../indian/operations/PostPhase40Op
 import { swingTradingEngine } from "../indian/swing/SwingTradingEngine";
 import { dailyScannerScheduler } from "../indian/swing/DailyScannerScheduler";
 import { dailyScanPersistenceService } from "../db/DailyScanPersistenceService";
+import { nseUniverseService } from "../indian/market/NSEUniverseService";
 import { env } from "../config/env";
 
 
@@ -3867,12 +3868,17 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       const body = (req.body || {}) as any;
       const force = body.force === true;
       const dateOverride = body.date || body.dateOverride;
+      const universePreset = body.universe || body.universePreset;
+      const maxSymbols = body.maxSymbols ? parseInt(body.maxSymbols, 10) : undefined;
 
       // 3. Execute daily scan
       const summary = await dailyScannerScheduler.executeDailyScan({
         triggerType: "EXTERNAL_CRON_HTTP",
         force,
         dateOverride,
+        universePreset,
+        maxSymbols,
+        symbols: body.symbols,
       });
 
       return reply.send({
@@ -3897,9 +3903,14 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   server.post("/api/indian/swing/manual-scan", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = (req.body || {}) as any;
+      const universePreset = body.universe || body.universePreset;
+      const maxSymbols = body.maxSymbols ? parseInt(body.maxSymbols, 10) : undefined;
+
       const summary = await dailyScannerScheduler.executeDailyScan({
         triggerType: "MANUAL",
         force: true,
+        universePreset,
+        maxSymbols,
         symbols: body.symbols,
       });
 
@@ -3911,6 +3922,31 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       if (err.message?.includes("Concurrent scan rejected")) {
         return reply.status(409).send({ success: false, error: err.message });
       }
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/indian/swing/universe
+   * Returns dynamic NSE cash-market universe metadata, exclusions, and eligible securities.
+   */
+  server.get("/api/indian/swing/universe", async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = (req.query || {}) as any;
+      const preset = (query.preset || "NIFTY_500") as any;
+      const maxSymbols = query.maxSymbols ? parseInt(query.maxSymbols, 10) : undefined;
+      const metadata = nseUniverseService.getUniverseMetadata();
+      const securities = nseUniverseService.getEligibleUniverse(preset, { maxSymbols });
+
+      return reply.send({
+        success: true,
+        metadata,
+        preset,
+        eligibleCount: securities.length,
+        symbols: securities.map((s) => s.symbol),
+        sampleSecurities: securities.slice(0, 20),
+      });
+    } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }
   });

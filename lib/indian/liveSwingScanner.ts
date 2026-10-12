@@ -394,9 +394,32 @@ export function evaluateLiveStockStrategy(
   const volumes = candles.map((c) => c.volume);
 
   const price = Number((meta.regularMarketPrice || closes[len - 1]).toFixed(2));
-  const prevClose = Number((meta.chartPreviousClose || closes[len - 2] || price).toFixed(2));
+  
+  let changePercent: number;
+  let prevClose: number;
+
+  if (meta.regularMarketChangePercent != null && !isNaN(meta.regularMarketChangePercent)) {
+    changePercent = Number(Number(meta.regularMarketChangePercent).toFixed(2));
+    if (meta.regularMarketPreviousClose != null && !isNaN(meta.regularMarketPreviousClose)) {
+      prevClose = Number(Number(meta.regularMarketPreviousClose).toFixed(2));
+    } else {
+      prevClose = len >= 2 ? closes[len - 2] : price;
+    }
+  } else {
+    prevClose = len >= 2 ? closes[len - 2] : price;
+    const rawChange = Number((price - prevClose).toFixed(2));
+    changePercent = prevClose > 0 ? Number(((rawChange / prevClose) * 100).toFixed(2)) : 0;
+  }
+
+  if (Math.abs(changePercent) > 50 && len >= 2) {
+    const candleChange = Number((((closes[len - 1] - closes[len - 2]) / closes[len - 2]) * 100).toFixed(2));
+    if (Math.abs(candleChange) <= 50) {
+      changePercent = candleChange;
+      prevClose = closes[len - 2];
+    }
+  }
+
   const change = Number((price - prevClose).toFixed(2));
-  const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
   const dayHigh = Number((meta.regularMarketDayHigh || Math.max(price, highs[len - 1])).toFixed(2));
   const dayLow = Number((meta.regularMarketDayLow || Math.min(price, lows[len - 1])).toFixed(2));
   const high52 = Number((meta.fiftyTwoWeekHigh || Math.max(...highs)).toFixed(2));

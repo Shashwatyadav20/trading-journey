@@ -1,8 +1,9 @@
 import { marketSessionValidator } from "../market/MarketSessionValidator";
-import { swingTradingEngine, FUNDAMENTAL_UNIVERSE } from "./SwingTradingEngine";
+import { swingTradingEngine } from "./SwingTradingEngine";
 import { SwingSignal } from "./types";
-import { DailyCandle, fetchLiveStockCandles, LIQUID_UNIVERSES, validateDailyCandles } from "./dailyStrategyScanner";
+import { DailyCandle, fetchLiveStockCandles, validateDailyCandles } from "./dailyStrategyScanner";
 import { dailyScanPersistenceService } from "../../db/DailyScanPersistenceService";
+import { nseUniverseService, UniversePreset } from "../market/NSEUniverseService";
 
 export interface ScanRunSummary {
   runId: string;
@@ -11,7 +12,9 @@ export interface ScanRunSummary {
   startTime: string;
   endTime?: string;
   durationMs?: number;
-  status: "IN_PROGRESS" | "COMPLETED" | "FAILED" | "SKIPPED";
+  status: "IN_PROGRESS" | "COMPLETED" | "PARTIAL" | "FAILED" | "SKIPPED";
+  universePreset?: UniversePreset;
+  universeSize?: number;
   scannedSymbolsCount: number;
   successfulSymbolsCount: number;
   failedSymbolsCount: number;
@@ -37,6 +40,9 @@ export interface TriggerScanOptions {
   dateOverride?: string;
   timestampOverride?: Date | string | number;
   symbols?: string[];
+  universePreset?: UniversePreset;
+  maxSymbols?: number;
+  offset?: number;
   candleDataBySymbol?: Record<string, DailyCandle[]>;
 }
 
@@ -272,21 +278,28 @@ export class DailyScannerScheduler {
       // This is a stock scanner and paper validation system.
       // Under no conditions should broker live execution occur.
 
-      // 4. Determine Symbols Universe to Scan
+      // 4. Determine Symbols Universe to Scan Dynamically
+      const universePreset: UniversePreset = options.universePreset || "NIFTY_500";
+      const totalUniverseMetadata = nseUniverseService.getUniverseMetadata();
+      const eligibleSecurities = nseUniverseService.getEligibleUniverse(universePreset, {
+        symbols: options.symbols,
+        maxSymbols: options.maxSymbols,
+        offset: options.offset,
+      });
+
       let symbolsToScan: string[] = [];
-      if (options.symbols && options.symbols.length > 0) {
-        symbolsToScan = options.symbols;
-      } else if (options.candleDataBySymbol) {
+      if (options.candleDataBySymbol) {
         symbolsToScan = Object.keys(options.candleDataBySymbol);
       } else {
-        // Default to curated momentum leaders and qualified universe
-        const set = new Set<string>([
-          ...FUNDAMENTAL_UNIVERSE.map((s) => s.symbol),
-          ...LIQUID_UNIVERSES.MOMENTUM_LEADERS,
-        ]);
-        symbolsToScan = Array.from(set);
+        symbolsToScan = eligibleSecurities.map((s) => s.symbol);
       }
 
+      const totalUniverseCount = universePreset === "ALL_NSE_CASH"
+        ? totalUniverseMetadata.eligibleCashEquitiesCount
+        : totalUniverseMetadata.nifty500Count;
+
+      summary.universePreset = universePreset;
+      summary.universeSize = totalUniverseCount;
       summary.scannedSymbols = symbolsToScan;
       summary.scannedSymbolsCount = symbolsToScan.length;
 
@@ -296,7 +309,7 @@ export class DailyScannerScheduler {
         id: runId,
         scanDate: tradingDate,
         scanType,
-        universeSize: symbolsToScan.length,
+        universeSize: totalUniverseCount,
         marketDataTimestamp: startTimeIso,
       });
 
@@ -306,8 +319,9 @@ export class DailyScannerScheduler {
       if (options.candleDataBySymbol) {
         // Fast evaluation using supplied candle records
         for (const [sym, candles] of Object.entries(options.candleDataBySymbol)) {
+          const resolvedSym = nseUniverseService.resolveSymbol(sym);
           try {
-            const sig = swingTradingEngine.evaluateStockCandles(sym, candles);
+            const sig = swingTradingEngine.evaluateStockCandles(resolvedSym, candles);
             if (sig) {
               summary.successfulSymbolsCount++;
               matchedSignals.push(sig);
@@ -316,7 +330,7 @@ export class DailyScannerScheduler {
               if (!validation.valid) {
                 summary.failedSymbolsCount++;
                 summary.failedSymbols.push({
-                  symbol: sym,
+                  symbol: resolvedSym,
                   error: validation.reason || "Invalid candle data",
                 });
               } else {
@@ -326,18 +340,19 @@ export class DailyScannerScheduler {
           } catch (itemErr: any) {
             summary.failedSymbolsCount++;
             summary.failedSymbols.push({
-              symbol: sym,
+              symbol: resolvedSym,
               error: itemErr.message || String(itemErr),
             });
           }
         }
       } else {
-        // Safe batch fetching to respect provider rate limits (e.g. 3 concurrent requests at a time)
-        const BATCH_SIZE = 3;
+        // Safe batch fetching to respect provider rate limits (e.g. 4 concurrent requests at a time)
+        const BATCH_SIZE = 4;
         for (let i = 0; i < symbolsToScan.length; i += BATCH_SIZE) {
           const batch = symbolsToScan.slice(i, i + BATCH_SIZE);
 
-          const batchPromises = batch.map(async (sym) => {
+          const batchPromises = batch.map(async (rawSym) => {
+            const sym = nseUniverseService.resolveSymbol(rawSym);
             try {
               const candleData = await fetchLiveStockCandles(sym);
               if (!candleData || !candleData.candles) {
@@ -394,7 +409,14 @@ export class DailyScannerScheduler {
       const durationMs = Date.now() - startTimeMs;
       summary.endTime = new Date().toISOString();
       summary.durationMs = durationMs;
-      summary.status = "COMPLETED";
+
+      let finalSummaryStatus: ScanRunSummary["status"] = "COMPLETED";
+      if (summary.failedSymbolsCount > 0 && summary.successfulSymbolsCount > 0) {
+        finalSummaryStatus = "PARTIAL";
+      } else if (summary.failedSymbolsCount > 0 && summary.successfulSymbolsCount === 0) {
+        finalSummaryStatus = "FAILED";
+      }
+      summary.status = finalSummaryStatus;
       summary.opportunities = matchedSignals;
       summary.opportunitiesFoundCount = matchedSignals.length;
 

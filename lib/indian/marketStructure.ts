@@ -238,8 +238,12 @@ export function detectEqualHighsAndLows(
   equalHighs: EqualLevel[];
   equalLows: EqualLevel[];
 } {
-  const tolPct = options?.tolerancePercent ?? 0.0015;
-  const atr = options?.atr;
+  // Normalize tolerancePercent:
+  // If passed as 0.15 (meaning 0.15%), tolPercent = 0.15
+  // If passed as 0.0015 (fractional 0.15%), tolPercent = 0.15
+  // Default is 0.15%
+  const rawTol = options?.tolerancePercent ?? 0.15;
+  const tolPercent = rawTol > 0.01 ? rawTol : rawTol * 100;
 
   const equalHighs: EqualLevel[] = [];
   const equalLows: EqualLevel[] = [];
@@ -252,19 +256,18 @@ export function detectEqualHighsAndLows(
       if (Math.abs(p1.barIndex - p2.barIndex) < 2) continue;
 
       const higherPrice = Math.max(p1.price, p2.price);
+      if (higherPrice <= 0) continue;
       const diff = Math.abs(p1.price - p2.price);
-      const diffPct = diff / higherPrice;
+      const diffPct = Number(((diff / higherPrice) * 100).toFixed(4));
 
-      const tolerance = atr && atr > 0 ? Math.max(higherPrice * tolPct, atr * 0.1) : higherPrice * tolPct;
-
-      if (diff <= tolerance) {
+      if (diffPct <= tolPercent) {
         equalHighs.push({
           type: "EQH",
           price: Number(((p1.price + p2.price) / 2).toFixed(2)),
           pivot1: p1,
           pivot2: p2,
-          tolerancePercent: Number((tolPct * 100).toFixed(3)),
-          differencePercent: Number((diffPct * 100).toFixed(4)),
+          tolerancePercent: Number(tolPercent.toFixed(3)),
+          differencePercent: diffPct,
         });
       }
     }
@@ -278,19 +281,18 @@ export function detectEqualHighsAndLows(
       if (Math.abs(p1.barIndex - p2.barIndex) < 2) continue;
 
       const basePrice = Math.max(p1.price, p2.price);
+      if (basePrice <= 0) continue;
       const diff = Math.abs(p1.price - p2.price);
-      const diffPct = diff / basePrice;
+      const diffPct = Number(((diff / basePrice) * 100).toFixed(4));
 
-      const tolerance = atr && atr > 0 ? Math.max(basePrice * tolPct, atr * 0.1) : basePrice * tolPct;
-
-      if (diff <= tolerance) {
+      if (diffPct <= tolPercent) {
         equalLows.push({
           type: "EQL",
           price: Number(((p1.price + p2.price) / 2).toFixed(2)),
           pivot1: p1,
           pivot2: p2,
-          tolerancePercent: Number((tolPct * 100).toFixed(3)),
-          differencePercent: Number((diffPct * 100).toFixed(4)),
+          tolerancePercent: Number(tolPercent.toFixed(3)),
+          differencePercent: diffPct,
         });
       }
     }

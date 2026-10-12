@@ -29,17 +29,20 @@ export interface StockFundamentals {
   symbol: string;
   companyName: string;
   sector: string;
-  marketCapCr: number;
-  peRatio: number;
-  roePercent: number; // >= 15%
-  rocePercent: number; // >= 18%
-  salesGrowth3Y: number; // >= 12%
-  profitGrowth3Y: number; // >= 15%
-  debtToEquity: number; // < 0.5 preferred
-  institutionalHoldingPercent: number; // FII + DII > 30%
-  qualityScore: number; // 0-100
-  moatRating: "WIDE" | "NARROW" | "MODERATE";
+  marketCapCr: number | null;
+  peRatio: number | null;
+  roePercent: number | null;
+  rocePercent: number | null;
+  salesGrowth3Y: number | null;
+  profitGrowth3Y: number | null;
+  debtToEquity: number | null;
+  institutionalHoldingPercent: number | null;
+  qualityScore: number | null;
+  moatRating: "WIDE" | "NARROW" | "MODERATE" | null;
   isQualified: boolean;
+  isAvailable: boolean;
+  dataSource: "LIVE_MARKET_META" | "MANUAL_CURATED" | "UNAVAILABLE";
+  asOfTimestamp?: string;
   notes: string;
 }
 
@@ -73,7 +76,8 @@ export interface FivePillarChecklist {
   };
   pillar2Fundamentals: {
     passed: boolean;
-    qualityScore: number;
+    qualityScore: number | null;
+    isAvailable?: boolean;
     details: string;
   };
   pillar3LiquidityLevels: {

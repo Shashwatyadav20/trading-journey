@@ -14,11 +14,18 @@ import {
   buildStockIndicatorProfile,
   evaluateAllStrategiesForStock,
   fetchLiveStockCandles,
+import {
+  DailyCandle,
+  validateDailyCandles,
+  buildStockIndicatorProfile,
+  evaluateAllStrategiesForStock,
+  fetchLiveStockCandles,
   MatchedStockOpportunity,
 } from "./dailyStrategyScanner";
+import { nseUniverseService } from "../market/NSEUniverseService";
 
 /**
- * Curated universe of fundamentally strong Indian stocks
+ * Curated universe of fundamentally strong Indian stocks (Historical research baseline)
  * Screened for: ROE > 15%, ROCE > 18%, 3Y Sales CAGR > 12%, Low Debt, Institutional Holding > 30%
  */
 export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
@@ -37,6 +44,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 96,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "Aggressive store expansion (Zudio, Westside), stellar ROE/ROCE, high relative strength leader.",
   },
   {
@@ -54,6 +63,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 94,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "Debt-free balance sheet, multi-year sovereign order book, monopolistic domestic defense footprint.",
   },
   {
@@ -71,6 +82,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 93,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "Zero debt, strategic defense electronics leader with 22%+ operating margins.",
   },
   {
@@ -88,6 +101,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 91,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "Prime beneficiary of India PLI electronics manufacturing, massive order inflows.",
   },
   {
@@ -105,6 +120,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 92,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "Outperforming mid-tier IT, high cloud/AI client deal pipeline, superior cash conversion.",
   },
   {
@@ -122,6 +139,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 90,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "Cables market share leader with high distribution moat, near zero net debt.",
   },
   {
@@ -139,6 +158,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 94,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "Dominant organized jewellery player (Tanishq) with unrivaled brand recall.",
   },
   {
@@ -156,6 +177,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 95,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "Industry best asset quality (NPA < 0.5%), top tier NIMs, highest institutional backing.",
   },
   {
@@ -173,6 +196,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 92,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "Consolidating domestic telecom duopoly, industry leading ARPU growth.",
   },
   {
@@ -190,6 +215,8 @@ export const FUNDAMENTAL_UNIVERSE: StockFundamentals[] = [
     qualityScore: 93,
     moatRating: "WIDE",
     isQualified: true,
+    isAvailable: true,
+    dataSource: "MANUAL_CURATED",
     notes: "National capex proxy with record multi-trillion order book across India and Middle East.",
   },
 ];
@@ -300,22 +327,27 @@ export class SwingTradingEngine {
     profile: any,
     regime: NiftyMarketRegime
   ): SwingSignal {
-    const fundamentals = this.getFundamentals(cleanSymbol) || {
+    const knownFundamentals = this.getFundamentals(cleanSymbol);
+    const secInfo = nseUniverseService.getSecurity(cleanSymbol);
+
+    const fundamentals: StockFundamentals = knownFundamentals || {
       symbol: cleanSymbol,
-      companyName: opp.companyName,
-      sector: opp.sector,
-      marketCapCr: opp.marketCapCr,
-      peRatio: 30,
-      roePercent: 20,
-      rocePercent: 22,
-      salesGrowth3Y: 15,
-      profitGrowth3Y: 18,
-      debtToEquity: 0.1,
-      institutionalHoldingPercent: 40,
-      qualityScore: 90,
-      moatRating: "WIDE" as const,
+      companyName: secInfo?.companyName || opp.companyName,
+      sector: secInfo?.industry || opp.sector,
+      marketCapCr: opp.marketCapCr > 0 ? opp.marketCapCr : null,
+      peRatio: null,
+      roePercent: null,
+      rocePercent: null,
+      salesGrowth3Y: null,
+      profitGrowth3Y: null,
+      debtToEquity: null,
+      institutionalHoldingPercent: null,
+      qualityScore: null,
+      moatRating: null,
       isQualified: true,
-      notes: "Cash market screened liquid stock",
+      isAvailable: false,
+      dataSource: "UNAVAILABLE",
+      notes: "Cash market equity dynamically scanned; fundamental financial ratios unavailable from daily market-data provider.",
     };
 
     let setupId: SwingSetupId = "SETUP_A_BREAKOUT_RETEST";
@@ -389,9 +421,12 @@ export class SwingTradingEngine {
           details: regime.analysisSummary,
         },
         pillar2Fundamentals: {
-          passed: fundamentals.isQualified,
+          passed: fundamentals.isAvailable ? fundamentals.isQualified : true,
           qualityScore: fundamentals.qualityScore,
-          details: `${fundamentals.notes} (ROE: ${fundamentals.roePercent}%, ROCE: ${fundamentals.rocePercent}%)`,
+          isAvailable: fundamentals.isAvailable,
+          details: fundamentals.isAvailable
+            ? `${fundamentals.notes} (ROE: ${fundamentals.roePercent}%, ROCE: ${fundamentals.rocePercent}%)`
+            : "Fundamental ratios (PE/ROE/ROCE) unavailable from chart provider. Strategy qualified on technical and market structure rules.",
         },
         pillar3LiquidityLevels: {
           passed: true,

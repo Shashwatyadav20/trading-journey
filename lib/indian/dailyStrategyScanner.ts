@@ -692,9 +692,45 @@ export function buildStockIndicatorProfile(
   const volumes = candles.map((c) => c.volume);
 
   const currentPrice = Number((meta.regularMarketPrice || closes[len - 1]).toFixed(2));
-  const prevClose = Number((meta.chartPreviousClose || closes[len - 2] || currentPrice).toFixed(2));
+
+  // Determine previous session close and change percent accurately.
+  // CRITICAL: NEVER use meta.chartPreviousClose from multi-year chart requests,
+  // because in Yahoo Finance API chartPreviousClose represents the price 2 years ago,
+  // causing massive percentage distortions (e.g. +162.22% on MCX instead of +1.33%).
+  let changePercent: number;
+  let prevClose: number;
+
+  if (meta.regularMarketChangePercent != null && !isNaN(meta.regularMarketChangePercent)) {
+    changePercent = Number(Number(meta.regularMarketChangePercent).toFixed(2));
+    if (meta.regularMarketPreviousClose != null && !isNaN(meta.regularMarketPreviousClose)) {
+      prevClose = Number(Number(meta.regularMarketPreviousClose).toFixed(2));
+    } else if (meta.previousClose != null && !isNaN(meta.previousClose)) {
+      prevClose = Number(Number(meta.previousClose).toFixed(2));
+    } else {
+      prevClose = len >= 2 ? closes[len - 2] : currentPrice;
+    }
+  } else {
+    // Fallback: calculate from consecutive daily candle closes
+    if (meta.regularMarketPrice && len >= 1 && Math.abs(currentPrice - closes[len - 1]) > 0.01) {
+      prevClose = closes[len - 1];
+    } else {
+      prevClose = len >= 2 ? closes[len - 2] : currentPrice;
+    }
+    const rawChange = Number((currentPrice - prevClose).toFixed(2));
+    changePercent = prevClose > 0 ? Number(((rawChange / prevClose) * 100).toFixed(2)) : 0;
+  }
+
+  // Sanity safeguard: daily changes on cash equities exceeding 50% indicate unadjusted splits or stale references
+  if (Math.abs(changePercent) > 50 && len >= 2) {
+    const candleChange = Number((((closes[len - 1] - closes[len - 2]) / closes[len - 2]) * 100).toFixed(2));
+    if (Math.abs(candleChange) <= 50) {
+      changePercent = candleChange;
+      prevClose = closes[len - 2];
+    }
+  }
+
   const change = Number((currentPrice - prevClose).toFixed(2));
-  const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+
   const dayHigh = Number((meta.regularMarketDayHigh || Math.max(currentPrice, highs[len - 1])).toFixed(2));
   const dayLow = Number((meta.regularMarketDayLow || Math.min(currentPrice, lows[len - 1])).toFixed(2));
   const high52 = Number((meta.fiftyTwoWeekHigh || Math.max(...highs)).toFixed(2));

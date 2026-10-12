@@ -685,9 +685,45 @@ export function buildStockIndicatorProfile(
   const volumes = candles.map((c) => c.volume);
 
   const currentPrice = Number((meta.regularMarketPrice || closes[len - 1]).toFixed(2));
-  const prevClose = Number((meta.chartPreviousClose || closes[len - 2] || currentPrice).toFixed(2));
+
+  // Determine previous session close and change percent accurately.
+  // CRITICAL: NEVER use meta.chartPreviousClose from multi-year chart requests,
+  // because in Yahoo Finance API chartPreviousClose represents the price 2 years ago,
+  // causing massive percentage distortions (e.g. +162.22% on MCX instead of +1.33%).
+  let changePercent: number;
+  let prevClose: number;
+
+  if (meta.regularMarketChangePercent != null && !isNaN(meta.regularMarketChangePercent)) {
+    changePercent = Number(Number(meta.regularMarketChangePercent).toFixed(2));
+    if (meta.regularMarketPreviousClose != null && !isNaN(meta.regularMarketPreviousClose)) {
+      prevClose = Number(Number(meta.regularMarketPreviousClose).toFixed(2));
+    } else if (meta.previousClose != null && !isNaN(meta.previousClose)) {
+      prevClose = Number(Number(meta.previousClose).toFixed(2));
+    } else {
+      prevClose = len >= 2 ? closes[len - 2] : currentPrice;
+    }
+  } else {
+    // Fallback: calculate from consecutive daily candle closes
+    if (meta.regularMarketPrice && len >= 1 && Math.abs(currentPrice - closes[len - 1]) > 0.01) {
+      prevClose = closes[len - 1];
+    } else {
+      prevClose = len >= 2 ? closes[len - 2] : currentPrice;
+    }
+    const change = Number((currentPrice - prevClose).toFixed(2));
+    changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+  }
+
+  // Sanity safeguard: daily changes on cash equities exceeding 50% indicate unadjusted splits or stale references
+  if (Math.abs(changePercent) > 50 && len >= 2) {
+    const candleChange = Number((((closes[len - 1] - closes[len - 2]) / closes[len - 2]) * 100).toFixed(2));
+    if (Math.abs(candleChange) <= 50) {
+      changePercent = candleChange;
+      prevClose = closes[len - 2];
+    }
+  }
+
   const change = Number((currentPrice - prevClose).toFixed(2));
-  const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+
   const dayHigh = Number((meta.regularMarketDayHigh || Math.max(currentPrice, highs[len - 1])).toFixed(2));
   const dayLow = Number((meta.regularMarketDayLow || Math.min(currentPrice, lows[len - 1])).toFixed(2));
   const high52 = Number((meta.fiftyTwoWeekHigh || Math.max(...highs)).toFixed(2));
@@ -1562,9 +1598,18 @@ function toKolkataDateString(epochSeconds: number): string {
 }
 
 /**
+ * Well-known corporate rebranding / ticker renaming mappings on the National Stock Exchange.
+ * e.g. Zomato Ltd officially rebranded corporate entity & updated ticker to ETERNAL on NSE in April 2025.
+ */
+export const SYMBOL_ALIASES: Record<string, string> = {
+  ZOMATO: "ETERNAL",
+};
+
+/**
  * Fetch historical candles for any Indian stock from Yahoo Finance (.NS)
  * Fetches at least 250+ valid completed daily candles (targets 2-year range, ~500 observations)
  * for genuine EMA 200, EMA 50, EMA 20, and Wilder's RSI calculations.
+ * Includes ticker alias fallback (e.g. ZOMATO -> ETERNAL) and safe retry without data fabrication.
  */
 export async function fetchLiveStockCandles(symbol: string): Promise<{
   candles: DailyCandle[];
@@ -1572,74 +1617,105 @@ export async function fetchLiveStockCandles(symbol: string): Promise<{
   dataQuality?: CandleCleaningResult;
 } | null> {
   const clean = symbol.trim().toUpperCase().replace(/\.NS$/, "").replace(/\.BO$/, "");
-  const yahooTicker = `${clean}.NS`;
+  const alias = SYMBOL_ALIASES[clean];
 
-  // Try 2-year history first (prefer 1-2 years), fallback to 1-year if needed
+  // Tickers to attempt: primary symbol first, then official alias if known
+  const tickersToTry = [
+    `${clean}.NS`,
+    ...(alias ? [`${alias}.NS`] : []),
+  ];
+
   const rangesToTry = ["2y", "1y"];
 
-  for (const range of rangesToTry) {
-    try {
-      const res = await fetch(
-        `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker)}?interval=1d&range=${range}`,
-        {
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          },
-          cache: "no-store",
-          signal: AbortSignal.timeout(6000),
-        }
-      );
+  for (const ticker of tickersToTry) {
+    for (const range of rangesToTry) {
+      // 2 attempts per ticker/range combination for network resilience
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const res = await fetch(
+            `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=${range}`,
+            {
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              },
+              cache: "no-store",
+              signal: AbortSignal.timeout(6000),
+            }
+          );
 
-      if (!res.ok) continue;
+          if (res.status === 404) {
+            // Ticker not found or delisted — stop retrying this ticker immediately and try alias if available
+            break;
+          }
 
-      const data = await res.json();
-      const result = data?.chart?.result?.[0];
-      if (!result) continue;
+          if (!res.ok) {
+            if (attempt === 1) {
+              await new Promise((r) => setTimeout(r, 250));
+              continue;
+            }
+            continue;
+          }
 
-      const meta = result.meta;
-      const timestamps: number[] = result.timestamp || [];
-      const quotes = result.indicators?.quote?.[0] || {};
-      const rawOpens: (number | null)[] = quotes.open || [];
-      const rawHighs: (number | null)[] = quotes.high || [];
-      const rawLows: (number | null)[] = quotes.low || [];
-      const rawCloses: (number | null)[] = quotes.close || [];
-      const rawVolumes: (number | null)[] = quotes.volume || [];
+          const data = await res.json();
+          const result = data?.chart?.result?.[0];
+          if (!result) {
+            if (attempt === 1) {
+              await new Promise((r) => setTimeout(r, 250));
+              continue;
+            }
+            continue;
+          }
 
-      const rawCandles: DailyCandle[] = [];
-      for (let i = 0; i < timestamps.length; i++) {
-        if (
-          rawCloses[i] != null &&
-          rawOpens[i] != null &&
-          rawHighs[i] != null &&
-          rawLows[i] != null
-        ) {
-          rawCandles.push({
-            date: toKolkataDateString(timestamps[i]),
-            open: Number(rawOpens[i]!.toFixed(2)),
-            high: Number(rawHighs[i]!.toFixed(2)),
-            low: Number(rawLows[i]!.toFixed(2)),
-            close: Number(rawCloses[i]!.toFixed(2)),
-            volume: rawVolumes[i] || 0,
-          });
+          const meta = result.meta;
+          const timestamps: number[] = result.timestamp || [];
+          const quotes = result.indicators?.quote?.[0] || {};
+          const rawOpens: (number | null)[] = quotes.open || [];
+          const rawHighs: (number | null)[] = quotes.high || [];
+          const rawLows: (number | null)[] = quotes.low || [];
+          const rawCloses: (number | null)[] = quotes.close || [];
+          const rawVolumes: (number | null)[] = quotes.volume || [];
+
+          const rawCandles: DailyCandle[] = [];
+          for (let i = 0; i < timestamps.length; i++) {
+            if (
+              rawCloses[i] != null &&
+              rawOpens[i] != null &&
+              rawHighs[i] != null &&
+              rawLows[i] != null
+            ) {
+              rawCandles.push({
+                date: toKolkataDateString(timestamps[i]),
+                open: Number(rawOpens[i]!.toFixed(2)),
+                high: Number(rawHighs[i]!.toFixed(2)),
+                low: Number(rawLows[i]!.toFixed(2)),
+                close: Number(rawCloses[i]!.toFixed(2)),
+                volume: rawVolumes[i] || 0,
+              });
+            }
+          }
+
+          // Clean, deduplicate, sort chronologically, and ensure daily candle completion
+          const cleanResult = cleanAndValidateCandles(rawCandles, { requireCompleted: true, minCandlesForScan: 15 });
+          if (!cleanResult.valid || cleanResult.candles.length < 15) {
+            continue;
+          }
+
+          return {
+            candles: cleanResult.candles,
+            meta,
+            dataQuality: cleanResult,
+          };
+        } catch {
+          if (attempt === 1) {
+            await new Promise((r) => setTimeout(r, 250));
+            continue;
+          }
         }
       }
-
-      // Clean, deduplicate, sort chronologically, and ensure daily candle completion
-      const cleanResult = cleanAndValidateCandles(rawCandles, { requireCompleted: true, minCandlesForScan: 15 });
-      if (!cleanResult.valid || cleanResult.candles.length < 15) {
-        continue;
-      }
-
-      return {
-        candles: cleanResult.candles,
-        meta,
-        dataQuality: cleanResult,
-      };
-    } catch {
-      // try next range or safely return null
     }
   }
 
+  console.warn(`[fetchLiveStockCandles] All attempts exhausted for symbol ${symbol} (tried: ${tickersToTry.join(", ")}). No candles returned.`);
   return null;
 }
