@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import { fetchLiveStockCandles } from "@/lib/indian/liveSwingScanner";
 import {
-  fetchLiveStockCandles,
-  evaluateLiveStockStrategy,
-  EvaluatedSwingSignal,
-} from "@/lib/indian/liveSwingScanner";
+  buildStockIndicatorProfile,
+  evaluateAllStrategiesForStock,
+} from "@/lib/indian/dailyStrategyScanner";
 import { nseUniverseService } from "@/lib/indian/NSEUniverseService";
 import { BACKEND_URL } from "@/lib/backendUrl";
 
@@ -13,11 +13,11 @@ export const revalidate = 0;
 export async function GET() {
   try {
     // 1. Fetch live NIFTY 50 index data for Market Regime
-    let niftySpot = 22520.45;
-    let niftyChangePercent = 1.3;
-    let niftyEma20 = 22380.0;
-    let niftyEma50 = 22120.0;
-    let niftyEma200 = 20850.0;
+    let niftySpot = 0;
+    let niftyChangePercent = 0;
+    let niftyEma20 = 0;
+    let niftyEma50 = 0;
+    let niftyEma200 = 0;
 
     try {
       const niftyCandlesData = await fetchLiveStockCandles("^NSEI");
@@ -26,20 +26,24 @@ export async function GET() {
         const closes = niftyCandlesData.candles.map((c) => c.close);
         const len = closes.length;
         niftySpot = Number((meta.regularMarketPrice || closes[len - 1]).toFixed(2));
-        niftyChangePercent = Number((meta.regularMarketChangePercent || 1.3).toFixed(2));
+        // prevClose from actual previous candle (not chartPreviousClose)
+        const niftyPrevClose = closes[len - 2] ?? closes[len - 1];
+        niftyChangePercent = niftyPrevClose > 0
+          ? Number((((niftySpot - niftyPrevClose) / niftyPrevClose) * 100).toFixed(2))
+          : 0;
 
         const k20 = 2 / 21;
-        let e20 = closes[0];
-        for (let i = 1; i < len; i++) e20 = closes[i] * k20 + e20 * (1 - k20);
+        let e20 = closes.slice(0, 20).reduce((a, b) => a + b, 0) / Math.min(20, len);
+        for (let i = 20; i < len; i++) e20 = closes[i] * k20 + e20 * (1 - k20);
         niftyEma20 = Number(e20.toFixed(2));
 
         const k50 = 2 / 51;
-        let e50 = closes[0];
-        for (let i = 1; i < len; i++) e50 = closes[i] * k50 + e50 * (1 - k50);
+        let e50 = closes.slice(0, 50).reduce((a, b) => a + b, 0) / Math.min(50, len);
+        for (let i = 50; i < len; i++) e50 = closes[i] * k50 + e50 * (1 - k50);
         niftyEma50 = Number(e50.toFixed(2));
       }
     } catch {
-      // Use live calculated benchmark values
+      // Benchmark unavailable
     }
 
     const regime = {
@@ -48,18 +52,19 @@ export async function GET() {
       ema20: niftyEma20,
       ema50: niftyEma50,
       ema200: niftyEma200,
-      bias: niftySpot >= niftyEma20 ? "BULLISH_TREND" : "RANGE_BOUND",
-      clearance: niftySpot >= niftyEma20 ? "HIGH_CONVICTION" : "SELECTIVE_OPPORTUNITIES",
-      breadthPercentAbove50EMA: 74.5,
-      advancingStocksCount: 36,
-      decliningStocksCount: 14,
-      regimeScore: niftySpot >= niftyEma20 ? 88 : 65,
-      analysisSummary: `NIFTY (₹${niftySpot.toLocaleString("en-IN")}) trading ${
-        niftySpot >= niftyEma20 ? "cleanly above" : "near"
-      } 20 EMA (₹${niftyEma20.toLocaleString("en-IN")}) & 50 EMA. Market breadth supports high-probability swing longs.`,
+      bias: niftySpot === 0 ? "UNAVAILABLE" : niftySpot >= niftyEma20 ? "BULLISH_TREND" : "RANGE_BOUND",
+      clearance: niftySpot === 0 ? "UNAVAILABLE" : niftySpot >= niftyEma20 ? "HIGH_CONVICTION" : "SELECTIVE_OPPORTUNITIES",
+      // Breadth requires a separate data source not available from Yahoo Finance
+      breadthPercentAbove50EMA: null as number | null,
+      advancingStocksCount: null as number | null,
+      decliningStocksCount: null as number | null,
+      regimeScore: niftySpot === 0 ? 50 : niftySpot >= niftyEma20 ? 85 : 62,
+      analysisSummary: niftySpot === 0
+        ? "NIFTY data unavailable. Run scanner for live data."
+        : `NIFTY (₹${niftySpot.toLocaleString("en-IN")}) trading ${niftySpot >= niftyEma20 ? "above" : "below"} 20 EMA (₹${niftyEma20.toLocaleString("en-IN")}).`,
     };
 
-    // 2. Query persisted scanner opportunities from backend
+    // 2. Query persisted scanner opportunities from backend (primary path)
     try {
       const backendRes = await fetch(`${BACKEND_URL}/api/indian/swing/daily-scanner/latest`, {
         cache: "no-store",
@@ -98,25 +103,23 @@ export async function GET() {
       // Backend not available; evaluate dynamic NSE universe candidates below
     }
 
-    // 3. Fallback: Evaluate dynamic NSE universe symbols dynamically (no hardcoded list)
+    // 3. Fallback: Evaluate dynamic NSE universe symbols (no hardcoded list)
     const dynamicUniverse = nseUniverseService.getEligibleUniverse("NIFTY_50", { maxSymbols: 15 });
     const symbolsToScan = dynamicUniverse.map((s) => s.symbol);
 
     const results = await Promise.allSettled(
       symbolsToScan.map(async (symbol) => {
         const candleData = await fetchLiveStockCandles(symbol);
-        if (!candleData) return null;
-        return evaluateLiveStockStrategy(
-          symbol,
-          candleData.candles,
-          candleData.meta,
-          niftySpot,
-          niftyEma20
+        if (!candleData || candleData.candles.length < 20) return null;
+        const profile = buildStockIndicatorProfile(
+          symbol, candleData.candles, candleData.meta,
+          niftySpot || 24000, niftyChangePercent
         );
+        return evaluateAllStrategiesForStock(profile);
       })
     );
 
-    const signals: EvaluatedSwingSignal[] = [];
+    const signals: any[] = [];
     const quoteMap: Record<string, any> = {
       "^NSEI": { price: niftySpot, changePercent: niftyChangePercent },
     };
@@ -124,14 +127,9 @@ export async function GET() {
     results.forEach((r) => {
       if (r.status === "fulfilled" && r.value) {
         signals.push(r.value);
-        quoteMap[`${r.value.symbol}.NS`] = {
-          symbol: `${r.value.symbol}.NS`,
+        quoteMap[r.value.cleanSymbol] = {
           price: r.value.currentPrice,
-          change: r.value.change,
           changePercent: r.value.changePercent,
-          dayHigh: r.value.dayHigh,
-          dayLow: r.value.dayLow,
-          volumeMultiplier: r.value.volumeMultiplier,
         };
       }
     });
@@ -146,6 +144,7 @@ export async function GET() {
       scannedCount: symbolsToScan.length,
       universeSize: nseUniverseService.getUniverseMetadata().nifty500Count,
       timestamp: new Date().toISOString(),
+      disclaimer: "Breadth data unavailable (requires separate market breadth source). Regime based on NIFTY price vs EMA only.",
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });

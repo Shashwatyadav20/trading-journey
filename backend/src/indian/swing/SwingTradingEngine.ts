@@ -14,15 +14,20 @@ import {
   buildStockIndicatorProfile,
   evaluateAllStrategiesForStock,
   fetchLiveStockCandles,
-import {
-  DailyCandle,
-  validateDailyCandles,
-  buildStockIndicatorProfile,
-  evaluateAllStrategiesForStock,
-  fetchLiveStockCandles,
   MatchedStockOpportunity,
 } from "./dailyStrategyScanner";
 import { nseUniverseService } from "../market/NSEUniverseService";
+
+// Safety constants inlined (backend tsconfig cannot resolve Next.js @/ alias)
+const LIVE_TRADING = false as const;
+const BROKER_EXECUTION_ENABLED = false as const;
+
+// Runtime assertion — fail immediately if misconfigured
+if (LIVE_TRADING !== false || BROKER_EXECUTION_ENABLED !== false) {
+  throw new Error(
+    "SAFETY VIOLATION: LIVE_TRADING or BROKER_EXECUTION_ENABLED must be false."
+  );
+}
 
 /**
  * Curated universe of fundamentally strong Indian stocks (Historical research baseline)
@@ -225,37 +230,82 @@ export class SwingTradingEngine {
   public readonly BROKER_EXECUTION_ENABLED: boolean = false;
   private lastEvaluationTime: string = new Date().toISOString();
 
+  // ─── EMA calculator (pure, no external dependencies) ─────────────────────
+  private static calcEMA(closes: number[], period: number): number[] {
+    if (closes.length < period) return [];
+    const k = 2 / (period + 1);
+    const ema: number[] = new Array(closes.length);
+    let sum = 0;
+    for (let i = 0; i < period; i++) sum += closes[i];
+    ema[period - 1] = sum / period;
+    for (let i = period; i < closes.length; i++) {
+      ema[i] = closes[i] * k + ema[i - 1] * (1 - k);
+    }
+    return ema;
+  }
+
+
   /**
-   * PILLAR 1: Evaluate Market Regime (NIFTY 50 trend & breadth)
+   * Evaluate the NIFTY 50 market regime from actual daily candle data.
+   *
+   * @param closes      Array of daily closing prices for NIFTY 50 (oldest first).
+   * @param spotPrice   Current live spot price (from Yahoo Finance meta).
+   * @param changePercent Day change percent (computed from actual candles).
+   *
+   * All EMA values are computed from the provided closes array.
+   * Breadth statistics (advancing/declining counts, % above 50 EMA) require
+   * a separate market breadth data source and are returned as null until
+   * that integration is added.
    */
   public evaluateMarketRegime(
-    spotPrice: number = 22520.45,
-    customEma20?: number,
-    customEma50?: number
+    closes: number[],
+    spotPrice: number,
+    changePercent: number
   ): NiftyMarketRegime {
-    // Calibrated to real NIFTY 50 moving averages
-    const ema20 = customEma20 ?? 22380.0;
-    const ema50 = customEma50 ?? 22120.0;
-    const ema200 = 20850.0;
-    const changePercent = +1.30;
+    this.lastEvaluationTime = new Date().toISOString();
 
-    let bias: MarketRegimeBias = "BULLISH_TREND";
-    let clearance: SwingClearance = "HIGH_CONVICTION";
-    let regimeScore = 88;
+    const len = closes.length;
 
-    if (spotPrice >= ema20) {
+    // Compute EMAs from actual candle data
+    const ema20Arr = SwingTradingEngine.calcEMA(closes, 20);
+    const ema50Arr = SwingTradingEngine.calcEMA(closes, 50);
+    const ema200Period = Math.min(200, len - 1);
+    const ema200Arr = ema200Period >= 20 ? SwingTradingEngine.calcEMA(closes, ema200Period) : [];
+
+    const ema20 = Number((ema20Arr[len - 1] ?? spotPrice).toFixed(2));
+    const ema50 = Number((ema50Arr[len - 1] ?? ema20).toFixed(2));
+    const ema200Raw = ema200Arr.length > 0 ? ema200Arr[ema200Arr.length - 1] : null;
+    const ema200 = ema200Raw != null ? Number(ema200Raw.toFixed(2)) : ema50;
+    const ema200Estimated = ema200Raw == null || ema200Period < 200;
+
+    let bias: MarketRegimeBias;
+    let clearance: SwingClearance;
+    let regimeScore: number;
+
+    if (spotPrice >= ema20 && ema20 >= ema50) {
       bias = "BULLISH_TREND";
       clearance = "HIGH_CONVICTION";
-      regimeScore = 88;
+      regimeScore = 85 + (spotPrice >= ema50 && ema50 >= ema200 ? 5 : 0);
     } else if (spotPrice >= ema50) {
       bias = "RANGE_BOUND";
       clearance = "SELECTIVE_OPPORTUNITIES";
-      regimeScore = 65;
+      regimeScore = 62;
     } else {
       bias = "BEARISH_CORRECTION";
       clearance = "DEFENSIVE_CASH";
-      regimeScore = 40;
+      regimeScore = 38;
     }
+
+    const ema200Note = ema200Estimated
+      ? ` (EMA200 estimated from ${ema200Period} candles, less than 200 required for full accuracy)`
+      : "";
+
+    const analysisSummary =
+      bias === "BULLISH_TREND"
+        ? `NIFTY (₹${spotPrice.toLocaleString("en-IN")}) above 20 EMA (₹${ema20.toLocaleString("en-IN")}) & 50 EMA (₹${ema50.toLocaleString("en-IN")}). Bullish regime supports swing longs.${ema200Note}`
+        : bias === "RANGE_BOUND"
+        ? `NIFTY (₹${spotPrice.toLocaleString("en-IN")}) between 20 & 50 EMA. Selective high-RS setups only.${ema200Note}`
+        : `NIFTY (₹${spotPrice.toLocaleString("en-IN")}) below key moving averages. Defensive cash posture recommended.${ema200Note}`;
 
     return {
       spotPrice,
@@ -265,16 +315,14 @@ export class SwingTradingEngine {
       ema200,
       bias,
       clearance,
-      breadthPercentAbove50EMA: 74.5,
-      advancingStocksCount: 36,
-      decliningStocksCount: 14,
+      // Breadth data requires a separate market breadth endpoint (not Yahoo Finance).
+      // Returning null until an authoritative source is integrated.
+      breadthPercentAbove50EMA: null,
+      advancingStocksCount: null,
+      decliningStocksCount: null,
       regimeScore,
-      analysisSummary:
-        bias === "BULLISH_TREND"
-          ? `NIFTY (₹${spotPrice.toLocaleString("en-IN")}) trading cleanly above 20 EMA (₹${ema20.toLocaleString("en-IN")}) & 50 EMA. Broad market breadth is strong (74% > 50 EMA). Swing long setups have full clearance.`
-          : bias === "RANGE_BOUND"
-          ? `NIFTY in multi-week consolidation near ₹${spotPrice.toLocaleString("en-IN")} between 20 & 50 EMA. Only selective high-relative-strength setups recommended.`
-          : "NIFTY below critical moving averages. Preserve capital, swing trading clearance is defensive.",
+      analysisSummary,
+      dataSource: "Yahoo Finance ^NSEI daily candles",
     };
   }
 
@@ -307,7 +355,14 @@ export class SwingTradingEngine {
     }
 
     const cleanSymbol = symbol.trim().toUpperCase().replace(/\.NS$/, "").replace(/\.BO$/, "");
-    const regime = this.evaluateMarketRegime(spotPrice);
+    const closes = candles.map((c) => c.close);
+    const lastClose = closes[closes.length - 1] ?? spotPrice;
+    const prevClose = closes[closes.length - 2] ?? lastClose;
+    const candleChangePercent = prevClose > 0
+      ? Number((((lastClose - prevClose) / prevClose) * 100).toFixed(2))
+      : 0;
+    const regime = this.evaluateMarketRegime(closes, spotPrice, candleChangePercent);
+
 
     const profile = buildStockIndicatorProfile(cleanSymbol, candles, meta, spotPrice, regime.changePercent);
     const opp = evaluateAllStrategiesForStock(profile);
@@ -509,61 +564,71 @@ export class SwingTradingEngine {
   }
 
   /**
-   * PILLAR 5: Strict Risk Management & Dynamic Position Sizing Calculator
+   * PILLAR 5: Strict Risk Management & Dynamic Position Sizing Calculator.
+   *
+   * Pure function — no market data dependencies.
    * Formula:
-   * Max Risk = Account Capital * (Risk % / 100)
-   * Risk per share = Entry Price - Stop Loss Price
-   * Quantity = Floor(Max Risk / Risk per share)
-   * Capital Required = Quantity * Entry Price
+   *   Max Risk = Account Capital × (Risk% / 100)
+   *   Risk per share = |Entry − StopLoss|
+   *   Quantity = Floor(Max Risk / Risk per share)
+   *   Capital Required = Quantity × Entry Price
    */
   public calculatePositionSize(input: PositionSizeCalcInput): PositionSizeCalcResult {
     const warnings: string[] = [];
 
     const accountCapital = Math.max(1000, input.accountCapital || 500000);
-    const riskPercent = Math.max(0.1, input.riskPercent || 1.0);
-    const entryPrice = Math.max(0.05, input.entryPrice || 100);
-    const stopLossPrice = Math.max(0.01, input.stopLossPrice || 90);
-    const targetPrice = input.targetPrice || entryPrice + (entryPrice - stopLossPrice) * 2;
+    const riskPercent    = Math.max(0.1,  input.riskPercent    || 1.0);
+    const entryPrice     = Math.max(0.05, input.entryPrice     || 100);
+    const stopLossPrice  = Math.max(0.01, input.stopLossPrice  || 90);
+    const targetPrice    =
+      input.targetPrice ?? entryPrice + (entryPrice - stopLossPrice) * 2;
 
-    const riskPerShare = Math.abs(entryPrice - stopLossPrice);
+    const riskPerShare        = Math.abs(entryPrice - stopLossPrice);
     const potentialGainPerShare = Math.abs(targetPrice - entryPrice);
 
     if (riskPerShare <= 0) {
       warnings.push("Stop Loss must not be equal to Entry Price.");
     }
-
     if (stopLossPrice >= entryPrice) {
-      warnings.push("For long swing trades, Stop Loss must be strictly below Entry Price.");
+      warnings.push(
+        "For long swing trades, Stop Loss must be strictly below Entry Price."
+      );
     }
-
     if (riskPercent > 2.0) {
-      warnings.push("CAUTION: Risk exceeds strict 1.0%–2.0% swing trading rule. Recommended max is 1.5%.");
+      warnings.push(
+        "CAUTION: Risk exceeds strict 1.0%–2.0% swing trading rule. Recommended max is 1.5%."
+      );
     }
 
-    const maxRiskAmount = Math.round((accountCapital * (riskPercent / 100)) * 100) / 100;
-    const recommendedQuantity = riskPerShare > 0 ? Math.floor(maxRiskAmount / riskPerShare) : 0;
-    const totalCapitalRequired = Math.round(recommendedQuantity * entryPrice * 100) / 100;
+    const maxRiskAmount         = Math.round((accountCapital * (riskPercent / 100)) * 100) / 100;
+    const recommendedQuantity   = riskPerShare > 0 ? Math.floor(maxRiskAmount / riskPerShare) : 0;
+    const totalCapitalRequired  = Math.round(recommendedQuantity * entryPrice * 100) / 100;
     const capitalExposurePercent =
-      accountCapital > 0 ? Math.round((totalCapitalRequired / accountCapital) * 10000) / 100 : 0;
-
+      accountCapital > 0
+        ? Math.round((totalCapitalRequired / accountCapital) * 10000) / 100
+        : 0;
     const potentialRewardAmount = Math.round(recommendedQuantity * potentialGainPerShare * 100) / 100;
-    const rewardRiskRatio = riskPerShare > 0 ? Math.round((potentialGainPerShare / riskPerShare) * 100) / 100 : 0;
+    const rewardRiskRatio       = riskPerShare > 0
+      ? Math.round((potentialGainPerShare / riskPerShare) * 100) / 100
+      : 0;
 
     if (rewardRiskRatio < 2.0) {
-      warnings.push(`Trade rejected by Rule 5: R:R is ${rewardRiskRatio}:1. Minimum required is 1:2.0.`);
+      warnings.push(
+        `Trade rejected by Rule 5: R:R is ${rewardRiskRatio}:1. Minimum required is 1:2.0.`
+      );
     }
-
     if (capitalExposurePercent > 30.0) {
       warnings.push(
         `Single-position capital exposure is ${capitalExposurePercent}%. Recommended cap is 20-25% to maintain 4-5 stock diversification.`
       );
     }
 
-    const isRiskValid = warnings.filter((w) => w.includes("rejected") || w.includes("strictly")).length === 0;
+    const isRiskValid =
+      warnings.filter((w) => w.includes("rejected") || w.includes("strictly")).length === 0;
 
     return {
       maxRiskAmount,
-      riskPerShare: Math.round(riskPerShare * 100) / 100,
+      riskPerShare:                Math.round(riskPerShare * 100) / 100,
       recommendedQuantity,
       totalCapitalRequired,
       portfolioCapitalExposurePercent: capitalExposurePercent,
@@ -576,3 +641,4 @@ export class SwingTradingEngine {
 }
 
 export const swingTradingEngine = new SwingTradingEngine();
+

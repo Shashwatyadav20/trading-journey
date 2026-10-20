@@ -60,6 +60,8 @@ import { dailyScannerScheduler } from "../indian/swing/DailyScannerScheduler";
 import { dailyScanPersistenceService } from "../db/DailyScanPersistenceService";
 import { nseUniverseService } from "../indian/market/NSEUniverseService";
 import { env } from "../config/env";
+import { nseFullScanWorker } from "../indian/swing/NseFullScanWorker";
+import { scanJobRepository } from "../indian/swing/ScanJobRepository";
 
 
 
@@ -3769,7 +3771,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
     try {
       const spotRes = await niftyMarketProvider.getSpotPrice();
       const spot = spotRes.spotPrice > 0 ? spotRes.spotPrice : 24700.45;
-      const regime = swingTradingEngine.evaluateMarketRegime(spot);
+      const regime = swingTradingEngine.evaluateMarketRegime([], spot, 0);
       const signals = await swingTradingEngine.generateSwingSignals(spot);
       const universe = swingTradingEngine.getQualifiedUniverse();
 
@@ -3793,7 +3795,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
     try {
       const spotRes = await niftyMarketProvider.getSpotPrice();
       const spot = spotRes.spotPrice > 0 ? spotRes.spotPrice : 24700.45;
-      const regime = swingTradingEngine.evaluateMarketRegime(spot);
+      const regime = swingTradingEngine.evaluateMarketRegime([], spot, 0);
 
       return reply.send({
         success: true,
@@ -3804,21 +3806,8 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
     }
   });
 
-  /**
-   * GET /api/indian/swing/universe
-   * Returns curated list of fundamentally qualified Indian stocks with full metrics.
-   */
-  server.get("/api/indian/swing/universe", async (_req: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const universe = swingTradingEngine.getQualifiedUniverse();
-      return reply.send({
-        success: true,
-        universe,
-      });
-    } catch (err: any) {
-      return reply.status(500).send({ success: false, error: err.message });
-    }
-  });
+
+
 
   /**
    * POST /api/indian/swing/calculate-position
@@ -3851,7 +3840,6 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
    */
   server.post("/api/indian/swing/cron/daily-scan", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
-      // 1. Authenticate cron secret
       const authHeader = req.headers.authorization;
       const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
       const headerSecret = (req.headers["x-scanner-cron-secret"] as string) || bearerToken;
@@ -3864,14 +3852,12 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
         });
       }
 
-      // 2. Parse request options
       const body = (req.body || {}) as any;
       const force = body.force === true;
       const dateOverride = body.date || body.dateOverride;
       const universePreset = body.universe || body.universePreset;
       const maxSymbols = body.maxSymbols ? parseInt(body.maxSymbols, 10) : undefined;
 
-      // 3. Execute daily scan
       const summary = await dailyScannerScheduler.executeDailyScan({
         triggerType: "EXTERNAL_CRON_HTTP",
         force,
@@ -3881,10 +3867,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
         symbols: body.symbols,
       });
 
-      return reply.send({
-        success: true,
-        summary,
-      });
+      return reply.send({ success: true, summary });
     } catch (err: any) {
       if (err.message?.includes("Concurrent scan rejected")) {
         return reply.status(409).send({ success: false, error: err.message });
@@ -3914,10 +3897,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
         symbols: body.symbols,
       });
 
-      return reply.send({
-        success: true,
-        summary,
-      });
+      return reply.send({ success: true, summary });
     } catch (err: any) {
       if (err.message?.includes("Concurrent scan rejected")) {
         return reply.status(409).send({ success: false, error: err.message });
@@ -3958,10 +3938,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   server.get("/api/indian/swing/scheduler-status", async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
       const status = dailyScannerScheduler.getStatus();
-      return reply.send({
-        success: true,
-        status,
-      });
+      return reply.send({ success: true, status });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }
@@ -4005,13 +3982,8 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       const query = (req.query || {}) as any;
       const limitRaw = parseInt(query.limit, 10);
       const limit = isNaN(limitRaw) || limitRaw <= 0 ? 30 : Math.min(limitRaw, 100);
-
       const history = await dailyScannerScheduler.getPersistedHistory(limit);
-      return reply.send({
-        success: true,
-        count: history.length,
-        runs: history,
-      });
+      return reply.send({ success: true, count: history.length, runs: history });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }
@@ -4026,12 +3998,8 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
       const params = (req.params || {}) as any;
       const dateStr = params.date;
       if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-        return reply.status(400).send({
-          success: false,
-          error: "Invalid date format. Expected YYYY-MM-DD.",
-        });
+        return reply.status(400).send({ success: false, error: "Invalid date format. Expected YYYY-MM-DD." });
       }
-
       const result = await dailyScannerScheduler.getPersistedScanByDate(dateStr);
       if (!result) {
         return reply.status(404).send({
@@ -4040,13 +4008,7 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
           message: `No persisted scan found for date ${dateStr}.`,
         });
       }
-
-      return reply.send({
-        success: true,
-        hasData: true,
-        run: result.run,
-        opportunities: result.opportunities,
-      });
+      return reply.send({ success: true, hasData: true, run: result.run, opportunities: result.opportunities });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
     }
@@ -4055,33 +4017,311 @@ export default async function indianTradingRoutes(server: FastifyInstance) {
   /**
    * GET /api/indian/swing/persistence-health
    * Safe persistence diagnostic endpoint for the Indian swing scanner.
-   * Reports whether Supabase is configured and reachable without exposing credentials.
    */
   server.get("/api/indian/swing/persistence-health", async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
       const health = await dailyScanPersistenceService.checkPersistenceHealth();
       const statusCode = health.configured && !health.reachable ? 503 : 200;
-      return reply.status(statusCode).send({
-        success: true,
-        ...health,
-      });
+      return reply.status(statusCode).send({ success: true, ...health });
     } catch (err: any) {
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to evaluate persistence health",
-      });
+      return reply.status(500).send({ success: false, error: "Failed to evaluate persistence health" });
     }
   });
+
+  // ── NSE FULL-UNIVERSE ASYNC SCANNER ROUTES ────────────────────────────────
+  // These routes delegate to NseFullScanWorker which runs as a long-lived
+  // async task inside this Fastify process. The /start route returns 202
+  // immediately; clients poll /status for progress and /results for output.
+  //
+  // Safety: LIVE_TRADING=false is enforced inside NseFullScanWorker.ts.
+
+  /**
+   * POST /api/indian/swing/nse-scanner/start
+   *
+   * Starts a full NSE equity universe scan asynchronously.
+   * Returns 202 with a jobId immediately; actual scan runs in the background.
+   */
+  server.post(
+    '/api/indian/swing/nse-scanner/start',
+    async (
+      request: FastifyRequest<{
+        Body: {
+          dry_run?: boolean;
+          max_symbols?: number;
+          force_universe?: boolean;
+          force_restart?: boolean;
+        };
+      }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const body = request.body || {};
+        const result = await nseFullScanWorker.startScan({
+          dryRun: body.dry_run ?? false,
+          maxSymbols: body.max_symbols ?? null,
+          forceUniverse: body.force_universe ?? false,
+          forceRestart: body.force_restart ?? false,
+        });
+
+        if (!result.accepted) {
+          const existingStatus = result.existingJob?.status;
+          const httpStatus =
+            existingStatus === 'COMPLETED' ? 423 :
+            existingStatus === 'RUNNING' || existingStatus === 'QUEUED' ? 409 : 409;
+
+          return reply.status(httpStatus).send({
+            success: false,
+            accepted: false,
+            message: result.message,
+            existingJob: result.existingJob,
+          });
+        }
+
+        return reply.status(202).send({
+          success: true,
+          accepted: true,
+          jobId: result.jobId,
+          message: result.message,
+          hint: `Poll GET /api/indian/swing/nse-scanner/status?job=${result.jobId} for live progress.`,
+        });
+      } catch (err: any) {
+        server.log.error(err);
+        return reply.status(500).send({ success: false, error: err.message });
+      }
+    }
+  );
+
+  /**
+   * GET /api/indian/swing/nse-scanner/status
+   *
+   * Returns live scan progress for the given job, or for the most recent
+   * job for today if no jobId is specified.
+   */
+  server.get(
+    '/api/indian/swing/nse-scanner/status',
+    async (
+      request: FastifyRequest<{ Querystring: { job?: string } }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        const jobId = request.query.job;
+
+        const job = jobId
+          ? await scanJobRepository.getJobById(jobId)
+          : await scanJobRepository.getLatestJobForDate(today);
+
+        if (!job) {
+          return reply.status(404).send({
+            success: false,
+            error: jobId
+              ? `Job ${jobId} not found.`
+              : `No scan job found for ${today}. Use POST /api/indian/swing/nse-scanner/start to begin.`,
+          });
+        }
+
+        const totalBatches = job.symbols_total > 0
+          ? Math.ceil(job.symbols_total / 5)
+          : job.total_batches;
+
+        const percentComplete = job.symbols_total > 0
+          ? Math.round((job.symbols_processed / job.symbols_total) * 100)
+          : 0;
+
+        let estimatedCompletionAt: string | null = null;
+        if (job.started_at && job.symbols_processed > 0 && job.status === 'RUNNING') {
+          const elapsedMs = Date.now() - new Date(job.started_at).getTime();
+          const rateMs = elapsedMs / job.symbols_processed;
+          const remaining = (job.symbols_total || 2349) - job.symbols_processed;
+          estimatedCompletionAt = new Date(Date.now() + rateMs * remaining).toISOString();
+        }
+
+        return reply.send({
+          success: true,
+          jobId: job.id,
+          scanDate: job.scan_date,
+          status: job.status,
+          symbolsTotal: job.symbols_total,
+          symbolsProcessed: job.symbols_processed,
+          symbolsSuccess: job.symbols_success,
+          symbolsSkipped: job.symbols_skipped,
+          symbolsFailed: job.symbols_failed,
+          currentBatch: job.current_batch,
+          totalBatches,
+          percentComplete,
+          startedAt: job.started_at,
+          completedAt: job.completed_at,
+          estimatedCompletionAt,
+          lastCheckpointIndex: job.last_checkpoint_index,
+          config: job.config,
+          errorMessage: job.error_message,
+          scanRunId: job.scan_run_id,
+          lockExpiresAt: job.lock_expires_at,
+        });
+      } catch (err: any) {
+        server.log.error(err);
+        return reply.status(500).send({ success: false, error: err.message });
+      }
+    }
+  );
+
+  /**
+   * GET /api/indian/swing/nse-scanner/results
+   *
+   * Returns the final scan results once the job reaches COMPLETED or PARTIAL.
+   */
+  server.get(
+    '/api/indian/swing/nse-scanner/results',
+    async (
+      request: FastifyRequest<{
+        Querystring: { job?: string; strategy?: string; limit?: string };
+      }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        const jobId = request.query.job;
+        const strategyFilter = (request.query.strategy || 'ALL').toUpperCase();
+        const limit = Math.min(500, parseInt(request.query.limit || '200', 10));
+
+        const job = jobId
+          ? await scanJobRepository.getJobById(jobId)
+          : await scanJobRepository.getLatestJobForDate(today);
+
+        if (!job) {
+          return reply.status(404).send({
+            success: false,
+            error: 'No scan job found. Start a scan with POST /api/indian/swing/nse-scanner/start.',
+          });
+        }
+
+        if (job.status === 'QUEUED' || job.status === 'RUNNING') {
+          const percentComplete = job.symbols_total > 0
+            ? Math.round((job.symbols_processed / job.symbols_total) * 100)
+            : 0;
+          return reply.status(202).send({
+            success: false,
+            status: job.status,
+            message: `Scan is ${job.status}. Results not yet available.`,
+            jobId: job.id,
+            percentComplete,
+            symbolsProcessed: job.symbols_processed,
+            symbolsTotal: job.symbols_total,
+            hint: 'Poll GET /api/indian/swing/nse-scanner/status for live progress.',
+          });
+        }
+
+        const { createClient } = await import('@supabase/supabase-js');
+        const { env } = await import('../config/env');
+        const supabase = env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY
+          ? createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+              auth: { persistSession: false, autoRefreshToken: false },
+            })
+          : null;
+
+        let opportunities: any[] = [];
+        let totalCount = 0;
+
+        if (supabase && job.scan_run_id) {
+          let query = supabase
+            .from('swing_scan_opportunities')
+            .select('*')
+            .eq('run_id', job.scan_run_id)
+            .order('confluence_score', { ascending: false })
+            .limit(limit);
+
+          if (strategyFilter !== 'ALL') {
+            query = query.eq('primary_strategy_id', strategyFilter);
+          }
+
+          const { data, error } = await query;
+          if (!error && data) {
+            opportunities = data.map((r) => r.opportunity_json);
+            totalCount = data.length;
+          }
+        } else if (supabase) {
+          const { data: runData } = await supabase
+            .from('swing_scan_runs')
+            .select('opportunities, opportunities_count')
+            .eq('scan_date', job.scan_date)
+            .eq('status', job.status)
+            .order('run_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          if (runData) {
+            opportunities = (runData.opportunities as any[]) || [];
+            totalCount = runData.opportunities_count || opportunities.length;
+            if (strategyFilter !== 'ALL') {
+              opportunities = opportunities.filter((o) =>
+                (o.allMatchedStrategies || []).some((s: any) => s.strategyId === strategyFilter)
+              );
+            }
+            opportunities = opportunities.slice(0, limit);
+          }
+        }
+
+        return reply.send({
+          success: true,
+          jobId: job.id,
+          scanDate: job.scan_date,
+          status: job.status,
+          coverage: {
+            symbolsTotal: job.symbols_total,
+            symbolsSuccess: job.symbols_success,
+            symbolsSkipped: job.symbols_skipped,
+            symbolsFailed: job.symbols_failed,
+            opportunitiesTotal: totalCount,
+            opportunitiesReturned: opportunities.length,
+            strategyFilter,
+          },
+          scanRunId: job.scan_run_id,
+          opportunities,
+          multiStrategyMatches: opportunities.filter((o) => o.isMultiStrategyMatch),
+          disclaimer: 'Results are research candidates only. LIVE_TRADING=false. No orders placed.',
+        });
+      } catch (err: any) {
+        server.log.error(err);
+        return reply.status(500).send({ success: false, error: err.message });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/indian/swing/nse-scanner/abort
+   *
+   * Signals the running worker to stop after the current batch completes.
+   */
+  server.delete(
+    '/api/indian/swing/nse-scanner/abort',
+    async (
+      request: FastifyRequest<{ Querystring: { job?: string } }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const jobId = request.query.job;
+        if (!jobId) {
+          return reply.status(400).send({ success: false, error: 'Query param ?job=<jobId> is required.' });
+        }
+
+        const aborted = nseFullScanWorker.requestAbort(jobId);
+        if (!aborted) {
+          return reply.status(404).send({
+            success: false,
+            error: `Job ${jobId} is not currently running in this process instance.`,
+          });
+        }
+
+        return reply.send({
+          success: true,
+          message: `Abort signal sent to job ${jobId}. The scan will stop after the current batch.`,
+          jobId,
+        });
+      } catch (err: any) {
+        server.log.error(err);
+        return reply.status(500).send({ success: false, error: err.message });
+      }
+    }
+  );
 }
-
-
-
-
-
-
-
-
-
-
-
 

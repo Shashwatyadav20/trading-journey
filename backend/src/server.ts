@@ -17,6 +17,7 @@ import './trading/TradingEngine';
 import pineRoutes from './routes/pine';
 import indianTradingRoutes from './routes/indianTrading';
 import { pineLevelService } from './alerts/PineLevelService';
+import { scanScheduler } from './indian/swing/ScanScheduler';
 
 const server = Fastify({
   logger: {
@@ -87,6 +88,7 @@ closeListeners.forEach(signal => {
   process.on(signal, async () => {
     server.log.info(`${signal} signal received: closing HTTP server`);
     marketDataService.stop();
+    scanScheduler.stop();
     try {
       const { dailyScannerScheduler } = await import("./indian/swing/DailyScannerScheduler");
       dailyScannerScheduler.stop();
@@ -133,6 +135,11 @@ const start = async () => {
 
     // ─── Step 2b: Start Pine Level Service (subscribes to priceStore) ─────────
     pineLevelService.start();
+
+    // ─── Step 2c: Start NSE swing scan daily scheduler (15:45 IST trigger) ─────
+    // Triggers once per NSE trading day; skips weekends, holidays, and days
+    // where a scan already exists. Non-fatal if Supabase is not configured.
+    scanScheduler.start();
 
     // ─── Step 2c: Auto-connect Dhan Real-Time WebSocket Feed if configured ────
     try {

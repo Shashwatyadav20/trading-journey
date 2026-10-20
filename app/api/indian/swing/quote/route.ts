@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  fetchLiveStockCandles,
-  evaluateLiveStockStrategy,
-} from "@/lib/indian/liveSwingScanner";
+import { fetchLiveStockCandles } from "@/lib/indian/liveSwingScanner";
 import {
   buildStockIndicatorProfile,
   evaluateAllStrategiesForStock,
@@ -50,24 +47,16 @@ export async function GET(req: NextRequest) {
       // Benchmark fallback
     }
 
-    // 3. Run automated 5-pillar strategy evaluation on the live stock
-    const evaluatedSignal = evaluateLiveStockStrategy(
-      cleanSymbol,
-      candleData.candles,
-      candleData.meta,
-      niftySpot,
-      niftyEma20
-    );
-
-    // 4. Run 8-strategy comprehensive profiler
+    // 3. Build indicator profile and evaluate 8 strategies
     const profile = buildStockIndicatorProfile(
       cleanSymbol,
       candleData.candles,
       candleData.meta,
-      niftySpot,
+      niftySpot || 24000,
       niftyChangePercent
     );
     const multiOpportunity = evaluateAllStrategiesForStock(profile);
+    const primaryStrategy = multiOpportunity?.primaryStrategy;
 
     return NextResponse.json({
       success: true,
@@ -75,44 +64,43 @@ export async function GET(req: NextRequest) {
         symbol: `${cleanSymbol}.NS`,
         cleanSymbol,
         companyName: profile.companyName,
-        price: evaluatedSignal.currentPrice,
-        prevClose: Number((evaluatedSignal.currentPrice - evaluatedSignal.change).toFixed(2)),
-        change: evaluatedSignal.change,
-        changePercent: evaluatedSignal.changePercent,
-        dayHigh: evaluatedSignal.dayHigh,
-        dayLow: evaluatedSignal.dayLow,
-        high52: evaluatedSignal.high52,
-        low52: evaluatedSignal.low52,
+        price: profile.currentPrice,
+        prevClose: profile.prevClose,
+        change: profile.change,
+        changePercent: profile.changePercent,
+        dayHigh: profile.dayHigh,
+        dayLow: profile.dayLow,
+        high52: profile.high52,
+        low52: profile.low52,
         volume: candleData.meta.regularMarketVolume || 0,
         avgVolume20D: profile.avgVolume20D,
-        volumeMultiplier: evaluatedSignal.volumeMultiplier,
-        ema20: evaluatedSignal.ema20,
-        ema50: evaluatedSignal.ema50,
+        volumeMultiplier: profile.volumeMultiplier,
+        ema20: profile.ema20,
+        ema50: profile.ema50,
         ema200: profile.ema200,
         rsi14: profile.rsi14,
         macd: profile.macd,
         trendStrength: profile.trendStrength,
         relativeStrengthVsNifty: profile.relativeStrengthVsNifty,
-        isAbove20EMA: evaluatedSignal.currentPrice >= evaluatedSignal.ema20,
-        isAbove50EMA: evaluatedSignal.currentPrice >= evaluatedSignal.ema50,
+        isAbove20EMA: profile.currentPrice >= profile.ema20,
+        isAbove50EMA: profile.currentPrice >= profile.ema50,
         resistanceLevel: profile.resistanceLevel,
         supportLevel: profile.supportLevel,
         swingLow: profile.swingLow,
-        detectedSetup: {
-          setupId: evaluatedSignal.setupId,
-          setupName: evaluatedSignal.setupTitle,
-          setupBadge: evaluatedSignal.setupBadge,
-          status: evaluatedSignal.status,
-          entryPrice: evaluatedSignal.entryPrice,
-          stopLossPrice: evaluatedSignal.stopLossPrice,
-          target1Price: evaluatedSignal.target1Price,
-          target2Price: evaluatedSignal.target2Price,
-          riskPerShare: evaluatedSignal.riskPerShare,
-          rewardRiskRatio: evaluatedSignal.rewardRiskRatio,
-          confluenceScore: evaluatedSignal.confluenceScore,
-          rationale: evaluatedSignal.tradeRationale,
-          rejectionDescription: evaluatedSignal.rejectionCandle || evaluatedSignal.setupTitle,
-        },
+        detectedSetup: primaryStrategy ? {
+          setupId: primaryStrategy.strategyId,
+          setupName: primaryStrategy.strategyName,
+          setupBadge: primaryStrategy.strategyName,
+          status: "ACTIVE_OPPORTUNITY",
+          entryPrice: multiOpportunity.entryTrigger,
+          stopLossPrice: multiOpportunity.stopLoss,
+          target1Price: multiOpportunity.target1,
+          target2Price: multiOpportunity.target2,
+          riskPerShare: multiOpportunity.entryTrigger - multiOpportunity.stopLoss,
+          rewardRiskRatio: multiOpportunity.rewardRiskRatio,
+          confluenceScore: multiOpportunity.confluenceScore,
+          rationale: multiOpportunity.tradeRationale,
+        } : null,
         allMatchedStrategies: multiOpportunity?.allMatchedStrategies || [],
         isMultiStrategyMatch: multiOpportunity?.isMultiStrategyMatch || false,
         candleHistory: candleData.candles.slice(-30),

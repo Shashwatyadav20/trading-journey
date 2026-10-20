@@ -87,9 +87,12 @@ export interface StockIndicatorProfile {
   cleanSymbol: string;
   companyName: string;
   sector: string;
-  marketCapCr: number;
+  /** Market cap in crores. Set to null if unavailable (no reliable source). */
+  marketCapCr: number | null;
   currentPrice: number;
   prevClose: number;
+  /** True if EMA200 was computed with fewer than 200 candles (less reliable). */
+  ema200IsEstimated?: boolean;
   change: number;
   changePercent: number;
   dayHigh: number;
@@ -145,7 +148,8 @@ export interface MatchedStockOpportunity {
   cleanSymbol: string;
   companyName: string;
   sector: string;
-  marketCapCr: number;
+  /** null when market cap data source not connected — NOT fabricated from price */
+  marketCapCr: number | null;
   currentPrice: number;
   changePercent: number;
   direction: "BULLISH" | "BEARISH";
@@ -691,6 +695,9 @@ export function buildStockIndicatorProfile(
   const lows = candles.map((c) => c.low);
   const volumes = candles.map((c) => c.volume);
 
+  // prevClose: use previous completed daily candle close (candles[len-2]).
+  // We intentionally do NOT use meta.chartPreviousClose, which is the chart
+  // range start anchor (could be years ago), not yesterday's close.
   const currentPrice = Number((meta.regularMarketPrice || closes[len - 1]).toFixed(2));
 
   // Determine previous session close and change percent accurately.
@@ -745,6 +752,8 @@ export function buildStockIndicatorProfile(
   const ema20Raw = len >= 20 ? ema20Arr[len - 1] : null;
   const ema50Raw = len >= 50 ? ema50Arr[len - 1] : null;
   const ema200Raw = len >= 200 ? ema200Arr[len - 1] : null;
+  // ema200IsEstimated: true when we have < 200 candles (exported for UI warning)
+  const ema200IsEstimated = ema200Raw === null;
 
   const ema20 = ema20Raw !== null ? Number(ema20Raw.toFixed(2)) : null;
   const ema50 = ema50Raw !== null ? Number(ema50Raw.toFixed(2)) : null;
@@ -795,7 +804,7 @@ export function buildStockIndicatorProfile(
     }
   }
 
-  // Relative Strength vs NIFTY
+  // Relative Strength vs NIFTY (computed from actual day change, not hardcoded)
   const stockGain = changePercent;
   const niftyGain = niftyChangePercent;
   const relativeStrengthVsNifty = Math.min(
@@ -822,9 +831,12 @@ export function buildStockIndicatorProfile(
   return {
     symbol: `${cleanSymbol}.NS`,
     cleanSymbol,
-    companyName: meta.shortName || `${cleanSymbol} India Ltd`,
-    sector: "Indian Cash Equities",
-    marketCapCr: Math.round(currentPrice * 12),
+    // Company name from Yahoo meta; never hardcoded.
+    companyName: meta.shortName || meta.longName || `${cleanSymbol}`,
+    sector: meta.sector || "Indian Cash Equities",
+    // Market cap: not available from Yahoo price endpoint without additional lookup.
+    // Placeholder only — strategies must NOT use this for qualification.
+    marketCapCr: null as any,
     currentPrice,
     prevClose,
     change,
@@ -839,6 +851,7 @@ export function buildStockIndicatorProfile(
     ema20,
     ema50,
     ema200,
+    ema200IsEstimated,
     rsi14,
     indicatorsAvailable: {
       ema20: ema20 !== null,
@@ -884,7 +897,11 @@ export function evaluateStrategyA_Breakout(p: StockIndicatorProfile): StrategyMa
   const isUptrend = p.ema50 !== null ? p.currentPrice >= p.ema50 : false;
 
   const matched = isAvailable && isBreakout && hasVolume && notExtended && isUptrend;
-  const entryTrigger = Number((p.currentPrice * 1.002).toFixed(1));
+  // BUG FIX: entryTrigger was currentPrice * 1.002, which fell below zone.min
+  // (resistanceLevel) whenever price had not yet broken out — the normal state
+  // for most scanned stocks.  The breakout entry trigger is semantically
+  // defined as 0.2% above the resistance level, not above current price.
+  const entryTrigger = Number((p.resistanceLevel * 1.002).toFixed(1));
   const stopLoss = Number((Math.max(p.resistanceLevel * 0.985, p.swingLow)).toFixed(1));
   const risk = Math.max(1, Number((entryTrigger - stopLoss).toFixed(1)));
   const target1 = Number((entryTrigger + risk * 2.0).toFixed(1));
@@ -937,7 +954,10 @@ export function evaluateStrategyB_Pullback(p: StockIndicatorProfile): StrategyMa
   const isRebounding = p.currentPrice >= p.dayLow + (p.dayHigh - p.dayLow) * 0.4;
   const matched = hasHistory && isAbove50and200 && isNear20EMA && isRebounding;
 
-  const entryTrigger = Number((p.dayHigh * 1.002).toFixed(1));
+  // BUG FIX: When dayHigh < ema20, the old trigger (dayHigh * 1.002) fell below
+  // the zone minimum (ema20). Use the greater of the two so the trigger is always
+  // at or above the zone floor.  (Reproduces the AARTIPHARM failure case.)
+  const entryTrigger = Number((Math.max(p.dayHigh, p.ema20 ?? p.dayHigh) * 1.002).toFixed(1));
   const stopLoss = Number((Math.min(p.dayLow * 0.995, p.ema20 !== null ? p.ema20 * 0.985 : p.dayLow * 0.985)).toFixed(1));
   const risk = Math.max(1, Number((entryTrigger - stopLoss).toFixed(1)));
   const target1 = Number((entryTrigger + risk * 2.1).toFixed(1));
@@ -960,7 +980,10 @@ export function evaluateStrategyB_Pullback(p: StockIndicatorProfile): StrategyMa
     confirmationStatus: matched ? "CONFIRMED" : "WATCHLIST",
     entryZone: {
       min: p.ema20 ?? p.supportLevel,
-      max: Number(((p.ema20 ?? p.supportLevel) * 1.018).toFixed(1)),
+      // Extend max to cover the trigger when dayHigh > ema20 * 1.016
+      // (same Math.max guard as Bug-4 fix on Strategy C).
+      max: Number(Math.max((p.ema20 ?? p.supportLevel) * 1.018, entryTrigger).toFixed(1)),
+
       trigger: entryTrigger,
     },
     stopLoss,
@@ -991,8 +1014,19 @@ export function evaluateStrategyC_SupportBounce(p: StockIndicatorProfile): Strat
   const entryTrigger = Number((p.currentPrice * 1.004).toFixed(1));
   const stopLoss = Number((p.supportLevel * 0.985).toFixed(1));
   const risk = Math.max(1, Number((entryTrigger - stopLoss).toFixed(1)));
-  const target1 = Number((p.resistanceLevel * 0.995).toFixed(1));
-  const target2 = Number((entryTrigger + risk * 2.8).toFixed(1));
+  // Candidate exits:
+  //   t1Candidate = resistance level (nearest practical resistance)
+  //   t2Candidate = entry + 2.8R (further runner target)
+  // For a bullish setup: target1 is the CLOSER exit, target2 is the FURTHER exit.
+  // Ensure both are above entry; enforce t1 < t2.
+  const t1Candidate = Number((p.resistanceLevel * 0.995).toFixed(1));
+  const t2Candidate = Number((entryTrigger + risk * 2.8).toFixed(1));
+  const t1Raw = Math.min(t1Candidate, t2Candidate);
+  const t2Raw = Math.max(t1Candidate, t2Candidate);
+  // Both targets must be above entryTrigger (bullish direction)
+  const minAboveEntry = Number((entryTrigger + risk).toFixed(1));
+  const target1 = Math.max(t1Raw, minAboveEntry);
+  const target2 = Math.max(t2Raw, Number((target1 + risk * 0.5).toFixed(1)));
   const rr = Math.max(1.8, Number(((target1 - entryTrigger) / risk).toFixed(1)));
 
   const confidenceScore = Math.min(
@@ -1012,7 +1046,12 @@ export function evaluateStrategyC_SupportBounce(p: StockIndicatorProfile): Strat
     confirmationStatus: matched ? "CONFIRMED" : "WATCHLIST",
     entryZone: {
       min: p.supportLevel,
-      max: Number((p.supportLevel * 1.02).toFixed(1)),
+      // BUG FIX: When currentPrice > supportLevel * 1.016, entryTrigger
+      // (currentPrice * 1.004) exceeded the old max (supportLevel * 1.02).
+      // Take the larger of the two so the trigger is always within the zone.
+      max: Number(
+        Math.max(p.supportLevel * 1.02, entryTrigger).toFixed(1)
+      ),
       trigger: entryTrigger,
     },
     stopLoss,
@@ -1144,7 +1183,10 @@ export function evaluateStrategyF_RangeBreakout(p: StockIndicatorProfile): Strat
   const hasVolume = p.volumeMultiplier >= 1.35;
   const matched = isTightRange && isBreakingRange && hasVolume;
 
-  const entryTrigger = Number((p.currentPrice * 1.002).toFixed(1));
+  // BUG FIX: same root cause as Strategy A — entryTrigger was currentPrice * 1.002.
+  // For a range-breakout, the entry is defined at the resistance boundary, not
+  // wherever current price happens to sit below it.  Anchor to resistanceLevel.
+  const entryTrigger = Number((p.resistanceLevel * 1.002).toFixed(1));
   const stopLoss = Number((((p.resistanceLevel + p.supportLevel) / 2) * 0.99).toFixed(1));
   const risk = Math.max(1, Number((entryTrigger - stopLoss).toFixed(1)));
   const rangeHeight = p.resistanceLevel - p.supportLevel;
@@ -1218,7 +1260,9 @@ export function evaluateStrategyG_TrendContinuation(p: StockIndicatorProfile): S
     confirmationStatus: matched ? "CONFIRMED" : "WATCHLIST",
     entryZone: {
       min: p.swingLow,
-      max: p.currentPrice,
+      // BUG FIX: trigger is currentPrice * 1.003, which always exceeds
+      // currentPrice; old max equalled currentPrice so trigger > max.
+      max: Number((entryTrigger * 1.003).toFixed(1)),
       trigger: entryTrigger,
     },
     stopLoss,
@@ -1269,7 +1313,9 @@ export function evaluateStrategyH_VolumeBreakout(p: StockIndicatorProfile): Stra
     confirmationStatus: matched ? "CONFIRMED" : "WATCHLIST",
     entryZone: {
       min: p.dayLow,
-      max: p.currentPrice,
+      // BUG FIX: trigger is currentPrice * 1.002, which always exceeds
+      // currentPrice; old max equalled currentPrice so trigger > max.
+      max: Number((entryTrigger * 1.003).toFixed(1)),
       trigger: entryTrigger,
     },
     stopLoss,
@@ -1542,65 +1588,47 @@ export function runHistoricalBacktest(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LIQUID INDIAN CASH UNIVERSES
+// DOCUMENTED STATIC UNIVERSES
+//
+// These are used only as a fallback when the NSE CSV cannot be fetched, or
+// for the legacy daily-scanner/route.ts API which accepts a universe=... param.
+//
+// The full production scanner uses getNseEquityUniverse() from nseUniverse.ts.
+// Do NOT add arbitrary stocks to these lists. They are maintained to match
+// actual index constituents as documented by NSE.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const LIQUID_UNIVERSES = {
+import { NIFTY_500_FALLBACK_UNIVERSE } from "./scannerConfig";
+
+/**
+ * @deprecated Use getNseEquityUniverse() from nseUniverse.ts for production scans.
+ * These lists are retained for the legacy daily-scanner endpoint parameter mapping.
+ */
+export const LIQUID_UNIVERSES: Record<string, string[]> = {
+  // Documented subset for quick scans — NOT claimed to be exhaustive NSE universe
   MOMENTUM_LEADERS: [
-    "TRENT",
-    "DIXON",
-    "BSE",
-    "CDSL",
-    "HAL",
-    "BEL",
-    "PERSISTENT",
-    "POLYCAB",
-    "COCHINSHIP",
-    "MAZDOCK",
-    "SUZLON",
-    "ZOMATO",
-    "MCX",
-    "KALYANKJIL",
-    "ANGELONE",
-    "IRFC",
+    "TRENT","DIXON","HAL","BEL","PERSISTENT","POLYCAB","CDSL","BSE",
+    "COCHINSHIP","MAZDOCK","SUZLON","ZOMATO","MCX","ANGELONE","IRFC",
+    "KPITTECH","COFORGE","LTTS","HAPPSTMNDS","TANLA",
   ],
   NIFTY_50: [
-    "RELIANCE",
-    "TCS",
-    "INFY",
-    "HDFCBANK",
-    "ICICIBANK",
-    "BHARTIARTL",
-    "SBIN",
-    "LT",
-    "ITC",
-    "BAJFINANCE",
-    "MARUTI",
-    "TATAMOTORS",
-    "TITAN",
-    "SUNPHARMA",
-    "AXISBANK",
-    "NTPC",
-    "ONGC",
-    "POWERGRID",
-    "M&M",
-    "COALINDIA",
+    "RELIANCE","TCS","HDFCBANK","BHARTIARTL","ICICIBANK","INFY","SBIN",
+    "LT","HINDUNILVR","ITC","BAJFINANCE","KOTAKBANK","AXISBANK","MARUTI",
+    "ASIANPAINT","SUNPHARMA","NTPC","ONGC","POWERGRID","TITAN","M&M",
+    "BAJAJFINSV","HCLTECH","WIPRO","TECHM","ULTRACEMCO","TATAMOTORS",
+    "JSWSTEEL","HINDALCO","TATASTEEL","COALINDIA","ADANIENT","ADANIPORTS",
+    "APOLLOHOSP","BPCL","BRITANNIA","CIPLA","DIVISLAB","DRREDDY","EICHERMOT",
+    "GRASIM","HDFCLIFE","HEROMOTOCO","INDUSINDBK","NESTLEIND","SBILIFE",
+    "SHREECEM","TATACONSUM","TRENT","VEDL",
   ],
   NIFTY_NEXT_50: [
-    "ADANIENT",
-    "JSWSTEEL",
-    "TATASTEEL",
-    "HINDALCO",
-    "TECHM",
-    "WIPRO",
-    "HCLTECH",
-    "ULTRACEMCO",
-    "KOTAKBANK",
-    "BAJAJFINSV",
-    "VOLTAS",
-    "CUMMINSIND",
-    "ABB",
-    "SIEMENS",
-    "BHEL",
+    "ADANIGREEN","ADANITRANS","ABB","AMBUJACEM","BANDHANBNK","BERGEPAINT",
+    "BOSCHLTD","CANBK","CHOLAFIN","CUMMINSIND","DABUR","DMART","GAIL",
+    "GODREJCP","HAVELLS","ICICIPRULI","IDFCFIRSTB","INDHOTEL","INDUSTOWER",
+    "IRCTC","JINDALSTEL","LICI","LUPIN","MFSL","MUTHOOTFIN","NAUKRI",
+    "NMDC","PAGEIND","PETRONET","PIIND","PIDILITIND","PFC","PNB","RECLTD",
+    "SAIL","SIEMENS","SOLARINDS","TORNTPHARM","TVSMOTOR","UBL","UPL",
+    "VOLTAS","MCDOWELL-N",
   ],
+  NSE_FULL_FALLBACK: Array.from(NIFTY_500_FALLBACK_UNIVERSE),
 };

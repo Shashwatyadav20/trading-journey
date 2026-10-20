@@ -18,11 +18,12 @@ export interface NiftyMarketRegime {
   ema200: number;
   bias: MarketRegimeBias;
   clearance: SwingClearance;
-  breadthPercentAbove50EMA: number;
-  advancingStocksCount: number;
-  decliningStocksCount: number;
+  breadthPercentAbove50EMA: number | null;
+  advancingStocksCount: number | null;
+  decliningStocksCount: number | null;
   regimeScore: number; // 0-100
   analysisSummary: string;
+  dataSource?: string;
 }
 
 export interface StockFundamentals {

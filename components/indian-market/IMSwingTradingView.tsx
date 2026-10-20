@@ -114,397 +114,66 @@ interface RegimeUI {
   ema200: number;
   bias: string;
   clearance: string;
-  breadthPercentAbove50EMA: number;
-  advancingStocksCount: number;
-  decliningStocksCount: number;
+  /** null = breadth data source not connected (requires separate endpoint) */
+  breadthPercentAbove50EMA: number | null;
+  /** null = not available from Yahoo Finance price endpoint */
+  advancingStocksCount: number | null;
+  /** null = not available from Yahoo Finance price endpoint */
+  decliningStocksCount: number | null;
   regimeScore: number;
   analysisSummary: string;
 }
 
-// Fallback high-fidelity data matching live NSE TradingView prices
-const FALLBACK_SIGNALS: SwingSignalUI[] = [
-  {
-    id: "SWING-SIG-001",
-    symbol: "TRENT",
-    companyName: "Trent Ltd (Tata Retail)",
-    sector: "Retail",
-    setupId: "SETUP_A_BREAKOUT_RETEST",
-    setupTitle: "Setup A — Breakout + Retest",
-    setupBadge: "Breakout + Retest",
-    status: "ACTIVE_OPPORTUNITY",
-    timestamp: new Date().toISOString(),
-    currentPrice: 2918.2, // Live NSE Price matching TradingView
-    entryPrice: 2924.0,
-    stopLossPrice: 2845.0,
-    target1Price: 3082.0,
-    target2Price: 3161.0,
-    riskPerShare: 79.0,
-    rewardRiskRatio: 2.0,
-    confluenceScore: 94,
-    relativeStrengthVsNifty: 92,
-    volumeMultiplier: 1.85,
-    ema20: 2880.0,
-    ema50: 2810.0,
-    ema200: 2580.0,
-    retestLow: 2854.0,
-    rejectionCandle: "Bullish Hammer Rejection at ₹2,854 SR Flip",
-    fivePillarChecklist: {
-      pillar1MarketRegime: {
-        passed: true,
-        details: "NIFTY > 20 EMA, market regime score 88/100 supporting fresh swing longs.",
-      },
-      pillar2Fundamentals: {
-        passed: true,
-        details: "ROE 32.8%, ROCE 38.4%, 3Y Sales CAGR 48.6%, Debt/Eq 0.18.",
-      },
-      pillar3LiquidityLevels: {
-        passed: true,
-        details: "Previous consolidation resistance at ₹2,850 broken & flipped to support.",
-      },
-      pillar4PriceActionVolume: {
-        passed: true,
-        details: "Breakout volume 1.85x 20-day average, followed by low-volume retest and hammer confirmation candle.",
-      },
-      pillar5RiskManagement: {
-        passed: true,
-        details: "Defined risk: Entry ₹2,924, SL ₹2,845 (₹79 risk/sh). Target ₹3,082 guarantees 1:2.0 R:R.",
-      },
-    },
-    tradeRationale: [
-      "Stock is in an aggressive uptrend at ₹2,918.2 above 20 & 50 EMA with Higher Highs structure.",
-      "Consolidation resistance broken on 1.85x volume surge.",
-      "Controlled 3-day pullback retested the ₹2,854 flip level with drying volume.",
-      "Strong bullish hammer rejection printed on retest level; confirmation close above ₹2,924.",
-    ],
-    invalidationTrigger: "Daily candle close below ₹2,845 invalidates the breakout structure.",
-    trailingStopPlan: "Move SL to Breakeven (₹2,924) once price touches 1R (₹3,003). Trail remainder below 20 EMA.",
-    fundamentals: {
-      symbol: "TRENT",
-      companyName: "Trent Ltd (Tata Retail)",
-      sector: "Retail",
-      marketCapCr: 248000,
-      peRatio: 112.4,
-      roePercent: 32.8,
-      rocePercent: 38.4,
-      salesGrowth3Y: 48.6,
-      profitGrowth3Y: 62.1,
-      debtToEquity: 0.18,
-      institutionalHoldingPercent: 44.2,
-      qualityScore: 96,
-      moatRating: "WIDE",
-      notes: "Aggressive store expansion (Zudio, Westside), stellar ROE/ROCE, high relative strength leader.",
-    },
-  },
-  {
-    id: "SWING-SIG-002",
-    symbol: "HAL",
-    companyName: "Hindustan Aeronautics Ltd",
-    sector: "Defense & Aerospace",
-    setupId: "SETUP_B_LIQUIDITY_SWEEP",
-    setupTitle: "Setup B — Liquidity Sweep + Reversal",
-    setupBadge: "Liquidity Sweep + CHoCH",
-    status: "ACTIVE_OPPORTUNITY",
-    timestamp: new Date().toISOString(),
-    currentPrice: 4655.6, // Live NSE Price
-    entryPrice: 4670.0,
-    stopLossPrice: 4553.0,
-    target1Price: 4804.0,
-    target2Price: 4871.0,
-    riskPerShare: 117.0,
-    rewardRiskRatio: 2.0,
-    confluenceScore: 92,
-    relativeStrengthVsNifty: 88,
-    volumeMultiplier: 1.95,
-    ema20: 4600.0,
-    ema50: 4490.0,
-    ema200: 4120.0,
-    sweepLow: 4560.0,
-    rejectionCandle: "Bullish Engulfing Reclaim with Volume Spike",
-    fivePillarChecklist: {
-      pillar1MarketRegime: {
-        passed: true,
-        details: "NIFTY trend supports defense sector momentum.",
-      },
-      pillar2Fundamentals: {
-        passed: true,
-        details: "Zero debt, ROE 26.4%, ROCE 34.2%, Sovereign order book.",
-      },
-      pillar3LiquidityLevels: {
-        passed: true,
-        details: "Major daily demand zone at ₹4,580. Previous swing low swept to trigger retail stop-losses.",
-      },
-      pillar4PriceActionVolume: {
-        passed: true,
-        details: "Stop hunt wick dipped to ₹4,560 and immediately reclaimed ₹4,620+ with 1.95x volume expansion & Bullish CHoCH.",
-      },
-      pillar5RiskManagement: {
-        passed: true,
-        details: "Entry ₹4,670, Stop Loss ₹4,553 (below wick), Target 1 ₹4,804 (2.0 R:R).",
-      },
-    },
-    tradeRationale: [
-      "Price probed below critical swing low into institutional liquidity pool.",
-      "Smart money trapped aggressive breakdown shorts; rapid reclaim above support within 1 session.",
-      "Volume expanded to 1.95x on the reversal bar confirming genuine institutional absorption.",
-      "Bullish Change of Character (CHoCH) completed with clean break above minor swing high.",
-    ],
-    invalidationTrigger: "Any break and daily close below sweep low wick ₹4,553 completely invalidates setup.",
-    trailingStopPlan: "Lock 50% profits at target ₹4,804 (2R). Trail stop loss for remaining 50% under 20 EMA.",
-    fundamentals: {
-      symbol: "HAL",
-      companyName: "Hindustan Aeronautics Ltd",
-      sector: "Defense & Aerospace",
-      marketCapCr: 312000,
-      peRatio: 38.6,
-      roePercent: 26.4,
-      rocePercent: 34.2,
-      salesGrowth3Y: 14.8,
-      profitGrowth3Y: 28.5,
-      debtToEquity: 0.0,
-      institutionalHoldingPercent: 36.8,
-      qualityScore: 94,
-      moatRating: "WIDE",
-      notes: "Debt-free balance sheet, multi-year sovereign order book, monopolistic domestic defense footprint.",
-    },
-  },
-  {
-    id: "SWING-SIG-003",
-    symbol: "PERSISTENT",
-    companyName: "Persistent Systems Ltd",
-    sector: "IT & Digital Engineering",
-    setupId: "SETUP_C_TREND_PULLBACK",
-    setupTitle: "Setup C — Pullback in Strong Trend",
-    setupBadge: "Trend Pullback (20 EMA)",
-    status: "ACTIVE_OPPORTUNITY",
-    timestamp: new Date().toISOString(),
-    currentPrice: 5770.0, // Live NSE Price
-    entryPrice: 5793.0,
-    stopLossPrice: 5608.0,
-    target1Price: 6163.0,
-    target2Price: 6348.0,
-    riskPerShare: 185.0,
-    rewardRiskRatio: 2.0,
-    confluenceScore: 90,
-    relativeStrengthVsNifty: 85,
-    volumeMultiplier: 1.6,
-    ema20: 5680.0,
-    ema50: 5490.0,
-    ema200: 4820.0,
-    rejectionCandle: "Bullish Piercing Line at 20 EMA",
-    fivePillarChecklist: {
-      pillar1MarketRegime: {
-        passed: true,
-        details: "Benchmark index supportive of high-beta IT outperformance.",
-      },
-      pillar2Fundamentals: {
-        passed: true,
-        details: "3Y Sales CAGR 24.1%, ROE 25.2%, ROCE 31.8%, FII/DII 49.3%.",
-      },
-      pillar3LiquidityLevels: {
-        passed: true,
-        details: "Dynamic 20-day EMA support aligned with prior weekly breakout crest.",
-      },
-      pillar4PriceActionVolume: {
-        passed: true,
-        details: "Volume dried up during pullback; buying volume surged to 1.6x on reversal bar.",
-      },
-      pillar5RiskManagement: {
-        passed: true,
-        details: "Risk per share ₹185. Initial target ₹6,163 yields 2.0 R:R.",
-      },
-    },
-    tradeRationale: [
-      "Textbook Higher High + Higher Low sequence sustained over 6 months at ₹5,770.",
-      "Stock pulled back gracefully into rising 20 EMA dynamic confluence zone.",
-      "Selling volume completely dried up on down-days showing lack of institutional selling pressure.",
-      "Buyers stepped in at 20 EMA with expanding green volume bar.",
-    ],
-    invalidationTrigger: "Violation and close below recent swing low ₹5,608.",
-    trailingStopPlan: "Move to Breakeven at 1R. Target 1 at ₹6,163 (2R). Runner target ₹6,348.",
-    fundamentals: {
-      symbol: "PERSISTENT",
-      companyName: "Persistent Systems Ltd",
-      sector: "IT & Digital Engineering",
-      marketCapCr: 82400,
-      peRatio: 56.4,
-      roePercent: 25.2,
-      rocePercent: 31.8,
-      salesGrowth3Y: 24.1,
-      profitGrowth3Y: 27.6,
-      debtToEquity: 0.08,
-      institutionalHoldingPercent: 49.3,
-      qualityScore: 92,
-      moatRating: "WIDE",
-      notes: "Outperforming mid-tier IT, high cloud/AI client deal pipeline, superior cash conversion.",
-    },
-  },
-  {
-    id: "SWING-SIG-004",
-    symbol: "DIXON",
-    companyName: "Dixon Technologies India",
-    sector: "EMS",
-    setupId: "SETUP_D_BASE_BREAKOUT",
-    setupTitle: "Setup D — Base Breakout (VCP)",
-    setupBadge: "Base Breakout (8 Weeks)",
-    status: "ACTIVE_OPPORTUNITY",
-    timestamp: new Date().toISOString(),
-    currentPrice: 12774.0, // Live NSE Price matching TradingView
-    entryPrice: 12850.0,
-    stopLossPrice: 12365.0,
-    target1Price: 13820.0,
-    target2Price: 14305.0,
-    riskPerShare: 485.0,
-    rewardRiskRatio: 2.0,
-    confluenceScore: 95,
-    relativeStrengthVsNifty: 94,
-    volumeMultiplier: 2.4,
-    ema20: 12580.0,
-    ema50: 12240.0,
-    ema200: 11150.0,
-    extensionFromPivotPercent: 0.6,
-    baseLengthWeeks: 8,
-    rejectionCandle: "High Volume Marubozu Breakout Candle",
-    fivePillarChecklist: {
-      pillar1MarketRegime: {
-        passed: true,
-        details: "NIFTY regime clearance HIGH. Ideal environment for multi-week base breakouts.",
-      },
-      pillar2Fundamentals: {
-        passed: true,
-        details: "Sales CAGR 36.5%, Profit CAGR 42.3%, ROE 28.1%, PLI leader.",
-      },
-      pillar3LiquidityLevels: {
-        passed: true,
-        details: "Multi-week horizontal resistance tested 4 times, absorbing overhead supply.",
-      },
-      pillar4PriceActionVolume: {
-        passed: true,
-        details: "8-week tight volatility contraction base. Breakout bar backed by 2.4x volume. Extension is only 0.6% (under 5% rule).",
-      },
-      pillar5RiskManagement: {
-        passed: true,
-        details: "Entry ₹12,850, SL ₹12,365. Target 1 ₹13,820 provides strict 2.0 R:R.",
-      },
-    },
-    tradeRationale: [
-      "Constructive 8-week flat base / Volatility Contraction Pattern (VCP) at ₹12,774.",
-      "Volatility contracted progressively from 12% to 6% to 2.8% on final contraction.",
-      "Overhead resistance tested 4 times, thoroughly drying up weak-hand supply.",
-      "Breakout volume exploded to 2.4x 20-day average.",
-      "Current price is only 0.6% from pivot — safely inside the < 5–7% extension threshold (no chasing penalty).",
-    ],
-    invalidationTrigger: "Failure back inside the consolidation base below ₹12,365.",
-    trailingStopPlan: "Move SL to cost (₹12,850) upon reaching 1R. Trail remainder below 20 EMA.",
-    fundamentals: {
-      symbol: "DIXON",
-      companyName: "Dixon Technologies India",
-      sector: "EMS",
-      marketCapCr: 88500,
-      peRatio: 84.2,
-      roePercent: 28.1,
-      rocePercent: 35.8,
-      salesGrowth3Y: 36.5,
-      profitGrowth3Y: 42.3,
-      debtToEquity: 0.22,
-      institutionalHoldingPercent: 41.6,
-      qualityScore: 91,
-      moatRating: "WIDE",
-      notes: "Prime beneficiary of India PLI electronics manufacturing, massive order inflows.",
-    },
-  },
-  {
-    id: "SWING-SIG-005",
-    symbol: "POLYCAB",
-    companyName: "Polycab India Ltd",
-    sector: "Cables & FMEG",
-    setupId: "SETUP_D_BASE_BREAKOUT",
-    setupTitle: "Setup D — Base Breakout (Watching Pivot)",
-    setupBadge: "Base Breakout (6 Weeks)",
-    status: "APPROACHING_TRIGGER",
-    timestamp: new Date().toISOString(),
-    currentPrice: 8255.0, // Live NSE Price
-    entryPrice: 8320.0,
-    stopLossPrice: 7990.0,
-    target1Price: 8980.0,
-    target2Price: 9310.0,
-    riskPerShare: 330.0,
-    rewardRiskRatio: 2.0,
-    confluenceScore: 89,
-    relativeStrengthVsNifty: 82,
-    volumeMultiplier: 1.35,
-    ema20: 8120.0,
-    ema50: 7890.0,
-    ema200: 6950.0,
-    extensionFromPivotPercent: 0.0,
-    baseLengthWeeks: 6,
-    rejectionCandle: "Inside Bar building pre-breakout tension",
-    fivePillarChecklist: {
-      pillar1MarketRegime: {
-        passed: true,
-        details: "Market trend confirmed bullish.",
-      },
-      pillar2Fundamentals: {
-        passed: true,
-        details: "ROE 22.4%, ROCE 29.8%, Near zero net debt, industry leader.",
-      },
-      pillar3LiquidityLevels: {
-        details: "Supply line being compressed near ₹8,320.",
-        passed: true,
-      },
-      pillar4PriceActionVolume: {
-        passed: true,
-        details: "6-week tight cup-handle consolidation. Awaiting volume expansion.",
-      },
-      pillar5RiskManagement: {
-        passed: true,
-        details: "Entry ₹8,320, SL ₹7,990. Target 1 ₹8,980 (2.0 R:R).",
-      },
-    },
-    tradeRationale: [
-      "6-week consolidation right near resistance at ₹8,255.",
-      "Higher lows forming into horizontal resistance (Ascending Triangle structure).",
-      "Awaiting trigger above ₹8,320 with expected volume expansion.",
-    ],
-    invalidationTrigger: "Drop below handle support at ₹7,990.",
-    trailingStopPlan: "Trail below 20 EMA once 1R is attained.",
-    fundamentals: {
-      symbol: "POLYCAB",
-      companyName: "Polycab India Ltd",
-      sector: "Cables & FMEG",
-      marketCapCr: 99400,
-      peRatio: 44.5,
-      roePercent: 22.4,
-      rocePercent: 29.8,
-      salesGrowth3Y: 21.6,
-      profitGrowth3Y: 28.9,
-      debtToEquity: 0.02,
-      institutionalHoldingPercent: 34.2,
-      qualityScore: 90,
-      moatRating: "WIDE",
-      notes: "Cables market share leader with high distribution moat, near zero net debt.",
-    },
-  },
-];
+// ── Scan Coverage State (from API response) ───────────────────────────────
+interface ScanCoverage {
+  // daily-scanner shape
+  symbolsQueued: number;
+  scannedSuccessfully: number;
+  skippedCount: number;
+  failedCount: number;
+  opportunitiesFound: number;
+  // nse-scanner additional fields (optional — only set after a full NSE run)
+  universeSource?: "NSE_CSV" | "FALLBACK_NIFTY_500";
+  universeSize?: number;
+  successCount?: number;
+  opportunitiesCount?: number;
+}
 
-const FALLBACK_REGIME: RegimeUI = {
-  spotPrice: 22520.45,
-  changePercent: +1.30,
-  ema20: 22380.0,
-  ema50: 22120.0,
-  ema200: 20850.0,
-  bias: "BULLISH_TREND",
-  clearance: "HIGH_CONVICTION",
-  breadthPercentAbove50EMA: 74.5,
-  advancingStocksCount: 36,
-  decliningStocksCount: 14,
-  regimeScore: 88,
-  analysisSummary:
-    "NIFTY (₹22,520.45) trading cleanly above 20 EMA (₹22,380) & 50 EMA. Broad market breadth is strong (74% > 50 EMA). Swing long setups have full clearance.",
-};
+interface NseScanResult {
+  success: boolean;
+  scanDate: string;
+  runAt: string;
+  status: "COMPLETED" | "PARTIAL" | "FAILED";
+  coverage: {
+    universeSource: "NSE_CSV" | "FALLBACK_NIFTY_500";
+    universeSize: number;
+    symbolsQueued: number;
+    successCount: number;
+    skippedCount: number;
+    failedCount: number;
+    opportunitiesCount: number;
+    filteredOpportunitiesCount: number;
+  };
+  warnings: string[];
+  universeMetadata: {
+    source: string;
+    lastUpdated: string;
+    universeFetchError?: string;
+  };
+  marketRegime?: any;
+  opportunities: any[];
+  persistenceStatus: "PERSISTED" | "FAILED" | "SKIPPED" | "NO_CLIENT";
+  persistenceError: string | null;
+  scanDurationMs: number;
+  error?: string;
+}
+
 
 export default function IMSwingTradingView() {
-  const [signals, setSignals] = useState<SwingSignalUI[]>(FALLBACK_SIGNALS);
-  const [regime, setRegime] = useState<RegimeUI>(FALLBACK_REGIME);
+  // No fallback signals: initial state is empty.
+  // Dashboard must only show data from the scanner API — never fabricated stocks.
+  const [signals, setSignals] = useState<SwingSignalUI[]>([]);
+  const [regime, setRegime] = useState<RegimeUI | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<string>("ALL");
   const [activeModalSignal, setActiveModalSignal] = useState<SwingSignalUI | null>(null);
   const [isLiveFeed, setIsLiveFeed] = useState<boolean>(true);
@@ -516,7 +185,9 @@ export default function IMSwingTradingView() {
   const [multiStrategyMatches, setMultiStrategyMatches] = useState<MatchedStockOpportunity[]>([]);
   const [strategyCounts, setStrategyCounts] = useState<Record<string, number>>({});
   const [isDailyScanning, setIsDailyScanning] = useState<boolean>(false);
-  const [lastScanTimestamp, setLastScanTimestamp] = useState<string>("Live Sync");
+  const [lastScanTimestamp, setLastScanTimestamp] = useState<string>("Not yet scanned");
+  // Scan coverage stats from the API response
+  const [scanCoverage, setScanCoverage] = useState<ScanCoverage | null>(null);
   const [tableSearchQuery, setTableSearchQuery] = useState<string>("");
   const [directionFilter, setDirectionFilter] = useState<string>("ALL");
   const [minScoreFilter, setMinScoreFilter] = useState<number>(0);
@@ -532,6 +203,12 @@ export default function IMSwingTradingView() {
   const [selectedScanDate, setSelectedScanDate] = useState<string>("");
   const [availableScanDates, setAvailableScanDates] = useState<string[]>([]);
   const [scanHasRun, setScanHasRun] = useState<boolean>(false);
+
+  // ── Full NSE Scanner State ─────────────────────────────────────────
+  const [isNseScanning, setIsNseScanning] = useState<boolean>(false);
+  const [nseScanResult, setNseScanResult] = useState<NseScanResult | null>(null);
+  const [nseError, setNseError] = useState<string | null>(null);
+  const [nseUseFallbackWarning, setNseUseFallbackWarning] = useState<boolean>(false);
 
   // Backtest Modal State
   const [backtestModalOpen, setBacktestModalOpen] = useState<boolean>(false);
@@ -631,10 +308,12 @@ export default function IMSwingTradingView() {
       const json = await res.json();
       setScanHasRun(true);
       if (json.success) {
-        setDailyOpportunities(json.opportunities || []);
+        if (json.opportunities) setDailyOpportunities(json.opportunities);
         if (json.multiStrategyMatches)
           setMultiStrategyMatches(json.multiStrategyMatches);
         if (json.strategyCounts) setStrategyCounts(json.strategyCounts);
+        // Update coverage stats
+        if (json.coverage) setScanCoverage(json.coverage);
         if (json.scanRun || json.scanDate) {
           setScanRunInfo({
             scanDate: json.scanDate || null,
@@ -645,14 +324,21 @@ export default function IMSwingTradingView() {
             isPersisted: Boolean(json.isPersisted),
           });
         }
+
         if (json.marketRegime) {
-          setRegime((prev) => ({
-            ...prev,
-            spotPrice: json.marketRegime.niftySpot,
-            ema20: json.marketRegime.niftyEma20,
-            bias: json.marketRegime.bias,
-            clearance: json.marketRegime.clearance,
-            analysisSummary: json.marketRegime.analysisSummary,
+          setRegime((prev): RegimeUI => ({
+            spotPrice:    json.marketRegime.niftySpot    ?? prev?.spotPrice    ?? 0,
+            changePercent: json.marketRegime.niftyChangePercent ?? prev?.changePercent ?? 0,
+            ema20:        json.marketRegime.niftyEma20   ?? prev?.ema20         ?? 0,
+            ema50:        prev?.ema50  ?? 0,
+            ema200:       prev?.ema200 ?? 0,
+            bias:         json.marketRegime.bias         ?? prev?.bias          ?? "UNAVAILABLE",
+            clearance:    json.marketRegime.clearance    ?? prev?.clearance     ?? "UNAVAILABLE",
+            breadthPercentAbove50EMA: null,
+            advancingStocksCount:    null,
+            decliningStocksCount:    null,
+            regimeScore:  json.marketRegime.bias === "BULLISH_TREND" ? 85 : 62,
+            analysisSummary: json.marketRegime.analysisSummary ?? prev?.analysisSummary ?? "",
           }));
         }
         setLastScanTimestamp(
@@ -676,7 +362,113 @@ export default function IMSwingTradingView() {
     }
   };
 
+  // ── Full NSE Scanner Fetch (nse-scanner endpoint) ──────────────────────
+  const fetchFullNseScan = async (dryRun = false) => {
+    if (isNseScanning) return; // Duplicate-run protection
+    setIsNseScanning(true);
+    setNseError(null);
+    setNseUseFallbackWarning(false);
+
+    // 10-minute timeout for full NSE universe scan (~2,300 symbols)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+
+    try {
+      const url = `/api/indian/swing/nse-scanner?dry_run=${dryRun}`;
+      const res = await fetch(url, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+
+      if (res.status === 409) {
+        // Another scan already running server-side
+        setNseError("A scan is already running on the server. Please wait and try again.");
+        return;
+      }
+
+      const json: NseScanResult = await res.json();
+
+      if (!json.success) {
+        setNseError(json.error || "NSE scanner returned an error.");
+        return;
+      }
+
+      setNseScanResult(json);
+
+      // If fallback universe was used, show prominent warning
+      if (
+        json.universeMetadata?.source === "FALLBACK_NIFTY_500" ||
+        json.universeMetadata?.universeFetchError
+      ) {
+        setNseUseFallbackWarning(true);
+      }
+
+      // Populate the main opportunity list from NSE scanner results
+      if (json.opportunities?.length > 0) {
+        setDailyOpportunities(json.opportunities);
+        const counts: Record<string, number> = {};
+        for (const opp of json.opportunities) {
+          for (const st of (opp.allMatchedStrategies || [])) {
+            counts[st.strategyId] = (counts[st.strategyId] || 0) + 1;
+          }
+        }
+        setStrategyCounts(counts);
+        setMultiStrategyMatches(
+          json.opportunities.filter((o: any) => o.isMultiStrategyMatch)
+        );
+      }
+
+      // Update coverage stats
+      if (json.coverage) {
+        setScanCoverage({
+          symbolsQueued: json.coverage.symbolsQueued ?? 0,
+          scannedSuccessfully: json.coverage.successCount ?? 0,
+          skippedCount: json.coverage.skippedCount ?? 0,
+          failedCount: json.coverage.failedCount ?? 0,
+          opportunitiesFound: json.coverage.opportunitiesCount ?? 0,
+          universeSource: json.coverage.universeSource,
+          universeSize: json.coverage.universeSize,
+          successCount: json.coverage.successCount,
+          opportunitiesCount: json.coverage.opportunitiesCount,
+        });
+      }
+
+      if (json.marketRegime) {
+        setRegime((prev): RegimeUI => ({
+          spotPrice:     json.marketRegime.niftySpot    ?? prev?.spotPrice    ?? 0,
+          changePercent: json.marketRegime.niftyChangePercent ?? prev?.changePercent ?? 0,
+          ema20:         json.marketRegime.niftyEma20   ?? prev?.ema20        ?? 0,
+          ema50:         prev?.ema50  ?? 0,
+          ema200:        prev?.ema200 ?? 0,
+          bias:          json.marketRegime.bias         ?? prev?.bias         ?? "UNAVAILABLE",
+          clearance:     json.marketRegime.clearance    ?? prev?.clearance    ?? "UNAVAILABLE",
+          breadthPercentAbove50EMA: null,
+          advancingStocksCount:    null,
+          decliningStocksCount:    null,
+          regimeScore:  json.marketRegime.bias === "BULLISH_TREND" ? 85 : 62,
+          analysisSummary: json.marketRegime.analysisSummary ?? prev?.analysisSummary ?? "",
+        }));
+      }
+
+      setLastScanTimestamp(
+        new Date().toLocaleTimeString("en-IN", {
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+        })
+      );
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        setNseError("NSE scan timed out after 10 minutes. The universe may be too large for a single request. Try with max_symbols parameter.");
+      } else {
+        setNseError(err?.message || "NSE scan failed unexpectedly.");
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      setIsNseScanning(false);
+    }
+  };
+
   // Fetch available historical scan dates
+
   useEffect(() => {
     fetch("/api/indian/swing/daily-scanner/history")
       .then((r) => r.json())
@@ -698,7 +490,6 @@ export default function IMSwingTradingView() {
     return () => clearInterval(interval);
   }, [selectedUniverse, selectedStrategyTab, selectedScanDate]);
 
-  // Fetch live signals for legacy compatibility
   const fetchSwingData = async () => {
     try {
       let res = await fetch("/api/indian/swing/signals", { cache: "no-store" }).catch(() => null);
@@ -707,14 +498,16 @@ export default function IMSwingTradingView() {
       }
       if (res && res.ok) {
         const data = await res.json();
+        // Only populate signals if the API returns validated, non-empty results.
+        // Never fall back to hardcoded stocks.
         if (data.success && data.signals && data.signals.length > 0) {
           setSignals(data.signals);
           if (data.regime) setRegime(data.regime);
-          setIsLiveFeed(true);
         }
+        // If API returns empty or fails, signals stays as [] — empty state is correct.
       }
     } catch {
-      // Fallback data remains active
+      // API unreachable — leave signals empty, show empty state
     }
   };
 
@@ -845,7 +638,7 @@ export default function IMSwingTradingView() {
             <div className="text-[9px] text-slate-500 font-mono uppercase">Framework Clearance</div>
             <div className="text-xs font-bold font-mono text-emerald-400 flex items-center justify-end gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              {regime.clearance.replace(/_/g, " ")}
+              {regime ? regime.clearance.replace(/_/g, " ") : "Loading..."}
             </div>
           </div>
         </div>
@@ -946,52 +739,61 @@ export default function IMSwingTradingView() {
         {/* Scanned Stock Live Technical Chart Terminal */}
         {scannedStock && (
           <div id="swing-strategy-chart-section" className="space-y-4">
-            <SwingStrategyChart
-              symbol={scannedStock.cleanSymbol}
-              companyName={scannedStock.companyName || `${scannedStock.cleanSymbol} India`}
-              currentPrice={scannedStock.price}
-              change={scannedStock.change}
-              changePercent={scannedStock.changePercent}
-              setupBadge={scannedStock.detectedSetup.setupBadge}
-              setupTitle={scannedStock.detectedSetup.setupName}
-              entryPrice={scannedStock.detectedSetup.entryPrice}
-              stopLossPrice={scannedStock.detectedSetup.stopLossPrice}
-              target1Price={scannedStock.detectedSetup.target1Price}
-              target2Price={scannedStock.detectedSetup.target2Price}
-              riskPerShare={scannedStock.detectedSetup.riskPerShare}
-              rewardRiskRatio={scannedStock.detectedSetup.rewardRiskRatio}
-              ema20={scannedStock.ema20}
-              ema50={scannedStock.ema50}
-              candles={scannedStock.candleHistory}
-              onLoadIntoCalculator={loadScannedStockIntoCalculator}
-            />
-
-            {/* Strategy Trade Levels & Rationale Breakdown Strip */}
-            <div className="p-4 rounded-xl bg-[#090e1a] border border-cyan-500/25 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
-                <div className="flex items-center gap-2">
-                  <Flame className="w-4 h-4 text-amber-400" />
-                  <span className="text-xs font-bold font-mono text-slate-200">
-                    5-Pillar Rationale: {scannedStock.detectedSetup.setupName}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
-                    Confluence: {scannedStock.detectedSetup.confluenceScore}/100
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-bold">
-                    Min 1:{scannedStock.detectedSetup.rewardRiskRatio.toFixed(1)} R:R
-                  </span>
-                </div>
+            {scannedStock.detectedSetup ? (
+              <SwingStrategyChart
+                symbol={scannedStock.cleanSymbol}
+                companyName={scannedStock.companyName || `${scannedStock.cleanSymbol} India`}
+                currentPrice={scannedStock.price}
+                change={scannedStock.change}
+                changePercent={scannedStock.changePercent}
+                setupBadge={scannedStock.detectedSetup.setupBadge}
+                setupTitle={scannedStock.detectedSetup.setupName}
+                entryPrice={scannedStock.detectedSetup.entryPrice}
+                stopLossPrice={scannedStock.detectedSetup.stopLossPrice}
+                target1Price={scannedStock.detectedSetup.target1Price}
+                target2Price={scannedStock.detectedSetup.target2Price}
+                riskPerShare={scannedStock.detectedSetup.riskPerShare}
+                rewardRiskRatio={scannedStock.detectedSetup.rewardRiskRatio}
+                ema20={scannedStock.ema20}
+                ema50={scannedStock.ema50}
+                candles={scannedStock.candleHistory}
+                onLoadIntoCalculator={loadScannedStockIntoCalculator}
+              />
+            ) : (
+              <div className="p-4 rounded-xl bg-[#090e1a] border border-slate-700/40 text-center text-slate-500 text-sm">
+                No setup detected for {scannedStock.cleanSymbol} — no strategy conditions matched.
               </div>
+            )}
 
-              {/* Rationale items */}
-              <ul className="text-xs font-mono text-slate-300 space-y-1 list-disc list-inside">
-                {scannedStock.detectedSetup.rationale.map((r: string, idx: number) => (
-                  <li key={idx}>{r}</li>
-                ))}
-              </ul>
-            </div>
+            {/* Strategy Trade Levels & Rationale Breakdown Strip — only shown when a setup was detected */}
+            {scannedStock.detectedSetup && (
+              <div className="p-4 rounded-xl bg-[#090e1a] border border-cyan-500/25 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Flame className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-bold font-mono text-slate-200">
+                      5-Pillar Rationale: {scannedStock.detectedSetup.setupName}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
+                      Confluence: {scannedStock.detectedSetup.confluenceScore}/100
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-bold">
+                      Min 1:{scannedStock.detectedSetup.rewardRiskRatio.toFixed(1)} R:R
+                    </span>
+                  </div>
+                </div>
+
+                {/* Rationale items */}
+                <ul className="text-xs font-mono text-slate-300 space-y-1 list-disc list-inside">
+                  {scannedStock.detectedSetup.rationale.map((r: string, idx: number) => (
+                    <li key={idx}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
           </div>
         )}
 
@@ -1036,9 +838,44 @@ export default function IMSwingTradingView() {
                     </>
                   ) : null}
                   <span>•</span>
-                  <span>Opportunities: <strong className="text-cyan-300">{dailyOpportunities.length}</strong></span>
+                  {scanCoverage ? (
+                    <>
+                      <span className="text-slate-300">{scanCoverage.symbolsQueued} queued</span>
+                      <span>•</span>
+                      <span className="text-emerald-400">{scanCoverage.scannedSuccessfully} scanned</span>
+                      {scanCoverage.failedCount > 0 && (
+                        <><span>•</span><span className="text-rose-400">{scanCoverage.failedCount} failed</span></>
+                      )}
+                      <span>•</span>
+                      <span className="text-amber-400 font-bold">{scanCoverage.opportunitiesFound} opportunities</span>
+                    </>
+                  ) : (
+                    <span>Opportunities: <strong className="text-cyan-300">{dailyOpportunities.length}</strong></span>
+                  )}
+
                   <span>•</span>
                   <span className="text-emerald-400 font-bold">{multiStrategyMatches.length} Multi-Strategy Matches</span>
+                  {scanCoverage?.universeSource && (
+                    <>
+                      <span>•</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${
+                          scanCoverage.universeSource === "NSE_CSV"
+                            ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                            : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                        }`}
+                      >
+                        {scanCoverage.universeSource === "NSE_CSV"
+                          ? `NSE CSV · ${scanCoverage.universeSize ?? "?"} symbols`
+                          : `FALLBACK · ${scanCoverage.universeSize ?? "148"} symbols`}
+                      </span>
+                    </>
+                  )}
+                  {nseScanResult?.status === "PARTIAL" && (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                      PARTIAL SCAN
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1092,14 +929,102 @@ export default function IMSwingTradingView() {
 
               <button
                 onClick={() => fetchDailyScannerData(selectedUniverse, selectedStrategyTab, true, selectedScanDate)}
-                disabled={isDailyScanning}
+                disabled={isDailyScanning || isNseScanning}
+
                 className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isDailyScanning ? "animate-spin" : ""}`} />
                 <span>{isDailyScanning ? "Scanning Market..." : "Scan Market Now"}</span>
               </button>
+
+              {/* Run Full NSE Scan — connects to nse-scanner endpoint */}
+              <button
+                id="run-full-nse-scan-btn"
+                onClick={() => fetchFullNseScan(false)}
+                disabled={isNseScanning || isDailyScanning}
+                title="Scans the complete NSE EQ universe (~2,300 symbols) using live Yahoo Finance data. Takes 5–10 minutes."
+                className="px-3 py-1 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/40 text-xs font-mono font-bold transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                {isNseScanning ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                    <span>Full NSE Scan Running…</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
+                    <span>Run Full NSE Scan</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
+
+          {/* ── NSE Fallback Warning Banner ──────────────────────────────── */}
+          {nseUseFallbackWarning && (
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-xs font-mono">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-amber-300 font-bold">Limited Coverage: NSE CSV Unavailable</p>
+                <p className="text-amber-200/80">
+                  The NSE EQUITY_L.csv could not be fetched (server may be blocked by NSE bot-protection).
+                  This scan used the <strong>FALLBACK_NIFTY_500</strong> list ({scanCoverage?.universeSize ?? 148} symbols)
+                  instead of the full NSE EQ universe (~2,300 symbols). Results are <strong>not</strong> full-market coverage.
+                </p>
+                {nseScanResult?.universeMetadata?.universeFetchError && (
+                  <p className="text-amber-200/60 text-[10px]">
+                    Reason: {nseScanResult.universeMetadata.universeFetchError}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── NSE Scan Error Banner ─────────────────────────────────────── */}
+          {nseError && (
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs font-mono">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-rose-300 font-bold">NSE Full Scan Failed</p>
+                <p className="text-rose-200/80">{nseError}</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── NSE Run Status Strip ──────────────────────────────────────── */}
+          {nseScanResult && !nseError && (
+            <div className="flex flex-wrap items-center gap-3 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-[10px] font-mono">
+              <span className={`px-2 py-0.5 rounded font-bold border ${
+                nseScanResult.status === "COMPLETED"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                  : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+              }`}>
+                {nseScanResult.status}
+              </span>
+              <span className="text-slate-400">
+                {nseScanResult.coverage.symbolsQueued} queued
+                · {nseScanResult.coverage.successCount} scanned
+                · {nseScanResult.coverage.skippedCount} skipped
+                · {nseScanResult.coverage.failedCount} failed
+                · <span className="text-amber-400 font-bold">{nseScanResult.coverage.opportunitiesCount} qualified</span>
+              </span>
+              <span className={`px-2 py-0.5 rounded font-bold border ${
+                nseScanResult.persistenceStatus === "PERSISTED"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                  : "bg-rose-500/15 text-rose-400 border-rose-500/30"
+              }`}>
+                DB: {nseScanResult.persistenceStatus}
+              </span>
+              {nseScanResult.persistenceError && (
+                <span className="text-rose-400/70 truncate max-w-xs" title={nseScanResult.persistenceError}>
+                  {nseScanResult.persistenceError}
+                </span>
+              )}
+              <span className="text-slate-500 ml-auto">
+                {Math.round(nseScanResult.scanDurationMs / 1000)}s · {nseScanResult.scanDate}
+              </span>
+            </div>
+          )}
 
           {/* ── 8 STRATEGY TABS ──────────────────────────────────────────────── */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
@@ -1337,6 +1262,7 @@ export default function IMSwingTradingView() {
                     </td>
                   </tr>
                 ) : (filteredOpportunities.length > 0 ? filteredOpportunities : filteredSignals).map((item: any) => {
+
                   const sym = item.cleanSymbol || item.symbol;
                   const isSelected = (scannedStock?.cleanSymbol || activeChip) === sym;
                   const price = item.currentPrice;
@@ -1520,7 +1446,9 @@ export default function IMSwingTradingView() {
                       </td>
                     </tr>
                   );
-                })}
+                })
+                }
+
               </tbody>
             </table>
           </div>
@@ -1548,22 +1476,25 @@ export default function IMSwingTradingView() {
                 1. Market Regime
               </span>
               <span className="text-[10px] font-mono text-emerald-400 font-bold">
-                {regime.regimeScore}/100
+                {regime?.regimeScore ?? "—"}/100
               </span>
             </div>
             <div className="mt-2">
               <div className="text-sm font-bold font-mono text-slate-100 flex items-center gap-1.5">
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
-                NIFTY {regime.bias.replace(/_/g, " ")}
+                NIFTY {regime?.bias?.replace(/_/g, " ") ?? "Loading..."}
               </div>
               <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                Spot: ₹{regime.spotPrice.toLocaleString("en-IN")} &gt; 20 EMA
+                {regime?.spotPrice ? `Spot: ₹${regime.spotPrice.toLocaleString("en-IN")} › 20 EMA` : "Run scan to load NIFTY data"}
               </div>
             </div>
             <div className="mt-2 pt-2 border-t border-slate-800/80 text-[10px] text-emerald-400/90 font-mono">
-              Breadth: {regime.breadthPercentAbove50EMA}% &gt; 50 EMA
+              {regime?.breadthPercentAbove50EMA != null
+                ? `Breadth: ${regime.breadthPercentAbove50EMA}% > 50 EMA`
+                : "Breadth: Data unavailable (requires separate source)"}
             </div>
           </div>
+
 
           {/* Pillar 2: Fundamentally Strong */}
           <div className="p-3.5 rounded-xl bg-[#11192e]/90 border border-emerald-500/25 flex flex-col justify-between">
@@ -1617,7 +1548,7 @@ export default function IMSwingTradingView() {
                 4. Price Action
               </span>
               <span className="text-[10px] font-mono text-amber-300 font-bold">
-                {signals.length} Setups
+                {dailyOpportunities.length > 0 ? dailyOpportunities.length : (signals.length === 0 ? "—" : signals.length)} Setups
               </span>
             </div>
             <div className="mt-2">
@@ -1681,7 +1612,8 @@ export default function IMSwingTradingView() {
         </div>
 
         <span className="text-[10px] font-mono text-slate-500">
-          Showing {filteredSignals.length} qualified opportunities
+          Showing {filteredSignals.length === 0 ? "0" : filteredSignals.length} legacy qualified setups
+          {signals.length === 0 && <span className="text-amber-400 ml-1">(Use Daily Scanner above for live results)</span>}
         </span>
       </div>
 
@@ -1769,7 +1701,7 @@ export default function IMSwingTradingView() {
                     R:R Minimum
                   </span>
                   <span className="text-xs font-bold font-mono text-emerald-400">
-                    1:{sig.rewardRiskRatio.toFixed(1)}
+                    1:{sig.rewardRiskRatio != null ? sig.rewardRiskRatio.toFixed(1) : "—"}
                   </span>
                 </div>
               </div>
@@ -1801,17 +1733,17 @@ export default function IMSwingTradingView() {
                 <div className="flex flex-col">
                   <span className="text-[9px] text-slate-500 font-mono uppercase">Entry Trigger</span>
                   <span className="text-sm font-bold font-mono text-cyan-300">
-                    ₹{sig.entryPrice.toLocaleString("en-IN")}
+                    {sig.entryPrice != null ? `₹${sig.entryPrice.toLocaleString("en-IN")}` : "—"}
                   </span>
                   <span className="text-[9px] text-slate-500 font-mono">
-                    LTP: ₹{sig.currentPrice.toLocaleString("en-IN")}
+                    LTP: {sig.currentPrice != null ? `₹${sig.currentPrice.toLocaleString("en-IN")}` : "—"}
                   </span>
                 </div>
 
                 <div className="flex flex-col">
                   <span className="text-[9px] text-rose-400 font-mono uppercase">Stop Loss (SL)</span>
                   <span className="text-sm font-bold font-mono text-rose-400">
-                    ₹{sig.stopLossPrice.toLocaleString("en-IN")}
+                    {sig.stopLossPrice != null ? `₹${sig.stopLossPrice.toLocaleString("en-IN")}` : "—"}
                   </span>
                   <span className="text-[9px] text-slate-500 font-mono">
                     Risk: ₹{sig.riskPerShare}/sh
@@ -1821,17 +1753,17 @@ export default function IMSwingTradingView() {
                 <div className="flex flex-col">
                   <span className="text-[9px] text-emerald-400 font-mono uppercase">Target 1 (2R)</span>
                   <span className="text-sm font-bold font-mono text-emerald-400">
-                    ₹{sig.target1Price.toLocaleString("en-IN")}
+                    {sig.target1Price != null ? `₹${sig.target1Price.toLocaleString("en-IN")}` : "—"}
                   </span>
                   <span className="text-[9px] text-slate-500 font-mono">
-                    +₹{(sig.target1Price - sig.entryPrice).toFixed(0)} gain
+                    {sig.target1Price != null && sig.entryPrice != null ? `+₹${(sig.target1Price - sig.entryPrice).toFixed(0)} gain` : ""}
                   </span>
                 </div>
 
                 <div className="flex flex-col">
                   <span className="text-[9px] text-amber-300 font-mono uppercase">Target 2 (3R+)</span>
                   <span className="text-sm font-bold font-mono text-amber-300">
-                    ₹{sig.target2Price.toLocaleString("en-IN")}
+                    {sig.target2Price != null ? `₹${sig.target2Price.toLocaleString("en-IN")}` : "—"}
                   </span>
                   <span className="text-[9px] text-slate-500 font-mono">Runner target</span>
                 </div>
