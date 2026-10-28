@@ -22,7 +22,7 @@
  * 15.  Broker execution remains false (safety invariant)
  */
 
-import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { NiftyMarketProvider } from "../market/NiftyMarketProvider";
@@ -224,26 +224,33 @@ describe("9. No localhost hardcoding in Indian market components", () => {
 describe("10. INDIAN_REAL_DATA_ONLY enforcement", () => {
   afterEach(() => {
     delete process.env.INDIAN_REAL_DATA_ONLY;
+    vi.restoreAllMocks();
   });
 
   it("returns isReal=false and spotPrice=0 when INDIAN_REAL_DATA_ONLY=true", async () => {
     process.env.INDIAN_REAL_DATA_ONLY = "true";
+    // Block Yahoo Finance so provider hits the real-data-only path (spotPrice=0, isReal=false).
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false, status: 503 } as Response);
     const provider = new NiftyMarketProvider(60000, null);
     const result = await provider.getSpotPrice();
     expect(result.isReal).toBe(false);
     expect(result.spotPrice).toBe(0);
   });
 
-  it("returns synthetic fallback 24700.45 when INDIAN_REAL_DATA_ONLY is not set", async () => {
+  it("returns synthetic fallback 22520.45 when INDIAN_REAL_DATA_ONLY is not set", async () => {
     delete process.env.INDIAN_REAL_DATA_ONLY;
+    // Block Yahoo Finance so provider falls through to the synthetic constant fallback.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false, status: 503 } as Response);
     const provider = new NiftyMarketProvider(60000, null);
     const result = await provider.getSpotPrice();
     expect(result.isReal).toBe(false);
-    expect(result.spotPrice).toBe(24700.45);
+    expect(result.spotPrice).toBe(22520.45);
   });
 
-  it("synthetic fallback 24700.45 is always marked isReal=false", async () => {
+  it("synthetic fallback 22520.45 is always marked isReal=false", async () => {
     delete process.env.INDIAN_REAL_DATA_ONLY;
+    // Block Yahoo Finance so provider falls through to the synthetic constant fallback.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false, status: 503 } as Response);
     const provider = new NiftyMarketProvider(60000, null);
     const result = await provider.getSpotPrice();
     expect(result.isReal).toBe(false);

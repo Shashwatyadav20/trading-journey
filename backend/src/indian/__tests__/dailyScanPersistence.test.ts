@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { dailyScanPersistenceService, DailyScanRunRow, DailyScanOpportunityRow } from "../../db/DailyScanPersistenceService";
-import { setAdminSupabaseClient } from "../../db/supabaseClient";
+import { setAdminSupabaseClient, setSupabaseConfiguredOverride } from "../../db/supabaseClient";
 import { dailyScannerScheduler } from "../swing/DailyScannerScheduler";
 import { SwingSignal } from "../swing/types";
 
@@ -62,12 +62,17 @@ function createDummySignal(symbol: string, confluenceScore = 85): SwingSignal {
 describe("Task 3 — Daily Stock Scanner Supabase Persistence Suite", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Force in-memory mode: override isSupabaseConfigured() regardless of local .env credentials.
+    // This ensures the test suite never contacts the real Supabase database.
+    setSupabaseConfiguredOverride(false);
+    setAdminSupabaseClient(null);
     dailyScanPersistenceService.resetMemoryStateForTesting();
     dailyScannerScheduler.resetStateForTesting();
-    setAdminSupabaseClient(null);
   });
 
   afterEach(() => {
+    // Restore real env-var check so other test files are not affected.
+    setSupabaseConfiguredOverride(null);
     setAdminSupabaseClient(null);
   });
 

@@ -228,7 +228,12 @@ async function fetchSymbolCandles(symbol: string, retryCount = 0): Promise<Candl
       const c = rawCloses[i]; const o = rawOpens[i];
       if (c == null || o == null || isNaN(c) || isNaN(o)) continue;
       rawCandles.push({
-        date: new Date(timestamps[i] * 1000).toISOString().split('T')[0],
+        date: new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Kolkata',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date(timestamps[i] * 1000)),
         open: Number(o.toFixed(2)),
         high: Number((rawHighs[i] ?? c).toFixed(2)),
         low: Number((rawLows[i] ?? c).toFixed(2)),
@@ -441,11 +446,22 @@ class NseFullScanWorker {
         universeSize = symbols.length;
         console.log(`[NseFullScanWorker][${jobId}] Universe: ${symbols.length} symbols from NSE CSV.`);
       } catch (csvErr: any) {
-        console.warn(`[NseFullScanWorker][${jobId}] NSE CSV unavailable: ${csvErr.message}. Using fallback.`);
-        // Import fallback from scannerConfig — dynamic require to avoid @/ alias issues
+        // ── FALLBACK UNIVERSE DIAGNOSTIC ─────────────────────────────────────
+        // NSE CSV is unavailable. The scan will proceed on the documented Nifty
+        // 500 fallback list (~130 symbols) instead of the full ~2,349-symbol EQ
+        // universe. This MUST NOT be reported as a full NSE scan.
+        // universe_source in the DB row will reflect 'FALLBACK_NIFTY_500'.
+        // ─────────────────────────────────────────────────────────────────────
         symbols = this._getFallbackUniverse();
         universeSource = 'FALLBACK_NIFTY_500';
         universeSize = symbols.length;
+        console.warn(
+          `[NseFullScanWorker][${jobId}] ⚠ FALLBACK UNIVERSE ACTIVE ⚠\n` +
+          `  Reason: ${csvErr?.message ?? 'unknown'}\n` +
+          `  Coverage: ${symbols.length} symbols (Nifty 500 subset) — NOT full NSE coverage.\n` +
+          `  This scan result is marked universe_source='FALLBACK_NIFTY_500' in the database.\n` +
+          `  The full universe (~2,349 EQ symbols) will resume on next successful NSE CSV fetch.`
+        );
       }
 
       // ── 2. Apply max_symbols cap ────────────────────────────────────────

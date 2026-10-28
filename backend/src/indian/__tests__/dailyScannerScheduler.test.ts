@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { dailyScannerScheduler, DailyScannerScheduler } from "../swing/DailyScannerScheduler";
 import { DailyCandle } from "../swing/dailyStrategyScanner";
 import { brokerSafetyLock } from "../security/BrokerSafetyLock";
+import { setSupabaseConfiguredOverride } from "../../db/supabaseClient";
 
 // Helper to make mock daily candles
 function makeSampleCandles(count: number, basePrice: number, isBreakout: boolean = false): DailyCandle[] {
@@ -41,10 +42,14 @@ function makeSampleCandles(count: number, basePrice: number, isBreakout: boolean
 
 describe("Task 2: Daily Stock Scanner Scheduler Suite", () => {
   beforeEach(() => {
+    // Force in-memory mode: ensures tests never contact the real Supabase database.
+    setSupabaseConfiguredOverride(false);
     dailyScannerScheduler.resetStateForTesting();
   });
 
   afterEach(() => {
+    // Restore real env-var check so other test files are not affected.
+    setSupabaseConfiguredOverride(null);
     dailyScannerScheduler.resetStateForTesting();
   });
 
@@ -198,7 +203,7 @@ describe("Task 2: Daily Stock Scanner Scheduler Suite", () => {
       },
     });
 
-    expect(summary.status).toBe("COMPLETED");
+    expect(summary.status).toBe("PARTIAL");
     expect(summary.scannedSymbolsCount).toBe(2);
     expect(summary.successfulSymbolsCount).toBe(1);
     expect(summary.failedSymbolsCount).toBe(1);

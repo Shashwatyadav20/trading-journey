@@ -2,11 +2,11 @@
   "name": "trading-backend",
   "version": "1.0.0",
   "description": "Trading backend",
-  "main": "dist/server.js",
+  "main": "dist/backend/src/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/backend/src/server.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

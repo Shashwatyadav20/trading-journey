@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NiftyMarketProvider } from "../market/NiftyMarketProvider";
 import { SlippageModel } from "../risk/SlippageModel";
 import { SignalAuditStore } from "../audit/SignalAuditStore";
@@ -26,13 +26,25 @@ describe("Phase 3 Live Paper Validation & Backtest Integration Suite", () => {
 
   afterEach(() => {
     process.env = { ...origEnv };
+    vi.restoreAllMocks();
   });
 
   describe("1. Market Data Provider & Stale Data Protection", () => {
     it("reports default paper/synthetic status when no live feed present", async () => {
+      // Block Yahoo Finance so the provider exercises the synthetic fallback path.
+      // The synthetic fallback returns isReal=false (not real market data).
+      vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false, status: 503 } as Response);
       const res = await provider.getSpotPrice();
       expect(res.spotPrice).toBeGreaterThan(0);
       expect(res.isReal).toBe(false);
+    });
+
+    it("returns isReal=true when a genuine spot price is injected (regression: real-data path)", async () => {
+      // Verify that the real-data path correctly sets isReal=true.
+      provider.updateSpotPrice(24700, true);
+      const res = await provider.getSpotPrice();
+      expect(res.spotPrice).toBe(24700);
+      expect(res.isReal).toBe(true);
     });
 
     it("evaluates data health and flags stale data when timeout exceeded", async () => {

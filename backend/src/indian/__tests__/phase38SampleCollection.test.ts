@@ -186,13 +186,26 @@ describe("PHASE 38 — GENUINE MARKET SAMPLE COLLECTION & COHORT ACCUMULATION", 
 
   // 8. Reconciliation failure rejected
   test("8. Reconciliation failure rejected", () => {
+    // Use fixed timestamps (entry clearly before exit) so the anti-hindsight
+    // check cannot fire under parallel-suite load before the reconciliation check.
     const trade = phase38TradeCollector.finalizeTrade({
       tradeId: "trade_recon_fail_1",
       sessionId: "sess_1",
       reconciliationStatus: "FAIL",
+      entry: {
+        timestamp: "2026-10-04T10:00:00.000Z",
+        timestampIST: "2026-10-04T15:30:00.000+05:30",
+        spotPrice: 24500,
+        shortStrike: 24500,
+        hedgeStrike: 24700,
+        optionType: "PE",
+        quantity: 75,
+        hedgeFirstCompleted: true,
+        shortLegConfirmed: true,
+      },
       exit: {
-        timestamp: new Date().toISOString(),
-        timestampIST: "2026-10-04T11:00:00+05:30",
+        timestamp: "2026-10-04T11:00:00.000Z",
+        timestampIST: "2026-10-04T16:30:00.000+05:30",
         spotPrice: 24550,
         exitReason: "PROFIT_TARGET",
       },

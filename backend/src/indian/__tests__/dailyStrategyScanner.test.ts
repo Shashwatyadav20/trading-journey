@@ -127,8 +127,13 @@ describe("AI Daily Stock Strategy Scanner Suite", () => {
     const profile = buildStockIndicatorProfile("BEL", candles, {
       regularMarketPrice: 380,
     });
+    // Simulate a genuine two-bar bullish crossover:
+    //   previous bar: EMA20 was at or below EMA50 (prevEma20 <= prevEma50)
+    //   current bar:  EMA20 is now above EMA50 (ema20 > ema50)
     profile.ema20 = 370;
-    profile.ema50 = 368; // Golden cross by 0.5%
+    profile.ema50 = 368;         // Golden cross — EMA20 > EMA50 by ~0.54%
+    profile.prevEma20 = 367.5;   // Previous bar: EMA20 just below EMA50
+    profile.prevEma50 = 368.0;   // Previous bar: EMA50 still above EMA20
     profile.currentPrice = 380;
 
     const res = evaluateStrategyD_MACrossover(profile);

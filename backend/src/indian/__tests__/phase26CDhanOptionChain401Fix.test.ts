@@ -546,7 +546,9 @@ describe("PHASE 26C — Dhan Option Chain HTTP 401 Root-Cause Fix", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
       const urlStr = url.toString();
       if (urlStr.includes("/expirylist")) {
-        return { ok: true, status: 200, json: async () => ({ data: ["2020-01-01", "2026-10-08", "2026-10-15"] }) } as Response;
+        // TEST_FUTURE_EXPIRY: 2020-01-01 is always past; 2026-11-06 and 2026-11-13 are always
+        // future relative to the fixed test date 2026-10-28. Filter must select 2026-11-06.
+        return { ok: true, status: 200, json: async () => ({ data: ["2020-01-01", "2026-11-06", "2026-11-13"] }) } as Response;
       }
       if (urlStr.includes("/optionchain")) {
         return {
@@ -569,7 +571,7 @@ describe("PHASE 26C — Dhan Option Chain HTTP 401 Root-Cause Fix", () => {
                     gamma: 0.0005,
                     theta: -13.0,
                     vega: 19.0,
-                    expiry: "2026-10-08",
+                    expiry: "2026-11-06",
                   },
                   pe: {
                     security_id: "88002",
@@ -583,7 +585,7 @@ describe("PHASE 26C — Dhan Option Chain HTTP 401 Root-Cause Fix", () => {
                     gamma: 0.0005,
                     theta: -11.0,
                     vega: 17.5,
-                    expiry: "2026-10-08",
+                    expiry: "2026-11-06",
                   },
                 },
               },
@@ -606,7 +608,7 @@ describe("PHASE 26C — Dhan Option Chain HTTP 401 Root-Cause Fix", () => {
     expect(res.lotSizeVerified).toBe(true);
 
     // Expired dates are filtered — "2020-01-01" should not be selected
-    expect(res.nearestExpiry).toBe("2026-10-08");
+    expect(res.nearestExpiry).toBe("2026-11-06");
     expect(res.nearestExpiry).not.toBe("2020-01-01");
 
     // Contract data

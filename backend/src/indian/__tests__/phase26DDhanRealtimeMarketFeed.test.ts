@@ -6,6 +6,7 @@ import { DhanNseCrossChecker } from "../validation/DhanNseCrossChecker";
 import { DhanBrokerAdapter } from "../broker/DhanBrokerAdapter";
 import { PaperBrokerAdapter } from "../broker/PaperBrokerAdapter";
 import { DailyRiskController } from "../risk/DailyRiskController";
+import { niftyMarketProvider } from "../market/NiftyMarketProvider";
 import { DhanMarketTick, CanonicalOptionContract, AutoHedgeSignal } from "../types";
 
 describe("PHASE 26D — Dhan Real-Time Market Feed & Genuine Paper Trading Suite", () => {
@@ -247,6 +248,16 @@ describe("PHASE 26D — Dhan Real-Time Market Feed & Genuine Paper Trading Suite
   });
 
   test("17. NSE Cross-Check Comparison", async () => {
+    // Simulate NSE being unavailable: mock getSpotPrice() to return spotPrice=0.
+    // Without this mock, the provider fetches Yahoo Finance and returns a real price,
+    // causing a DHAN_NSE_MISMATCH instead of NSE_UNAVAILABLE.
+    // The test intent: when NSE data is not available, compareSpotAndOptions() must
+    // classify the result as NSE_UNAVAILABLE and log no discrepancy.
+    vi.spyOn(niftyMarketProvider, "getSpotPrice").mockResolvedValueOnce({
+      spotPrice: 0,
+      timestamp: Date.now(),
+      isReal: false,
+    });
     const matchRes = await crossChecker.compareSpotAndOptions("NIFTY", 24700, 150);
     expect(matchRes.symbol).toBe("NIFTY");
     expect(matchRes.matchStatus).toBe("NSE_UNAVAILABLE");

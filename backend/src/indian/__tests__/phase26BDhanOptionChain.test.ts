@@ -154,11 +154,13 @@ describe("PHASE 26B — Dhan Real-Time NIFTY Option Chain Integration Test Suite
   });
 
   // 5. Expired expiry handling
+  // TEST_FUTURE_EXPIRY: 2026-11-27 is always future relative to the fixed test date 2026-10-28.
+  // "2020-01-01" is always past. The filter must reject 2020-01-01 and select 2026-11-27.
   it("5. Filters out expired past dates during dynamic expiry discovery", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
       const urlStr = url.toString();
       if (urlStr.includes("/expirylist")) {
-        return { ok: true, status: 200, json: async () => ({ data: ["2020-01-01", "2026-10-08"] }) } as Response;
+        return { ok: true, status: 200, json: async () => ({ data: ["2020-01-01", "2026-11-27"] }) } as Response;
       }
       if (urlStr.includes("/optionchain")) {
         return {
@@ -181,7 +183,7 @@ describe("PHASE 26B — Dhan Real-Time NIFTY Option Chain Integration Test Suite
     const res = await adapter.fetchOptionChain(24700);
 
     expect(res.success).toBe(true);
-    expect(res.nearestExpiry).toBe("2026-10-08");
+    expect(res.nearestExpiry).toBe("2026-11-27");
   });
 
   // 6 & 7. Missing underlying Security ID / option Security ID

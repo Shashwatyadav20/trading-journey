@@ -105,6 +105,18 @@ export interface StockIndicatorProfile {
   ema20: number | null;
   ema50: number | null;
   ema200: number | null;
+  /**
+   * EMA20 of the **penultimate** completed bar (bar N-2).
+   * Used by Strategy D for genuine two-bar crossover detection.
+   * Null when < 21 candles available.
+   */
+  prevEma20?: number | null;
+  /**
+   * EMA50 of the **penultimate** completed bar (bar N-2).
+   * Used by Strategy D for genuine two-bar crossover detection.
+   * Null when < 51 candles available.
+   */
+  prevEma50?: number | null;
   rsi14: number | null;
   indicatorsAvailable: {
     ema20: boolean;
@@ -759,6 +771,15 @@ export function buildStockIndicatorProfile(
   const ema50 = ema50Raw !== null ? Number(ema50Raw.toFixed(2)) : null;
   const ema200 = ema200Raw !== null ? Number(ema200Raw.toFixed(2)) : null;
 
+  // Penultimate bar EMA values — needed by Strategy D for genuine two-bar crossover.
+  // Bar N-2 (index len-2) must exist; EMA arrays cover the same length as closes[].
+  const prevEma20 = (len >= 21 && ema20Arr[len - 2] !== null)
+    ? Number((ema20Arr[len - 2] as number).toFixed(2))
+    : null;
+  const prevEma50 = (len >= 51 && ema50Arr[len - 2] !== null)
+    ? Number((ema50Arr[len - 2] as number).toFixed(2))
+    : null;
+
   // 20-day Volume Average
   const sliceVol = volumes.slice(-20);
   const avgVolume20D = Math.round(sliceVol.reduce((a, b) => a + b, 0) / sliceVol.length) || 1;
@@ -852,6 +873,8 @@ export function buildStockIndicatorProfile(
     ema50,
     ema200,
     ema200IsEstimated,
+    prevEma20,
+    prevEma50,
     rsi14,
     indicatorsAvailable: {
       ema20: ema20 !== null,
@@ -1072,8 +1095,24 @@ export function evaluateStrategyC_SupportBounce(p: StockIndicatorProfile): Strat
 
 export function evaluateStrategyD_MACrossover(p: StockIndicatorProfile): StrategyMatchResult {
   const hasMAs = p.ema20 !== null && p.ema50 !== null;
+  const hasPrevMAs = p.prevEma20 !== null && p.prevEma20 !== undefined
+    && p.prevEma50 !== null && p.prevEma50 !== undefined;
+
+  // ── Genuine two-bar crossover detection ─────────────────────────────────────
+  // A confirmed bullish crossover: the PREVIOUS bar had EMA20 ≤ EMA50,
+  // and the CURRENT bar has EMA20 > EMA50. Both bars must be completed.
+  // This prevents firing on a cross that happened many bars earlier.
+  const hasGenuineCross = hasMAs && hasPrevMAs
+    && p.prevEma20! <= p.prevEma50!        // previous bar: EMA20 at or below EMA50
+    && p.ema20! > p.ema50!;                // current bar: EMA20 now above EMA50
+
+  // ── Fallback: EMA spread heuristic (when penultimate EMAs are unavailable) ──
+  // Used only when prevEma20/prevEma50 are not available (fewer than 51 candles
+  // on the penultimate bar). Kept tighter than the old ±3.5% to reduce late signals.
   const emaSpreadPercent = hasMAs ? ((p.ema20! - p.ema50!) / p.ema50!) * 100 : 0;
-  const isFreshCross = hasMAs && emaSpreadPercent >= -0.5 && emaSpreadPercent <= 3.5;
+  const isSpreadFresh = hasMAs && emaSpreadPercent >= 0 && emaSpreadPercent <= 2.0;
+
+  const isFreshCross = hasMAs && (hasGenuineCross || (!hasPrevMAs && isSpreadFresh));
   const isPriceAboveBoth = hasMAs && p.currentPrice >= p.ema20!;
   const matched = hasMAs && isFreshCross && isPriceAboveBoth;
 
@@ -1086,10 +1125,19 @@ export function evaluateStrategyD_MACrossover(p: StockIndicatorProfile): Strateg
   const confidenceScore = Math.min(
     93,
     (matched ? 40 : 10) +
+      (hasGenuineCross ? 10 : 0) +           // bonus for confirmed two-bar cross
       (p.volumeMultiplier >= 1.2 ? 20 : 10) +
       (p.rsi14 !== null && p.rsi14 >= 50 && p.rsi14 <= 65 ? 20 : 10) +
       13
   );
+
+  // Zone max: ensure trigger (currentPrice * 1.003) is always within zone bounds
+  const zoneBase = p.ema20 ?? p.supportLevel;
+  const zoneMax = Number(Math.max(zoneBase * 1.02, entryTrigger).toFixed(1));
+
+  const crossLabel = hasGenuineCross
+    ? `Confirmed Golden Cross: EMA20 crossed above EMA50 on latest bar`
+    : `EMA20 (₹${p.ema20}) near EMA50 (₹${p.ema50}) — spread ${emaSpreadPercent.toFixed(2)}%`;
 
   return {
     strategyId: "STRATEGY_D_MA_CROSSOVER",
@@ -1097,10 +1145,12 @@ export function evaluateStrategyD_MACrossover(p: StockIndicatorProfile): Strateg
     strategyName: "Moving Average Crossover",
     matched,
     direction: "BULLISH",
-    confirmationStatus: matched ? (p.volumeMultiplier >= 1.3 ? "CONFIRMED" : "DEVELOPING") : "WATCHLIST",
+    confirmationStatus: matched
+      ? (hasGenuineCross && p.volumeMultiplier >= 1.3 ? "CONFIRMED" : "DEVELOPING")
+      : "WATCHLIST",
     entryZone: {
-      min: p.ema20 ?? p.supportLevel,
-      max: Number(((p.ema20 ?? p.supportLevel) * 1.02).toFixed(1)),
+      min: zoneBase,
+      max: zoneMax,
       trigger: entryTrigger,
     },
     stopLoss,
@@ -1110,15 +1160,22 @@ export function evaluateStrategyD_MACrossover(p: StockIndicatorProfile): Strateg
     rewardRiskRatio: 2.0,
     confidenceScore,
     keyLevel: p.ema50 ?? p.supportLevel,
-    rejectionCandle: hasMAs ? `20 EMA (₹${p.ema20}) Bullish Golden Cross over 50 EMA (₹${p.ema50})` : undefined,
+    rejectionCandle: hasMAs ? crossLabel : undefined,
     rationale: hasMAs ? [
-      `20-day EMA crossed above 50-day EMA, initiating a medium-term trend reversal.`,
-      `Price trades comfortably above both moving averages.`,
-      `Momentum expanding in the direction of the golden cross.`,
+      hasGenuineCross
+        ? `Confirmed two-bar bullish crossover: EMA20 closed above EMA50 for the first time on the latest completed bar.`
+        : `EMA20 and EMA50 are in a fresh alignment (spread ${emaSpreadPercent.toFixed(2)}%). Penultimate bar EMA data unavailable for strict crossover confirmation.`,
+      `Price trades above both moving averages.`,
+      `Momentum expanding in the direction of the cross.`,
     ] : [
       `Insufficient candle history for 20/50 EMA crossover evaluation.`
     ],
-    warnings: !hasMAs ? ["Strategy D requires 20 and 50 EMA. Unavailable due to insufficient candle history."] : [],
+    warnings: [
+      ...(!hasMAs ? ["Strategy D requires 20 and 50 EMA. Unavailable due to insufficient candle history."] : []),
+      ...(!hasGenuineCross && hasMAs && matched
+        ? ["Crossover confirmation used spread heuristic (penultimate bar EMA unavailable). Confirm crossover date on chart before entry."]
+        : []),
+    ],
   };
 }
 

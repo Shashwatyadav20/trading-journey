@@ -12,7 +12,21 @@ import { env } from "../config/env";
 
 let _adminClient: ReturnType<typeof createClient> | null = null;
 
+/**
+ * TEST-ONLY override for isSupabaseConfigured().
+ * Set to false to force in-memory mode in tests; null to restore real env-var check.
+ * NEVER set this in production code.
+ */
+let _configuredOverride: boolean | null = null;
+
+export function setSupabaseConfiguredOverride(override: boolean | null): void {
+  _configuredOverride = override;
+}
+
 export function isSupabaseConfigured(): boolean {
+  if (_configuredOverride !== null) {
+    return _configuredOverride;
+  }
   return Boolean(
     env.SUPABASE_URL &&
     env.SUPABASE_SERVICE_ROLE_KEY &&

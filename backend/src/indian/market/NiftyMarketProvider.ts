@@ -146,10 +146,11 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
       };
     }
 
+    // Synthetic fallback: hardcoded default value — never real market data.
     return {
       spotPrice: 22520.45,
       timestamp: this.lastUpdateTimestampMs,
-      isReal: true,
+      isReal: false,
     };
   }
 
@@ -191,7 +192,7 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
           }
         }
       }
-    } catch {}
+    } catch { }
 
     if (spot <= 0 || (process.env.INDIAN_REAL_DATA_ONLY === "true" && !spotRes.isReal)) {
       return { candles: [], isReal: false };
@@ -218,12 +219,23 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
 
   public async getOptionChain(spotPrice: number): Promise<OptionChainResult> {
     const spotRes = await this.getSpotPrice();
-    const effectiveSpot = spotRes.spotPrice > 0 ? spotRes.spotPrice : (spotPrice > 0 ? spotPrice : 22520.45);
+    const effectiveSpot =
+      spotRes.spotPrice > 0
+        ? spotRes.spotPrice
+        : spotPrice > 0
+          ? spotPrice
+          : 22520.45;
 
     if (this.optionChainProvider) {
       try {
         const fetchResult = await this.optionChainProvider.fetchOptionChain(effectiveSpot);
-        if (fetchResult && fetchResult.success && fetchResult.contracts && fetchResult.contracts.length > 0) {
+
+        if (
+          fetchResult &&
+          fetchResult.success &&
+          fetchResult.contracts &&
+          fetchResult.contracts.length > 0
+        ) {
           const contracts: OptionContract[] = fetchResult.contracts.map((c) => ({
             symbol: `NIFTY${c.expiry.replace(/-/g, "")}${c.strike}${c.optionType}`,
             expiry: c.expiry,
@@ -255,30 +267,20 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
           };
         }
       } catch {
-        // Fall back to synthetic chain around genuine spot
+        // Provider failed; return an empty chain below.
       }
     }
 
-    // In REAL_DATA_ONLY mode, do not generate synthetic option chain
-    if (process.env.INDIAN_REAL_DATA_ONLY === "true") {
-      return {
-        chain: {
-          spotPrice: effectiveSpot,
-          timestamp: new Date().toISOString(),
-          contracts: [],
-          isSynthetic: true,
-        },
-        isReal: false,
-      };
-    }
-
-    // Generate realistic option chain centered around genuine spot price
-    const chain: NiftyOptionChain = niftyOptionChainService.generateSyntheticChain(effectiveSpot);
-    chain.isSynthetic = false;
-
+    // Fail closed: never disguise synthetic options as genuine market data.
+    // If the real provider fails, return an empty, explicitly synthetic chain.
     return {
-      chain,
-      isReal: true,
+      chain: {
+        spotPrice: effectiveSpot,
+        timestamp: new Date().toISOString(),
+        contracts: [],
+        isSynthetic: true,
+      },
+      isReal: false,
     };
   }
 
@@ -419,8 +421,8 @@ export class NiftyMarketProvider implements INiftyMarketDataProvider {
     const overallQuality = isStale
       ? "STALE_DATA"
       : isChainReal
-      ? "REAL LIVE PERFORMANCE"
-      : "SYNTHETIC OPTION DATA — PAPER ESTIMATION";
+        ? "REAL LIVE PERFORMANCE"
+        : "SYNTHETIC OPTION DATA — PAPER ESTIMATION";
 
 
     return {
