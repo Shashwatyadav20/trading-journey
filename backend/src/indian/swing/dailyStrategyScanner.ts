@@ -95,6 +95,8 @@ export interface StockIndicatorProfile {
   ema20: number | null;
   ema50: number | null;
   ema200: number | null;
+  /** True when fewer than 200 candles are available for a genuine EMA200. */
+  ema200IsEstimated?: boolean;
   /**
    * EMA20 of the **penultimate** completed bar (bar N-2).
    * Used by Strategy D for genuine two-bar crossover detection.
