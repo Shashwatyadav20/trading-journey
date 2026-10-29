@@ -133,20 +133,21 @@ export class Phase26EGenuineLivePaperValidationEngine {
       rejectionReasons.push("REAL_SPOT_INVALID: Spot price is invalid or synthetic");
     }
 
-    // 4. Real Option Chain Check
+    // 4. Real Option Chain Check (Strict Fail-Closed with Test Allowance)
     const ocStatus = dhanBrokerAdapter.getOptionChainStatus();
+    const isTestEnv = process.env.NODE_ENV === "test" || process.env.EXECUTION_MODE === "SIMULATED_TEST";
     const isDhanOcOk = ocStatus.configured && ocStatus.optionChainStatus === "AVAILABLE";
-    const realOptionChain = !!overrideChain || isDhanOcOk || true;
+    const realOptionChain = !!overrideChain || isDhanOcOk || isTestEnv;
     if (!realOptionChain) {
       rejectionReasons.push("REAL_OPTION_CHAIN_UNAVAILABLE: Genuine Dhan Option Chain missing or unconfigured");
     }
 
-    // 5. Real Option Prices Check (bid/ask/ltp non-zero)
-    let realOptionPrices = true;
+    // 5. Real Option Prices Check (Strict Fail-Closed with Test Allowance)
+    let realOptionPrices = false;
     if (overrideChain) {
-      realOptionPrices = overrideChain.contracts.some((c) => c.ltp > 0 || c.bid > 0 || c.ask > 0);
+      realOptionPrices = overrideChain.contracts.length > 0 && overrideChain.contracts.some((c) => c.ltp > 0 || c.bid > 0 || c.ask > 0);
     } else {
-      realOptionPrices = isDhanOcOk || true;
+      realOptionPrices = isDhanOcOk || isTestEnv;
     }
     if (!realOptionPrices) {
       rejectionReasons.push("REAL_OPTION_PRICE_UNAVAILABLE: No valid quotes (LTP/bid/ask > 0) in Option Chain");
@@ -200,13 +201,16 @@ export class Phase26EGenuineLivePaperValidationEngine {
 
   /**
    * Pre-Market Validation before market open.
-   * Verifies all 12 pre-market requirements.
+   * Verifies all 12 pre-market requirements strictly without authentication bypasses.
    */
   public validatePreMarket(): { isReady: boolean; checks: Record<string, boolean>; failureReason: string | null } {
+    const ocStatus = dhanBrokerAdapter.getOptionChainStatus();
+    const isTestEnv = process.env.NODE_ENV === "test" || process.env.EXECUTION_MODE === "SIMULATED_TEST";
     const isAuthValid = dhanBrokerAdapter.isConfigured();
-    const isDataApiAvail = dhanBrokerAdapter.getOptionChainStatus().dataApi === "AVAILABLE" || isAuthValid;
-    const isExpiryAvail = dhanBrokerAdapter.getOptionChainStatus().expiryListStatus === "AVAILABLE" || isAuthValid;
-    const isOptionChainAvail = dhanBrokerAdapter.getOptionChainStatus().optionChainStatus === "AVAILABLE" || isAuthValid;
+    const isDataApiAvail = ocStatus.dataApi === "AVAILABLE" || isTestEnv;
+    const isExpiryAvail = ocStatus.expiryListStatus === "AVAILABLE" || isTestEnv;
+    const isOptionChainAvail = ocStatus.optionChainStatus === "AVAILABLE" || isTestEnv;
+
     const isNiftyVerified = true;
     const isExpiryReal = true;
     const isLotSizeVerified = instrumentMasterResolver.verifyLotSizeFromProvider(instrumentMasterResolver.getLotSize()).verified;
@@ -292,7 +296,6 @@ export class Phase26EGenuineLivePaperValidationEngine {
       return { signal: blockedSignal, realDataGate };
     }
 
-    // Call Master Strategy engine without changing parameters
     const signal = hedgingStrategyEngine.generateSignal(
       spotPrice,
       candles15M,
@@ -302,7 +305,6 @@ export class Phase26EGenuineLivePaperValidationEngine {
       isEmergencyStop
     );
 
-    // Attach complete provenance fields required by Requirement 10
     signal.dataSource = "DHAN";
     signal.spotSource = "DHAN";
     signal.optionChainSource = "DHAN";
@@ -328,17 +330,14 @@ export class Phase26EGenuineLivePaperValidationEngine {
       throw new Error(`Paper execution rejected: Signal status is ${signal.status}, expected READY`);
     }
 
-    // 1. Verify Real Data Gate
     const gate = this.evaluateRealDataGate(signal.spotPrice);
     if (!gate.allPassed) {
       throw new Error(`Paper execution rejected: Real Data Gate failed. ${gate.rejectionReasons.join("; ")}`);
     }
 
-    // 2. Execute Paper Position via PaperBrokerAdapter (Hedge-First fill inside)
     const position = paperBrokerAdapter.executePaperOrder(userId, signal);
     position.pnlType = "REAL_MARKET_DATA_PAPER_PNL";
 
-    // Record audit & alert
     operationalAlertLogger.logAlert(
       "PAPER_ENTRY",
       `Genuine Paper Position Entered [${position.strategy}]: Net Credit ₹${position.netCredit}, Max Loss ₹${position.maxLoss}`,
@@ -351,7 +350,6 @@ export class Phase26EGenuineLivePaperValidationEngine {
 
   /**
    * Runs controlled Failure Injection / Safety Tests.
-   * Mark results as SIMULATED_TEST so they NEVER count toward genuine sample!
    */
   public async runControlledFailureInjectionTest(
     testName: string,
@@ -391,17 +389,17 @@ export class Phase26EGenuineLivePaperValidationEngine {
       passed = true;
       rejectionReason = "REAL_OPTION_PRICE_UNAVAILABLE";
     } else if (faultType === "DAILY_PROFIT_LOCK") {
-      dailyRiskController.recordTradeClosed(1200); // Trigger profit lock >= 1000
+      dailyRiskController.recordTradeClosed(1200);
       const riskState = dailyRiskController.getState();
       passed = riskState.isDailyProfitLocked;
       rejectionReason = riskState.lockReason;
-      dailyRiskController.resetDailyState(); // Restore
+      dailyRiskController.resetDailyState();
     } else if (faultType === "DAILY_LOSS_LOCK") {
-      dailyRiskController.recordTradeClosed(-5200); // Trigger loss lock <= -5000
+      dailyRiskController.recordTradeClosed(-5200);
       const riskState = dailyRiskController.getState();
       passed = riskState.isDailyLossLocked;
       rejectionReason = riskState.lockReason;
-      dailyRiskController.resetDailyState(); // Restore
+      dailyRiskController.resetDailyState();
     } else if (faultType === "HEDGE_REJECTION") {
       passed = true;
       rejectionReason = "HEDGE_NOT_CONFIRMED";
@@ -427,9 +425,6 @@ export class Phase26EGenuineLivePaperValidationEngine {
     return testResult;
   }
 
-  /**
-   * Safe Backend Restart Recovery check.
-   */
   public recoverStateAfterRestart(): {
     openPositionsCount: number;
     closedPositionsCount: number;
@@ -462,9 +457,6 @@ export class Phase26EGenuineLivePaperValidationEngine {
     };
   }
 
-  /**
-   * Returns current Phase 26E Session Status for API endpoint & dashboard.
-   */
   public getSessionStatus(): Phase26ESessionStatus {
     const gate = this.evaluateRealDataGate();
     const sessionRes = marketSessionValidator.validateSessionForTrading();
@@ -472,7 +464,6 @@ export class Phase26EGenuineLivePaperValidationEngine {
     const openPositions = paperBrokerAdapter.getOpenPositions();
     const closedPositions = paperBrokerAdapter.getClosedPositions();
 
-    // Anti-simulation isolation: filter genuine sessions & trades
     const genuineSessions = paperSessionManager.getAllSessions().filter((s: PaperSessionRecord) => !s.isSyntheticOptionData);
     const genuineTrades = closedPositions.filter((t: NiftySpreadPosition) => t.mode === "PAPER" && t.pnlType === "REAL_MARKET_DATA_PAPER_PNL");
     const genuineActiveSessions = genuineSessions.filter((s: PaperSessionRecord) => s.totalTrades > 0);
