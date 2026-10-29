@@ -25,6 +25,33 @@ export interface DhanAuthVerificationResult {
   tokenMasked?: boolean;
   errorCode?: string;
   errorMessage?: string;
+  /** Data API entitlement derived from Profile `dataPlan` (ACTIVE only when Dhan reports "Active"). */
+  dataApiStatus?: "ACTIVE" | "INACTIVE" | "UNVERIFIED";
+  dataPlan?: string;
+  dataValidity?: string;
+  tokenValidity?: string;
+  /** Compares configured DHAN_CLIENT_ID with profile / token client id. Never exposes either value. */
+  clientIdCheck?: "MATCH" | "MISMATCH" | "UNKNOWN";
+  tokenExpiresAt?: string;
+}
+
+/**
+ * Decodes (does NOT verify) the JWT payload to read non-secret claims for diagnostics.
+ * Only `dhanClientId` and `exp` are returned. The token itself is never logged or returned.
+ */
+export function decodeDhanTokenClaims(token?: string | null): { dhanClientId?: string; expMs?: number } {
+  if (!token || typeof token !== "string") return {};
+  const parts = token.split(".");
+  if (parts.length !== 3) return {};
+  try {
+    const json = JSON.parse(Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    return {
+      dhanClientId: json?.dhanClientId ? String(json.dhanClientId) : undefined,
+      expMs: typeof json?.exp === "number" ? json.exp * 1000 : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -507,19 +534,51 @@ export class DhanAuthService {
       }
 
       const json = errJson;
-      const isValidProfile = !!(json?.dhanClientId || json?.profileId || json?.name || json?.status === "success" || resp.ok);
+      const isValidProfile = !!(json?.dhanClientId || json?.profileId || json?.name || (json?.status === "success" && (json?.dhanClientId || json?.data)));
 
       if (isValidProfile) {
         this.authStatus = "VALID";
         this.lastErrorMessage = "";
+
+        // Authentication (profile HTTP 200) does NOT prove Data API entitlement.
+        // Official Profile API exposes `dataPlan` ("Active"/"Deactive") and `dataValidity`.
+        const dataPlan = typeof json?.dataPlan === "string" ? json.dataPlan : undefined;
+        const dataApiStatus: "ACTIVE" | "INACTIVE" | "UNVERIFIED" =
+          dataPlan === undefined ? "UNVERIFIED" : /^active$/i.test(dataPlan.trim()) ? "ACTIVE" : "INACTIVE";
+
+        // Data APIs require the `client-id` header to belong to the token owner.
+        // The Profile API only uses access-token, so a wrong DHAN_CLIENT_ID passes here but fails data calls.
+        const claims = decodeDhanTokenClaims(this.accessToken);
+        const ownerId = json?.dhanClientId ? String(json.dhanClientId) : claims.dhanClientId;
+        const clientIdCheck: "MATCH" | "MISMATCH" | "UNKNOWN" =
+          ownerId && this.clientId ? (ownerId === this.clientId ? "MATCH" : "MISMATCH") : "UNKNOWN";
+
+        let errorCode: string | undefined;
+        let errorMessage: string | undefined;
+        if (clientIdCheck === "MISMATCH") {
+          errorCode = "CLIENT_ID_MISMATCH";
+          errorMessage = "DHAN_CLIENT_ID does not match the client id that owns the access token.";
+        } else if (dataApiStatus === "INACTIVE") {
+          errorCode = "DATA_API_NOT_SUBSCRIBED";
+          errorMessage = "Dhan profile reports Data API plan is not active.";
+        }
+
         return {
           provider: "DHAN",
           connected: true,
           authentication: "VALID",
           profileApiStatus: "HTTP_200",
-          dataAccess: true,
+          dataAccess: dataApiStatus === "ACTIVE" && clientIdCheck !== "MISMATCH",
           executionEnabled: false,
           authFlowUsed: this.lastAuthFlowUsed || "DIRECT_TOKEN",
+          dataApiStatus,
+          dataPlan,
+          dataValidity: typeof json?.dataValidity === "string" ? json.dataValidity : undefined,
+          tokenValidity: typeof json?.tokenValidity === "string" ? json.tokenValidity : undefined,
+          clientIdCheck,
+          tokenExpiresAt: claims.expMs ? new Date(claims.expMs).toISOString() : undefined,
+          errorCode,
+          errorMessage,
         };
       } else {
         this.authStatus = "FAILED";

@@ -179,6 +179,34 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
     return headers;
   }
 
+  /**
+   * Extracts a sanitized Dhan error code/message from any documented error body shape:
+   *  - Trading API:  { errorType, errorCode: "DH-901", errorMessage }
+   *  - Snake/remarks: { remarks: { error_code, error_message } } / { error_code, error_message }
+   *  - Data API:     { data: { "806": "Data APIs not subscribed" }, status: "failed" }
+   * Never includes request headers or tokens. Message is length-capped.
+   */
+  private parseDhanErrorBody(body: any): { code: string | null; message: string | null } {
+    if (!body || typeof body !== "object") return { code: null, message: null };
+    const src = body.remarks && typeof body.remarks === "object" ? body.remarks : body;
+    let code: any = src.errorCode ?? src.error_code ?? null;
+    let message: any = src.errorMessage ?? src.error_message ?? null;
+    if (!code && body.data && typeof body.data === "object" && !Array.isArray(body.data)) {
+      const key = Object.keys(body.data).find((k) => /^\d{3}$/.test(k));
+      if (key) {
+        code = key;
+        message = typeof body.data[key] === "string" ? body.data[key] : null;
+      }
+    }
+    const clean = (v: any) => (v === null || v === undefined ? null : String(v).replace(/[\r\n\t]+/g, " ").slice(0, 200));
+    return { code: clean(code), message: clean(message) };
+  }
+
+  /** Token refresh can only help for token-related errors, not entitlement / client-id errors. */
+  private isNonTokenAuthError(code: string | null): boolean {
+    return code === "806" || code === "810" || code === "DH-902" || code === "DH-903";
+  }
+
 
   // ── Internal HTTP helper (spyable by tests) ────────────────────────────────
 
@@ -553,7 +581,13 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
       });
 
       if (!resp.ok) {
-        if (resp.status === 401) {
+        // Read the error body once, before any retry, so the documented Dhan code is never lost.
+        let firstBody: any = null;
+        try { firstBody = await resp.json(); } catch { /* non-JSON body */ }
+        let parsed = this.parseDhanErrorBody(firstBody);
+        let finalStatus = resp.status;
+
+        if (resp.status === 401 && !this.isNonTokenAuthError(parsed.code)) {
           const newToken = await dhanAuthService.handleExpiredTokenResponse();
           if (newToken) {
             const retryResp = await fetch(`${this.baseUrl}/optionchain/expirylist`, {
@@ -581,18 +615,19 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
               }
               return validExpiries;
             }
+            let retryBody: any = null;
+            try { retryBody = await retryResp.json(); } catch { /* non-JSON body */ }
+            const retryParsed = this.parseDhanErrorBody(retryBody);
+            if (retryParsed.code) parsed = retryParsed;
+            finalStatus = retryResp.status ?? finalStatus;
           }
         }
 
-        let dhanCode = `HTTP_${resp.status}`;
-        let errorMsg = `Dhan ExpiryList HTTP ${resp.status}`;
-        try {
-          const errorJson = await resp.json();
-          if (errorJson?.errorCode || errorJson?.error_code) {
-            dhanCode = `DHAN_${errorJson.errorCode || errorJson.error_code}`;
-            errorMsg = errorJson.errorMessage || errorJson.error_message || errorMsg;
-          }
-        } catch { /* ignore */ }
+        const dhanCode = parsed.code ? `DHAN_${parsed.code}` : `HTTP_${finalStatus}`;
+        const errorMsg = parsed.message
+          ? `${parsed.message} (HTTP ${finalStatus})`
+          : `Dhan ExpiryList HTTP ${finalStatus}`;
+        console.warn("[DhanAdapter] ExpiryList failed:", { httpStatus: finalStatus, dhanErrorCode: parsed.code, dhanErrorMessage: parsed.message });
         throw new Error(`${dhanCode}: ${errorMsg}`);
       }
 
@@ -762,11 +797,10 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
           let dhanCode = `HTTP_${resp.status}`;
           let errorMsg = `Dhan OptionChain HTTP ${resp.status}`;
           try {
-            const errorJson = await resp.json();
-            if (errorJson?.errorCode || errorJson?.error_code) {
-              const code = errorJson.errorCode || errorJson.error_code;
-              dhanCode = `DHAN_${code}`;
-              errorMsg = errorJson.errorMessage || errorJson.error_message || errorMsg;
+            const parsed = this.parseDhanErrorBody(await resp.json());
+            if (parsed.code) {
+              dhanCode = `DHAN_${parsed.code}`;
+              errorMsg = parsed.message || errorMsg;
             }
           } catch { /* ignore */ }
 
@@ -1050,14 +1084,28 @@ export class DhanBrokerAdapter implements IBrokerAdapter, INiftyOptionChainProvi
       }
     }
 
-    const dataApi = this.lastSuccessMs > 0 ? "AVAILABLE" : (this.lastErrorMessage ? "UNAVAILABLE" : "UNKNOWN");
+    const lastErrMsg = this.lastErrorMessage || "";
+    const entitlementMissing = /DHAN_(806|DH-902)\b/.test(lastErrMsg);
+    const dataApi = this.lastSuccessMs > 0
+      ? "AVAILABLE"
+      : entitlementMissing
+      ? "NOT_SUBSCRIBED"
+      : (lastErrMsg ? "UNAVAILABLE" : "UNKNOWN");
     const expiryListStatus = this.cachedExpiries?.expiries?.length ? "AVAILABLE" : (this.lastErrorMessage?.includes("EXPIRY") ? "ERROR" : "EMPTY");
     const optionChainStatus = this.chainCache.size > 0 ? "AVAILABLE" : (this.lastErrorMessage ? "ERROR" : "UNKNOWN");
+
+    // "configured" is not "verified": only report VALID after a real Profile API check succeeded.
+    const authState = dhanAuthService.getAuthStatus().authStatus;
+    const authentication = !isConf
+      ? "INVALID"
+      : authState === "NOT_CONFIGURED"
+      ? "UNVERIFIED"
+      : authState;
 
     return {
       provider: "DHAN",
       configured: isConf,
-      authentication: isConf ? "VALID" : "INVALID",
+      authentication,
       dataApi,
       underlyingScrip: 13,
       underlyingSeg: "IDX_I",

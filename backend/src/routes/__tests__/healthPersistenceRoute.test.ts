@@ -9,9 +9,13 @@ describe("Health & Persistence Routes Verification", () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     setAdminSupabaseClient(null);
     dailyScanPersistenceService.resetMemoryStateForTesting();
+
+    // Default to unconfigured (in-memory) mode regardless of local .env file
+    vi.spyOn(dailyScanPersistenceService, "isDatabaseConfigured").mockReturnValue(false);
 
     app = Fastify({ logger: false });
     await app.register(healthRoutes);
@@ -19,6 +23,7 @@ describe("Health & Persistence Routes Verification", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     setAdminSupabaseClient(null);
     await app.close();
   });
@@ -69,7 +74,7 @@ describe("Health & Persistence Routes Verification", () => {
     };
 
     setAdminSupabaseClient(mockClient);
-    const mockConfigured = vi.spyOn(dailyScanPersistenceService, "isDatabaseConfigured").mockReturnValue(true);
+    vi.spyOn(dailyScanPersistenceService, "isDatabaseConfigured").mockReturnValue(true);
 
     const res = await app.inject({
       method: "GET",
@@ -85,8 +90,6 @@ describe("Health & Persistence Routes Verification", () => {
     expect(body.tableCheck?.daily_scan_runs).toBe(true);
     expect(body.tableCheck?.daily_scan_opportunities).toBe(true);
     expect(body.error).toBeUndefined();
-
-    mockConfigured.mockRestore();
   });
 
   it("4. GET /health/persistence returns 503 with sanitized error when DB is unreachable", async () => {
@@ -103,7 +106,7 @@ describe("Health & Persistence Routes Verification", () => {
     };
 
     setAdminSupabaseClient(mockClient);
-    const mockConfigured = vi.spyOn(dailyScanPersistenceService, "isDatabaseConfigured").mockReturnValue(true);
+    vi.spyOn(dailyScanPersistenceService, "isDatabaseConfigured").mockReturnValue(true);
 
     const res = await app.inject({
       method: "GET",
@@ -119,8 +122,6 @@ describe("Health & Persistence Routes Verification", () => {
     // Verify credential redaction
     expect(body.error).not.toContain(sensitiveToken);
     expect(body.error).toContain("[REDACTED_JWT]");
-
-    mockConfigured.mockRestore();
   });
 
   it("5. GET /api/indian/swing/persistence-health returns 200 with matching diagnostics", async () => {

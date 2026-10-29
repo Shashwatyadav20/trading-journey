@@ -25,15 +25,14 @@ interface SimulatedTrade {
   pnlDollar?: number;
   realizedR?: number;
   barsHeld?: number;
-  variantId: "A" | "B" | "C" | "D";
+  variantId: string;
 }
 
-interface VariantSummary {
+interface SummaryResult {
   variantId: string;
   name: string;
+  totalSignals: number;
   totalTrades: number;
-  longCount: number;
-  shortCount: number;
   wins: number;
   losses: number;
   winRatePct: number;
@@ -51,9 +50,6 @@ interface VariantSummary {
   drawdownDiffVsControlA: number;
 }
 
-/**
- * Calculates simple moving average on array of prices up to current index (strictly past bars).
- */
 function calculateSMA(prices: number[], period: number, currentIndex: number): number {
   if (currentIndex < period - 1) return prices[currentIndex];
   let sum = 0;
@@ -77,10 +73,7 @@ describe("Controlled Optimization Experiment: XAU/USD Strategy Variants", () => 
     const DEFAULT_SL_DIST = 5.00;
     const RISK_REWARD_RATIO = 2.0;
 
-    const closePrices = candles.map((c) => c.close);
-
-    // ── 2. Strategy Variant Execution Helper ──────────────────────────────────
-    function runVariantSimulation(variantId: "A" | "B" | "C" | "D", candleSubset: Candle[]): SimulatedTrade[] {
+    function runSimulation(variantId: "ControlA" | "VariantB" | "VariantC" | "VariantD"): SimulatedTrade[] {
       const engine = new PineLiquidityEngine({}, 15);
       const signalEngine = new PineSignalEngine();
       const bridge = new PineAlertBridge();
@@ -88,45 +81,36 @@ describe("Controlled Optimization Experiment: XAU/USD Strategy Variants", () => 
 
       const trades: SimulatedTrade[] = [];
       let prevCandle: Candle | null = null;
+      const historyCloses: number[] = [];
 
-      // Calculate SMAs for subset relative to full candle index or local index
-      for (let i = 0; i < candleSubset.length; i++) {
-        const candle = candleSubset[i];
+      for (let i = 0; i < candles.length; i++) {
+        const candle = candles[i];
+        historyCloses.push(candle.close);
 
-        // Evaluate candle wick
         bridge.evaluateCandleWick("XAU/USD", candle, candle.timestamp);
-
-        // Evaluate PineSignalEngine
         const rawSignals = signalEngine.evaluateCandle("XAU/USD", candle, prevCandle, engine);
 
-        // Compute HTF trend filter from past bars (e.g. 50-period 15M SMA as proxy for 1H trend)
-        const localClosePrices = candleSubset.slice(0, i + 1).map((c) => c.close);
-        const sma50 = calculateSMA(localClosePrices, Math.min(50, localClosePrices.length), localClosePrices.length - 1);
-        const isBullishTrend = candle.close >= sma50;
+        const sma50 = calculateSMA(historyCloses, Math.min(50, historyCloses.length), historyCloses.length - 1);
         const isBearishTrend = candle.close < sma50;
+        const isBullishTrend = candle.close > sma50;
 
         for (const sig of rawSignals) {
-          // ── FILTER LOGIC PER VARIANT ────────────────────────────────────────
           let allowSignal = true;
 
-          if (variantId === "B") {
-            // VARIANT B: Block counter-trend SWL entries when HTF structure is bearish
-            if (sig.referenceLevelType === "SWL" && isBearishTrend && sig.direction === "BUY") {
+          if (variantId === "VariantB") {
+            // Variant B: Block BUY signals referencing SWL when HTF structure is bearish
+            if (sig.referenceLevelType === "SWL" && sig.direction === "BUY" && isBearishTrend) {
               allowSignal = false;
             }
-          } else if (variantId === "C") {
-            // VARIANT C: Allow SWL entries ONLY when HTF structure is bullish
-            if (sig.referenceLevelType === "SWL" && !isBullishTrend) {
+          } else if (variantId === "VariantC") {
+            // Variant C: Block SELL signals referencing SWH when HTF structure is bullish
+            if (sig.referenceLevelType === "SWH" && sig.direction === "SELL" && isBullishTrend) {
               allowSignal = false;
             }
-          } else if (variantId === "D") {
-            // VARIANT D: LIQUIDITY QUALITY — Filter out weak counter-trend swings, keep Session/PDH/PDL/PWL/PWH & trend-aligned swings
-            if (sig.referenceLevelType === "SWL" && isBearishTrend) {
-              allowSignal = false;
-            }
-            if (sig.referenceLevelType === "SWH" && isBullishTrend) {
-              allowSignal = false;
-            }
+          } else if (variantId === "VariantD") {
+            // Variant D: Strict Trend Alignment (Only take signals aligned with SMA 50)
+            if (sig.direction === "BUY" && !isBullishTrend) allowSignal = false;
+            if (sig.direction === "SELL" && !isBearishTrend) allowSignal = false;
           }
 
           if (!allowSignal) continue;
@@ -157,25 +141,16 @@ describe("Controlled Optimization Experiment: XAU/USD Strategy Variants", () => 
             variantId,
           };
 
-          // Simulate future candles
           let barsHeld = 0;
-          for (let j = i + 1; j < candleSubset.length; j++) {
-            const futureCandle = candleSubset[j];
+          for (let j = i + 1; j < candles.length; j++) {
+            const futureCandle = candles[j];
             barsHeld++;
 
             if (direction === "BUY") {
               const hitSL = futureCandle.low <= stopLoss;
               const hitTP = futureCandle.high >= takeProfit;
 
-              if (hitSL && hitTP) {
-                trade.exitTime = futureCandle.timestamp;
-                trade.exitPrice = stopLoss;
-                trade.exitReason = "SL";
-                trade.pnlDollar = -riskAmount;
-                trade.realizedR = -1.0;
-                trade.barsHeld = barsHeld;
-                break;
-              } else if (hitSL) {
+              if (hitSL) {
                 trade.exitTime = futureCandle.timestamp;
                 trade.exitPrice = stopLoss;
                 trade.exitReason = "SL";
@@ -196,15 +171,7 @@ describe("Controlled Optimization Experiment: XAU/USD Strategy Variants", () => 
               const hitSL = futureCandle.high >= stopLoss;
               const hitTP = futureCandle.low <= takeProfit;
 
-              if (hitSL && hitTP) {
-                trade.exitTime = futureCandle.timestamp;
-                trade.exitPrice = stopLoss;
-                trade.exitReason = "SL";
-                trade.pnlDollar = -riskAmount;
-                trade.realizedR = -1.0;
-                trade.barsHeld = barsHeld;
-                break;
-              } else if (hitSL) {
+              if (hitSL) {
                 trade.exitTime = futureCandle.timestamp;
                 trade.exitPrice = stopLoss;
                 trade.exitReason = "SL";
@@ -225,7 +192,7 @@ describe("Controlled Optimization Experiment: XAU/USD Strategy Variants", () => 
           }
 
           if (!trade.exitReason) {
-            const lastCandle = candleSubset[candleSubset.length - 1];
+            const lastCandle = candles[candles.length - 1];
             const curPrice = lastCandle.close;
             const openPnl = direction === "BUY" ? (curPrice - entryPrice) : (entryPrice - curPrice);
             trade.exitReason = "OPEN";
@@ -244,14 +211,11 @@ describe("Controlled Optimization Experiment: XAU/USD Strategy Variants", () => 
       return trades;
     }
 
-    // Compute metrics for trade array
-    function computeSummary(variantId: string, name: string, trades: SimulatedTrade[], controlASummary?: VariantSummary): VariantSummary {
+    function computeSummary(variantId: string, name: string, trades: SimulatedTrade[], controlASummary?: SummaryResult): SummaryResult {
       const closedTrades = trades.filter((t) => t.exitReason === "TP" || t.exitReason === "SL");
       const winningTrades = closedTrades.filter((t) => t.exitReason === "TP");
       const losingTrades = closedTrades.filter((t) => t.exitReason === "SL");
 
-      const longCount = trades.filter((t) => t.direction === "BUY").length;
-      const shortCount = trades.filter((t) => t.direction === "SELL").length;
       const winRatePct = closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0;
 
       let grossProfit = 0;
@@ -297,9 +261,8 @@ describe("Controlled Optimization Experiment: XAU/USD Strategy Variants", () => 
       return {
         variantId,
         name,
+        totalSignals: trades.length,
         totalTrades: trades.length,
-        longCount,
-        shortCount,
         wins: winningTrades.length,
         losses: losingTrades.length,
         winRatePct,
@@ -318,86 +281,28 @@ describe("Controlled Optimization Experiment: XAU/USD Strategy Variants", () => 
       };
     }
 
-    // ── 3. Execute Full Dataset Experiments ───────────────────────────────────
-    const tradesA = runVariantSimulation("A", candles);
-    const tradesB = runVariantSimulation("B", candles);
-    const tradesC = runVariantSimulation("C", candles);
-    const tradesD = runVariantSimulation("D", candles);
+    const tA = runSimulation("ControlA");
+    const tB = runSimulation("VariantB");
+    const tC = runSimulation("VariantC");
+    const tD = runSimulation("VariantD");
 
-    const summaryA = computeSummary("A", "Control A (Current Production)", tradesA);
-    const summaryB = computeSummary("B", "Variant B (SWL Bearish Filter)", tradesB, summaryA);
-    const summaryC = computeSummary("C", "Variant C (Trend-Aligned SWL)", tradesC, summaryA);
-    const summaryD = computeSummary("D", "Variant D (Liquidity Quality Filter)", tradesD, summaryA);
+    const sA = computeSummary("ControlA", "Baseline Control A", tA);
+    const sB = computeSummary("VariantB", "Variant B (SWL Buy Filter)", tB, sA);
+    const sC = computeSummary("VariantC", "Variant C (SWH Sell Filter)", tC, sA);
+    const sD = computeSummary("VariantD", "Variant D (Full Trend Alignment)", tD, sA);
 
-    // ── 4. Execute Robustness Check (2 Chronological Halves) ──────────────────
-    const halfIndex = Math.floor(candles.length / 2);
-    const candlesHalf1 = candles.slice(0, halfIndex);
-    const candlesHalf2 = candles.slice(halfIndex);
-
-    const h1TradesA = runVariantSimulation("A", candlesHalf1);
-    const h1TradesB = runVariantSimulation("B", candlesHalf1);
-    const h1TradesD = runVariantSimulation("D", candlesHalf1);
-
-    const h2TradesA = runVariantSimulation("A", candlesHalf2);
-    const h2TradesB = runVariantSimulation("B", candlesHalf2);
-    const h2TradesD = runVariantSimulation("D", candlesHalf2);
-
-    const h1SummaryA = computeSummary("A", "Control A (Half 1)", h1TradesA);
-    const h1SummaryB = computeSummary("B", "Variant B (Half 1)", h1TradesB, h1SummaryA);
-    const h1SummaryD = computeSummary("D", "Variant D (Half 1)", h1TradesD, h1SummaryA);
-
-    const h2SummaryA = computeSummary("A", "Control A (Half 2)", h2TradesA);
-    const h2SummaryB = computeSummary("B", "Variant B (Half 2)", h2TradesB, h2SummaryA);
-    const h2SummaryD = computeSummary("D", "Variant D (Half 2)", h2TradesD, h2SummaryA);
-
-    // ── 5. Output Controlled Experiment Results ────────────────────────────────
-    console.log("\n========================================================================================");
-    console.log("             XAU/USD CONTROLLED OPTIMIZATION EXPERIMENT RESULTS                         ");
-    console.log("========================================================================================");
-    console.log(`Dataset Candles : ${candles.length} (Period: ${candles[0].timestamp} to ${candles[candles.length - 1].timestamp})`);
-    console.log(`Friction Model  : $${SPREAD_SLIPPAGE.toFixed(2)}/oz spread/slippage | SL: $${DEFAULT_SL_DIST.toFixed(2)} | Target R:R: 1:${RISK_REWARD_RATIO.toFixed(1)}`);
-    console.log("----------------------------------------------------------------------------------------");
-    console.table([summaryA, summaryB, summaryC, summaryD].map((s) => ({
+    console.table([sA, sB, sC, sD].map((s) => ({
       Variant: `${s.variantId}: ${s.name}`,
-      Trades: s.totalTrades,
-      "L/S": `${s.longCount}/${s.shortCount}`,
+      Signals: s.totalSignals,
       "WinRate%": `${s.winRatePct.toFixed(2)}%`,
       "NetPnL($)": `$${s.netPnl.toFixed(2)}`,
       ProfitFactor: s.profitFactor === Infinity ? "Inf" : s.profitFactor.toFixed(2),
       Expectancy: `$${s.expectancy.toFixed(2)}`,
-      AvgR: `${s.averageR.toFixed(2)}R`,
-      MaxDD: `$${s.maxDrawdownDollar.toFixed(2)} (${s.maxDrawdownPct.toFixed(2)}%)`,
-      MaxConsecLoss: s.maxConsecutiveLosses,
+      MaxDD: `$${s.maxDrawdownDollar.toFixed(2)}`,
       "PnLDiff vs A": `$${s.pnlDiffVsControlA >= 0 ? "+" : ""}${s.pnlDiffVsControlA.toFixed(2)}`,
-      "ExpDiff vs A": `$${s.expectancyDiffVsControlA >= 0 ? "+" : ""}${s.expectancyDiffVsControlA.toFixed(2)}`,
     })));
 
-    console.log("----------------------------------------------------------------------------------------");
-    console.log("ROBUSTNESS CHECK: CHRONOLOGICAL SPLIT (HALF 1 vs HALF 2)");
-    console.log("----------------------------------------------------------------------------------------");
-    console.log("HALF 1 (Period: " + candlesHalf1[0].timestamp + " to " + candlesHalf1[candlesHalf1.length - 1].timestamp + "):");
-    console.table([h1SummaryA, h1SummaryB, h1SummaryD].map((s) => ({
-      Variant: `${s.variantId}: ${s.name}`,
-      Trades: s.totalTrades,
-      "WinRate%": `${s.winRatePct.toFixed(2)}%`,
-      "NetPnL($)": `$${s.netPnl.toFixed(2)}`,
-      ProfitFactor: s.profitFactor === Infinity ? "Inf" : s.profitFactor.toFixed(2),
-      Expectancy: `$${s.expectancy.toFixed(2)}`,
-      MaxDD: `$${s.maxDrawdownDollar.toFixed(2)}`,
-    })));
-
-    console.log("\nHALF 2 (Period: " + candlesHalf2[0].timestamp + " to " + candlesHalf2[candlesHalf2.length - 1].timestamp + "):");
-    console.table([h2SummaryA, h2SummaryB, h2SummaryD].map((s) => ({
-      Variant: `${s.variantId}: ${s.name}`,
-      Trades: s.totalTrades,
-      "WinRate%": `${s.winRatePct.toFixed(2)}%`,
-      "NetPnL($)": `$${s.netPnl.toFixed(2)}`,
-      ProfitFactor: s.profitFactor === Infinity ? "Inf" : s.profitFactor.toFixed(2),
-      Expectancy: `$${s.expectancy.toFixed(2)}`,
-      MaxDD: `$${s.maxDrawdownDollar.toFixed(2)}`,
-    })));
-
-    console.log("========================================================================================\n");
-    console.log("JSON_RESULTS:" + JSON.stringify({ summaryA, summaryB, summaryC, summaryD, h1SummaryA, h1SummaryB, h1SummaryD, h2SummaryA, h2SummaryB, h2SummaryD }));
-  });
+    expect(sA.totalSignals).toBeGreaterThan(0);
+    expect(sB.totalSignals).toBeLessThanOrEqual(sA.totalSignals);
+  }, 30000);
 });

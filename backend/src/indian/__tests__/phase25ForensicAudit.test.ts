@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { marketSessionValidator } from "../market/MarketSessionValidator";
 import { expiryValidator } from "../market/ExpiryValidator";
 import { hedgingStrategyEngine } from "../strategy/HedgingStrategyEngine";
@@ -18,6 +18,7 @@ describe("PHASE 25 — Live Market Time, Expiry & Greeks Forensic Audit Test Sui
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     process.env = origEnv;
   });
 
@@ -34,8 +35,10 @@ describe("PHASE 25 — Live Market Time, Expiry & Greeks Forensic Audit Test Sui
     expect(valResult.isValid).toBe(false);
     expect(valResult.rejectionReason).toBe("MARKET_CLOSED_OR_HOLIDAY");
 
-    // Strategy: in LIVE_PAPER mode, engine uses real wall-clock time → currently 21:04 IST (MARKET_CLOSED)
-    // Regardless of session reason, the signal must be NO_TRADE in LIVE_PAPER outside market hours
+    // Pin system clock to Sunday so LIVE_PAPER mode sees weekend regardless of when test runs
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(sundayIso));
+
     process.env.EXECUTION_MODE = "LIVE_PAPER";
     const sampleCandles = [
       { time: Math.floor(Date.now() / 1000) - 900, open: 24700, high: 24710, low: 24690, close: 24705, volume: 10000 },
@@ -155,7 +158,7 @@ describe("PHASE 25 — Live Market Time, Expiry & Greeks Forensic Audit Test Sui
       spotPrice: 24700,
       // sellLeg has no gamma field
       sellLeg: { symbol: "NIFTY26102924700PE", strike: 24700, optionType: "PE", ltp: 100, bid: 99, ask: 101, iv: 0.15, delta: -0.3 },
-      buyLeg:  { symbol: "NIFTY26102924550PE", strike: 24550, optionType: "PE", ltp: 40, bid: 39, ask: 41, iv: 0.15, delta: -0.15 },
+      buyLeg: { symbol: "NIFTY26102924550PE", strike: 24550, optionType: "PE", ltp: 40, bid: 39, ask: 41, iv: 0.15, delta: -0.15 },
       netCredit: 60, maxProfit: 4500, maxLoss: 600, entryPrice: 60,
       stopLossSpread: 90, targetSpread: 30, quantityLots: 1, totalQuantity: 75,
       marginRequired: 11250,
@@ -324,7 +327,7 @@ describe("PHASE 25 — Live Market Time, Expiry & Greeks Forensic Audit Test Sui
       expiry: "2026-09-24",                          // ← EXPIRED (Phase 24 anomaly)
       spotPrice: 24700,
       sellLeg: { symbol: "NIFTY2692424700PE", strike: 24700, optionType: "PE", ltp: 100, bid: 99, ask: 101, iv: 0.15, delta: -0.3 },
-      buyLeg:  { symbol: "NIFTY2692424550PE", strike: 24550, optionType: "PE", ltp: 40,  bid: 39, ask: 41,  iv: 0.15, delta: -0.15 },
+      buyLeg: { symbol: "NIFTY2692424550PE", strike: 24550, optionType: "PE", ltp: 40, bid: 39, ask: 41, iv: 0.15, delta: -0.15 },
       netCredit: 60, maxProfit: 4500, maxLoss: 600, entryPrice: 60,
       stopLossSpread: 90, targetSpread: 30, quantityLots: 1, totalQuantity: 75,
       marginRequired: 11250,
@@ -344,7 +347,6 @@ describe("PHASE 25 — Live Market Time, Expiry & Greeks Forensic Audit Test Sui
   it("18. PaperBrokerAdapter rejects execution when market is closed in LIVE_PAPER mode", () => {
     process.env.EXECUTION_MODE = "LIVE_PAPER";
 
-    // Current time is 20:58 IST — market is definitely closed
     const isOpen = marketSessionValidator.isMarketOpen();
     if (!isOpen) {
       const closedMarketSignal: AutoHedgeSignal = {
@@ -356,7 +358,7 @@ describe("PHASE 25 — Live Market Time, Expiry & Greeks Forensic Audit Test Sui
         expiry: "2026-10-29",
         spotPrice: 24700,
         sellLeg: { symbol: "NIFTY26102924700PE", strike: 24700, optionType: "PE", ltp: 100, bid: 99, ask: 101, iv: 0.15, delta: -0.3 },
-        buyLeg:  { symbol: "NIFTY26102924550PE", strike: 24550, optionType: "PE", ltp: 40,  bid: 39, ask: 41,  iv: 0.15, delta: -0.15 },
+        buyLeg: { symbol: "NIFTY26102924550PE", strike: 24550, optionType: "PE", ltp: 40, bid: 39, ask: 41, iv: 0.15, delta: -0.15 },
         netCredit: 60, maxProfit: 4500, maxLoss: 600, entryPrice: 60,
         stopLossSpread: 90, targetSpread: 30, quantityLots: 1, totalQuantity: 75,
         marginRequired: 11250,

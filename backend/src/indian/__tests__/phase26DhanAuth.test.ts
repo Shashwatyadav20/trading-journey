@@ -87,7 +87,10 @@ describe("PHASE 26A — Official DhanHQ API Authentication & Token Lifecycle Tes
       connected: true,
       authentication: "VALID",
       profileApiStatus: "HTTP_200",
-      dataAccess: true,
+      // Profile HTTP 200 proves authentication only; Data API entitlement is unverified without `dataPlan`.
+      dataAccess: false,
+      dataApiStatus: "UNVERIFIED",
+      clientIdCheck: "MATCH",
       executionEnabled: false,
       authFlowUsed: "TOTP_PIN",
     });
