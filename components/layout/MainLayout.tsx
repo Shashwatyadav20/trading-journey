@@ -5,6 +5,7 @@ import Sidebar, { NavTabId, MarketMode } from "./Sidebar";
 import Header from "./Header";
 
 // ── Forex / Global views ──────────────────────────────────────────────────────
+import GlobalQuantDeskView from "../forex/GlobalQuantDeskView";
 import DashboardView from "../views/DashboardView";
 import JournalView from "../views/JournalView";
 import LiveChartsView from "../views/LiveChartsView";
@@ -22,7 +23,9 @@ import IMStrategy from "../indian-market/IMStrategy";
 import IMPositions from "../indian-market/IMPositions";
 import IMBacktestView from "../indian-market/IMBacktestView";
 import IMPostPhase40OperationsDashboard from "../indian-market/IMPostPhase40OperationsDashboard";
-import IMSwingTradingView from "../indian-market/IMSwingTradingView";
+import IMSwingTradingView from "../indian-market/IMSwingTradingView"; // Legacy / Standard Swing
+import FOQuantDeskView from "../indian-market/fo/FOQuantDeskView"; // Dedicated Isolated F&O Quant Desk
+import IntradayDeskView from "../indian-market/intraday/IntradayDeskView"; // Dedicated Isolated Intraday Desk
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 import { TradeProvider, useTrades } from "../../context/TradeContext";
@@ -35,7 +38,7 @@ import { Loader2, TrendingUp } from "lucide-react";
 
 // ─── LocalStorage persistence keys ───────────────────────────────────────────
 const MARKET_MODE_KEY = "tj-market-mode";
-const ACTIVE_TAB_KEY  = "tj-active-tab";
+const ACTIVE_TAB_KEY = "tj-active-tab";
 
 // ─── Helper: safely load persisted value from localStorage ───────────────────
 function loadPersisted<T extends string>(key: string, fallback: T, allowed: T[]): T {
@@ -45,8 +48,8 @@ function loadPersisted<T extends string>(key: string, fallback: T, allowed: T[])
 }
 
 // ─── All valid tab IDs per mode (used to validate persisted value) ────────────
-const FOREX_TABS: NavTabId[]  = ["dashboard","journal","live-charts","strategies","analytics","calendar","monthly-review","settings"];
-const INDIAN_TABS: NavTabId[] = ["im-overview","im-swing-trade","im-paper-trading","im-operations","im-option-chain","im-strategy","im-positions","im-backtest","settings"];
+const FOREX_TABS: NavTabId[] = ["global-quant-desk", "dashboard", "journal", "live-charts", "strategies", "analytics", "calendar", "monthly-review", "settings"];
+const INDIAN_TABS: NavTabId[] = ["im-overview", "im-intraday-desk", "im-swing-trade", "im-institutional-swing", "im-fo-quant-desk", "im-paper-trading", "im-operations", "im-option-chain", "im-strategy", "im-positions", "im-backtest", "settings"];
 
 function MainContent() {
   const { user, loading, approved, approvalLoading } = useAuth();
@@ -99,7 +102,6 @@ function MainContent() {
   }
 
   // STEP 3: Logged in, but approval status is still loading → show spinner
-  // CRITICAL: Do NOT render trading dashboard until approval is confirmed.
   if (approvalLoading || approved === null) {
     return (
       <div className="min-h-screen bg-[#090d16] flex flex-col items-center justify-center space-y-4">
@@ -118,15 +120,6 @@ function MainContent() {
   if (approved === false) {
     return <PendingApprovalScreen />;
   }
-
-  // ── STEP 5: approved === true → render full trading application ────────────
-  //
-  // IMPORTANT: Views are always mounted and never unmounted on tab switch.
-  // We use CSS visibility (display:none / display:contents) to show/hide views
-  // instead of conditional rendering. This prevents:
-  //   • WebSocket reconnections on every tab change
-  //   • data re-fetching useEffects re-firing
-  //   • animation flicker caused by unmount+remount cycles
 
   const show = (tab: NavTabId) => ({ style: { display: activeTab === tab ? undefined : "none" } as React.CSSProperties });
 
@@ -166,6 +159,7 @@ function MainContent() {
         <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6">
 
           {/* ── Forex / Global views ──────────────────── */}
+          <div {...show("global-quant-desk")}><GlobalQuantDeskView /></div>
           <div {...show("dashboard")}><DashboardView /></div>
           <div {...show("journal")}><JournalView /></div>
           <div {...show("live-charts")}><LiveChartsView /></div>
@@ -176,6 +170,9 @@ function MainContent() {
 
           {/* ── Indian Market views ───────────────────── */}
           <div {...show("im-overview")}><IMOverviewView /></div>
+          <div {...show("im-intraday-desk")}><IntradayDeskView /></div>
+          <div {...show("im-institutional-swing")}><IMSwingTradingView /></div>
+          <div {...show("im-fo-quant-desk")}><FOQuantDeskView /></div>
           <div {...show("im-swing-trade")}><IMSwingTradingView /></div>
           <div {...show("im-paper-trading")}><IMPaperTradingView /></div>
           <div {...show("im-operations")}><IMPostPhase40OperationsDashboard /></div>
@@ -194,7 +191,7 @@ function MainContent() {
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />
             <span>Trading Journey v1.0 Terminal</span>
-            <span className="text-cyan-400/80">• Cloud Synced</span>
+            <span className="text-cyan-400/80">Cloud Synced</span>
           </div>
           <div>
             Mode:{" "}

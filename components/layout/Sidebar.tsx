@@ -31,6 +31,7 @@ export type MarketMode = "indian" | "forex";
 // ─── All possible nav tab IDs ─────────────────────────────────────────────────
 export type NavTabId =
   // Forex / Global tabs
+  | "global-quant-desk" // Dedicated Global & Forex Quant Desk (Gold, BTC, ETH)
   | "dashboard"
   | "journal"
   | "live-charts"
@@ -41,7 +42,10 @@ export type NavTabId =
   | "settings"
   // Indian Market tabs
   | "im-overview"
+  | "im-intraday-desk" // Dedicated Isolated Intraday Desk Tab (9:15-9:45 ORB / VWAP)
   | "im-swing-trade"
+  | "im-institutional-swing" // Naya 4-Strategy Institutional Swing Tab
+  | "im-fo-quant-desk" // Dedicated Isolated F&O Quant Desk Tab
   | "im-paper-trading"
   | "im-option-chain"
   | "im-strategy"
@@ -58,6 +62,7 @@ export interface NavItem {
 
 // Forex / Global nav items
 export const FOREX_NAV_ITEMS: NavItem[] = [
+  { id: "global-quant-desk", label: "Global Quant Desk", icon: Globe2, badge: "Gold · BTC" },
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "journal", label: "Trade Journal", icon: BookOpen },
   { id: "live-charts", label: "Live Charts", icon: Activity, badge: "Live" },
@@ -71,7 +76,10 @@ export const FOREX_NAV_ITEMS: NavItem[] = [
 // Indian Market nav items
 export const INDIAN_NAV_ITEMS: NavItem[] = [
   { id: "im-overview", label: "Overview", icon: LayoutDashboard },
-  { id: "im-swing-trade", label: "Swing Trading", icon: Crosshair, badge: "5-Pillar" },
+  { id: "im-intraday-desk", label: "Intraday Desk", icon: Zap, badge: "ORB · VWAP" },
+  { id: "im-institutional-swing", label: "Institutional Swing", icon: Crosshair, badge: "4-Strategy" },
+  { id: "im-fo-quant-desk", label: "F&O Quant Desk", icon: Layers3, badge: "F&O Spreads" },
+  { id: "im-swing-trade", label: "Legacy Swing", icon: Crosshair },
   { id: "im-paper-trading", label: "Paper Trading", icon: ShieldAlert, badge: "Paper" },
   { id: "im-operations", label: "Operations Monitor", icon: ShieldCheck, badge: "Ops" },
   { id: "im-option-chain", label: "Option Chain", icon: Layers3, badge: "Live" },
@@ -268,12 +276,11 @@ export default function Sidebar({
                 title={collapsed ? item.label : undefined}
                 className={`
                   w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 group relative
-                  ${
-                    isActive
-                      ? marketMode === "indian"
-                        ? "bg-gradient-to-r from-orange-500/15 to-amber-500/10 text-orange-300 border border-orange-500/30 shadow-md shadow-orange-950/40"
-                        : "bg-gradient-to-r from-cyan-500/15 to-emerald-500/10 text-cyan-300 border border-cyan-500/30 shadow-md shadow-cyan-950/40"
-                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent"
+                  ${isActive
+                    ? marketMode === "indian"
+                      ? "bg-gradient-to-r from-orange-500/15 to-amber-500/10 text-orange-300 border border-orange-500/30 shadow-md shadow-orange-950/40"
+                      : "bg-gradient-to-r from-cyan-500/15 to-emerald-500/10 text-cyan-300 border border-cyan-500/30 shadow-md shadow-cyan-950/40"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent"
                   }
                   ${collapsed ? "justify-center" : ""}
                 `}
@@ -281,22 +288,20 @@ export default function Sidebar({
                 {/* Active Indicator Bar */}
                 {isActive && (
                   <span
-                    className={`absolute left-0 top-2 bottom-2 w-1 rounded-r-full shadow-sm ${
-                      marketMode === "indian"
+                    className={`absolute left-0 top-2 bottom-2 w-1 rounded-r-full shadow-sm ${marketMode === "indian"
                         ? "bg-gradient-to-b from-orange-400 to-amber-400 shadow-orange-400"
                         : "bg-gradient-to-b from-cyan-400 to-emerald-400 shadow-cyan-400"
-                    }`}
+                      }`}
                   />
                 )}
 
                 <Icon
-                  className={`w-5 h-5 shrink-0 transition-transform duration-200 ${
-                    isActive
+                  className={`w-5 h-5 shrink-0 transition-transform duration-200 ${isActive
                       ? marketMode === "indian"
                         ? "text-orange-400 scale-110"
                         : "text-cyan-400 scale-110"
                       : "text-slate-400 group-hover:text-slate-200 group-hover:scale-105"
-                  }`}
+                    }`}
                 />
 
                 {!collapsed && (
@@ -307,11 +312,12 @@ export default function Sidebar({
 
                 {!collapsed && item.badge && (
                   <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-medium border ${
-                      item.badge === "Paper"
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-medium border ${item.badge === "Paper"
                         ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                        : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                    }`}
+                        : item.badge === "4-Strategy"
+                          ? "bg-violet-500/10 text-violet-300 border-violet-500/30"
+                          : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      }`}
                   >
                     {item.badge}
                   </span>

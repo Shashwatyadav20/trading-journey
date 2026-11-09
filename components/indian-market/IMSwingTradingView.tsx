@@ -1,2334 +1,1651 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import IMHeader from "./IMHeader";
-import IMStatusBadge from "./IMStatusBadge";
-import { apiUrl } from "../../lib/backendUrl";
-import { SwingStrategyChart } from "../charts/SwingStrategyChart";
-import { BacktestModal } from "./BacktestModal";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
-  StrategyId,
-  MatchedStockOpportunity,
-} from "../../lib/indian/dailyStrategyScanner";
-import {
-  TrendingUp,
-  TrendingDown,
-  ShieldCheck,
   Layers,
-  Activity,
-  CheckCircle2,
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  Calculator,
-  Sliders,
-  Eye,
-  Flame,
-  Zap,
-  Sparkles,
-  BookOpen,
   Crosshair,
-  Info,
   X,
-  Search,
-  Filter,
-  BarChart3,
-  BarChart2,
-  ArrowUpRight,
-  ShieldAlert,
-  Percent,
-  Check,
-  RefreshCw,
-  Play,
   Briefcase,
+  RefreshCw,
+  Sparkles,
+  Activity,
+  History,
+  Flame,
+  Trash2,
+  Lock,
+  Edit3,
+  BookOpen,
+  Zap,
+  Shield,
+  Search,
 } from "lucide-react";
+import { evaluateActiveTradeSmartShield } from "../../lib/indian/intradayEngine";
+import { useAiNewsReversalWorker } from "../../hooks/useAiNewsReversalWorker";
+import IMTradeExitAuditModal, { ClosedTradeExitAuditData } from "./IMTradeExitAuditModal";
+import { DEFAULT_CLOSED_TRADE_AUDIT_SEEDS } from "../../lib/indian/backtestSeeds";
 
-// Types matching backend
-interface FivePillarItem {
-  passed: boolean;
-  details: string;
-  [key: string]: any;
+const STORAGE_KEY_ACTIVE_TRADES = "nse_swing_active_trades_v15";
+const STORAGE_KEY_BACKTEST_HISTORY = "nse_swing_backtest_history_v15";
+const STORAGE_KEY_DAILY_SIGNAL_LOCK = "nse_swing_daily_signal_lock_v12";
+const LEGACY_ACTIVE_KEYS = ["nse_swing_active_trades_v12", "nse_swing_active_trades_v1"];
+const LEGACY_HISTORY_KEYS = ["nse_swing_backtest_history_v12", "nse_swing_backtest_history_v1"];
+
+function readPersistedTrades<T>(primaryKey: string, legacyKeys: string[]): T[] | null {
+  for (const key of [primaryKey, ...legacyKeys]) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed as T[];
+    } catch {
+      // skip invalid json
+    }
+  }
+  return null;
 }
 
-interface SwingSignalUI {
+type InstitutionalStrategyCode =
+  | "ALL_STRATEGIES"
+  | "RANGE_SUPPORT_BUY"
+  | "TRENDLINE_5D_RANGE_DOJI"
+  | "RESISTANCE_DOJI_SQUEEZE"
+  | "VCP_POCKET_PIVOT";
+
+const STRATEGY_METADATA: Record<
+  Exclude<InstitutionalStrategyCode, "ALL_STRATEGIES">,
+  { title: string; shortBadge: string; winProbBase: number; logicDesc: string; colorClass: string }
+> = {
+  RANGE_SUPPORT_BUY: {
+    title: "Purple Box Trapped Range (Uptrend or Downtrend): Bull OB / VAL Support Buy → VAH Target",
+    shortBadge: "🟣 Purple Box Range (VAL → VAH)",
+    winProbBase: 91,
+    logicDesc:
+      "Works in both uptrend & downtrend! Detects stocks trapped for 1–2 months inside a horizontal Purple Box (3+ Support touches at Bull OB/VAL & 2+ Resistance touches at Bear OB/VAH, oscillating around POC). Buys at Support Floor or Box Breakout.",
+    colorClass: "bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/50",
+  },
+  TRENDLINE_5D_RANGE_DOJI: {
+    title: "Support/Trendline Break → 5-6D Upstairs Tight Box → Doji → +7% Breakout",
+    shortBadge: "🎯 Trendline + 5-6D Doji",
+    winProbBase: 92,
+    logicDesc:
+      "Bounces >= +3.5% off support, breaks falling trendline, consolidates upstairs for 5–6 days in a tight <= 5.5% box with Doji candle(s), then breaks out for +7% target.",
+    colorClass: "bg-emerald-500/20 text-emerald-300 border-emerald-500/50",
+  },
+  RESISTANCE_DOJI_SQUEEZE: {
+    title: "Big Resistance Breakout: 1-2W Heavy Volume + Doji Squeeze",
+    shortBadge: "🚨 Resistance Doji Squeeze",
+    winProbBase: 88,
+    logicDesc:
+      "Heavy institutional volume accumulation right below multi-week resistance followed by a tight Doji pause before breakout.",
+    colorClass: "bg-orange-500/20 text-orange-300 border-orange-500/50",
+  },
+  VCP_POCKET_PIVOT: {
+    title: "VCP Tight Contraction + Pocket Pivot Volume Expansion",
+    shortBadge: "🔥 VCP + Pocket Pivot",
+    winProbBase: 86,
+    logicDesc:
+      "Volatility contracts progressively above 20 & 50 EMA followed by institutional pocket pivot volume.",
+    colorClass: "bg-amber-500/20 text-amber-300 border-amber-500/50",
+  },
+};
+
+function getTodayDateKey(): string {
+  const now = new Date();
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  return new Date(now.getTime() + istOffsetMs).toISOString().slice(0, 10);
+}
+
+interface NormalizedRealStock {
   id: string;
   symbol: string;
+  cleanSymbol: string;
   companyName: string;
   sector: string;
-  setupId: string;
-  setupTitle: string;
-  setupBadge: string;
-  status: string;
-  timestamp: string;
+  lockedDateKey: string;
   currentPrice: number;
+  changePercent: number;
+  breakoutLevel: number;
   entryPrice: number;
   stopLossPrice: number;
   target1Price: number;
-  target2Price: number;
-  riskPerShare: number;
   rewardRiskRatio: number;
   confluenceScore: number;
-  relativeStrengthVsNifty: number;
   volumeMultiplier: number;
-  ema20: number;
-  ema50: number;
-  ema200: number;
-  extensionFromPivotPercent?: number;
-  baseLengthWeeks?: number;
-  sweepLow?: number;
-  retestLow?: number;
-  rejectionCandle?: string;
-  fivePillarChecklist: {
-    pillar1MarketRegime: FivePillarItem;
-    pillar2Fundamentals: FivePillarItem;
-    pillar3LiquidityLevels: FivePillarItem;
-    pillar4PriceActionVolume: FivePillarItem;
-    pillar5RiskManagement: FivePillarItem;
-  };
-  tradeRationale: string[];
-  invalidationTrigger: string;
-  trailingStopPlan: string;
-  fundamentals: {
-    symbol: string;
-    companyName: string;
-    sector: string;
-    marketCapCr: number;
-    peRatio: number;
-    roePercent: number;
-    rocePercent: number;
-    salesGrowth3Y: number;
-    profitGrowth3Y: number;
-    debtToEquity: number;
-    institutionalHoldingPercent: number;
-    qualityScore: number;
-    moatRating: string;
-    notes: string;
-  };
+  primaryQuantStrategy: Exclude<InstitutionalStrategyCode, "ALL_STRATEGIES">;
+  matchedQuantStrategies: Exclude<InstitutionalStrategyCode, "ALL_STRATEGIES">[];
+  supportBounceInfo: string;
+  fiveDayBoxInfo: string;
+  dojiCandleInfo: string;
+  realRationale: string[];
 }
 
-interface RegimeUI {
-  spotPrice: number;
-  changePercent: number;
-  ema20: number;
-  ema50: number;
-  ema200: number;
-  bias: string;
-  clearance: string;
-  /** null = breadth data source not connected (requires separate endpoint) */
-  breadthPercentAbove50EMA: number | null;
-  /** null = not available from Yahoo Finance price endpoint */
-  advancingStocksCount: number | null;
-  /** null = not available from Yahoo Finance price endpoint */
-  decliningStocksCount: number | null;
-  regimeScore: number;
-  analysisSummary: string;
+interface ActivePortfolioTrade {
+  tradeId: string;
+  symbol: string;
+  cleanSymbol: string;
+  companyName: string;
+  strategyUsed: string;
+  lockedDateKey: string;
+  confluenceScore: number;
+  volumeMultiplier: number;
+  supportBounceInfo: string;
+  fiveDayBoxInfo: string;
+  dojiCandleInfo: string;
+  rationale: string;
+  breakoutLevel: number;
+  entryPrice: number;
+  stopLossPrice: number;
+  targetPrice: number;
+  rewardRiskRatio: number;
+  allocatedCapital: number;
+  quantity: number;
+  executionTime: string;
+  exitTime?: string;
+  status:
+    | "ACTIVE"
+    | "TARGET_HIT"
+    | "STOP_LOSS_HIT"
+    | "TSL_HIT"
+    | "REVERSAL_EXIT"
+    | "NEWS_TRIGGER_EXIT"
+    | "MANUAL_EMERGENCY_EXIT"
+    | "TSL_COST_BREAKEVEN_EXIT";
+  currentMarketPrice: number;
+  currentSimulatedPrice?: number;
+  peakSimulatedPrice?: number;
+  pnlAmount: number;
+  pnlPercent: number;
+  targetProgressPct?: number;
+  isTslCostLocked?: boolean;
+  liveSentimentBadge?: string;
+  lastLtpSyncAt?: string;
+  isLiveTick?: boolean;
 }
-
-// ── Scan Coverage State (from API response) ───────────────────────────────
-interface ScanCoverage {
-  // daily-scanner shape
-  symbolsQueued: number;
-  scannedSuccessfully: number;
-  skippedCount: number;
-  failedCount: number;
-  opportunitiesFound: number;
-  // nse-scanner additional fields (optional — only set after a full NSE run)
-  universeSource?: "NSE_CSV" | "FALLBACK_NIFTY_500";
-  universeSize?: number;
-  successCount?: number;
-  opportunitiesCount?: number;
-}
-
-interface NseScanResult {
-  success: boolean;
-  scanDate: string;
-  runAt: string;
-  status: "COMPLETED" | "PARTIAL" | "FAILED";
-  coverage: {
-    universeSource: "NSE_CSV" | "FALLBACK_NIFTY_500";
-    universeSize: number;
-    symbolsQueued: number;
-    successCount: number;
-    skippedCount: number;
-    failedCount: number;
-    opportunitiesCount: number;
-    filteredOpportunitiesCount: number;
-  };
-  warnings: string[];
-  universeMetadata: {
-    source: string;
-    lastUpdated: string;
-    universeFetchError?: string;
-  };
-  marketRegime?: any;
-  opportunities: any[];
-  persistenceStatus: "PERSISTED" | "FAILED" | "SKIPPED" | "NO_CLIENT";
-  persistenceError: string | null;
-  scanDurationMs: number;
-  error?: string;
-}
-
 
 export default function IMSwingTradingView() {
-  // No fallback signals: initial state is empty.
-  // Dashboard must only show data from the scanner API — never fabricated stocks.
-  const [signals, setSignals] = useState<SwingSignalUI[]>([]);
-  const [regime, setRegime] = useState<RegimeUI | null>(null);
-  const [selectedFilter, setSelectedFilter] = useState<string>("ALL");
-  const [activeModalSignal, setActiveModalSignal] = useState<SwingSignalUI | null>(null);
-  const [isLiveFeed, setIsLiveFeed] = useState<boolean>(true);
+  const [stocks, setStocks] = useState<NormalizedRealStock[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [dataSourceStatus, setDataSourceStatus] = useState<string>("Scanning Purple Box Ranges & 5-6D Doji Breakouts...");
+  const [mainTab, setMainTab] = useState<"PORTFOLIO" | "SCREENER" | "BACKTEST_HISTORY" | "STRATEGY_GUIDE">("SCREENER");
 
-  // ── 8-Strategy Automated Daily Scanner State ──────────────────────────────
-  const [selectedUniverse, setSelectedUniverse] = useState<string>("MOMENTUM_LEADERS");
-  const [selectedStrategyTab, setSelectedStrategyTab] = useState<string>("ALL");
-  const [dailyOpportunities, setDailyOpportunities] = useState<MatchedStockOpportunity[]>([]);
-  const [multiStrategyMatches, setMultiStrategyMatches] = useState<MatchedStockOpportunity[]>([]);
-  const [strategyCounts, setStrategyCounts] = useState<Record<string, number>>({});
-  const [isDailyScanning, setIsDailyScanning] = useState<boolean>(false);
-  const [lastScanTimestamp, setLastScanTimestamp] = useState<string>("Not yet scanned");
-  // Scan coverage stats from the API response
-  const [scanCoverage, setScanCoverage] = useState<ScanCoverage | null>(null);
-  const [tableSearchQuery, setTableSearchQuery] = useState<string>("");
-  const [directionFilter, setDirectionFilter] = useState<string>("ALL");
-  const [minScoreFilter, setMinScoreFilter] = useState<number>(0);
-  const [minRRFilter, setMinRRFilter] = useState<number>(0);
-  const [scanRunInfo, setScanRunInfo] = useState<{
-    scanDate: string | null;
-    completedAt: string | null;
-    scanType: string | null;
-    status: string | null;
-    durationMs: number | null;
-    isPersisted: boolean;
-  } | null>(null);
-  const [selectedScanDate, setSelectedScanDate] = useState<string>("");
-  const [availableScanDates, setAvailableScanDates] = useState<string[]>([]);
-  const [scanHasRun, setScanHasRun] = useState<boolean>(false);
+  const [autoExecuteEnabled, setAutoExecuteEnabled] = useState<boolean>(false);
+  const [autoTrades, setAutoTrades] = useState<ActivePortfolioTrade[]>([]);
+  const [backtestHistory, setBacktestHistory] = useState<ActivePortfolioTrade[]>([]);
+  const [selectedExitAuditTrade, setSelectedExitAuditTrade] = useState<ClosedTradeExitAuditData | null>(null);
+  const [isStorageHydrated, setIsStorageHydrated] = useState<boolean>(false);
+  const [portfolioNotice, setPortfolioNotice] = useState<string | null>(null);
+  const [selectedTradeModal, setSelectedTradeModal] = useState<ActivePortfolioTrade | null>(null);
+  const [liveQuotesMap, setLiveQuotesMap] = useState<Record<string, number>>({});
+  const [lastLtpSyncTime, setLastLtpSyncTime] = useState<string | null>(null);
 
-  // ── Full NSE Scanner State ─────────────────────────────────────────
-  const [isNseScanning, setIsNseScanning] = useState<boolean>(false);
-  const [nseScanResult, setNseScanResult] = useState<NseScanResult | null>(null);
-  const [nseError, setNseError] = useState<string | null>(null);
-  const [nseUseFallbackWarning, setNseUseFallbackWarning] = useState<boolean>(false);
+  const autoTradesRef = useRef<ActivePortfolioTrade[]>([]);
+  useEffect(() => {
+    autoTradesRef.current = autoTrades;
+  }, [autoTrades]);
 
-  // Backtest Modal State
-  const [backtestModalOpen, setBacktestModalOpen] = useState<boolean>(false);
-  const [backtestSymbol, setBacktestSymbol] = useState<string>("TRENT");
-  const [backtestStrategy, setBacktestStrategy] = useState<StrategyId>("STRATEGY_A_BREAKOUT");
+  const [strategyFilter, setStrategyFilter] = useState<InstitutionalStrategyCode>("ALL_STRATEGIES");
+  const [searchFilter, setSearchFilter] = useState<string>("");
 
-  // Paper Trading State
-  const [paperTrades, setPaperTrades] = useState<any[]>([]);
-  const [paperTradeNotice, setPaperTradeNotice] = useState<string | null>(null);
-
-  // Live Stock Scanner state
-  const [searchQuery, setSearchQuery] = useState<string>("TRENT");
-  const [scannedStock, setScannedStock] = useState<any | null>(null);
-  const [isScanning, setIsScanning] = useState<boolean>(false);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [calcNotice, setCalcNotice] = useState<string | null>(null);
-  const [activeChip, setActiveChip] = useState<string>("TRENT");
-
-  // Position Sizing Calculator state - defaulted to real TRENT prices
-  const [accountCapital, setAccountCapital] = useState<number>(500000);
-  const [riskPercent, setRiskPercent] = useState<number>(1.0);
-  const [calcEntry, setCalcEntry] = useState<number>(2924);
-  const [calcStopLoss, setCalcStopLoss] = useState<number>(2845);
-  const [calcTarget, setCalcTarget] = useState<number>(3082);
-  const [calcSymbol, setCalcSymbol] = useState<string>("TRENT");
-  const [checklistDiscipline, setChecklistDiscipline] = useState({
-    regimeConfirmed: true,
-    fundamentalApproved: true,
-    liquidityValidated: true,
-    volumeConfirmed: true,
-    strictlyDefinedRisk: true,
-  });
-
-  // Automated Real-Time Stock Scanner
-  const scanStock = async (ticker: string) => {
-    if (!ticker.trim()) return;
-    const clean = ticker.trim().toUpperCase().replace(/\.NS$/, "").replace(/\.BO$/, "");
-    setIsScanning(true);
-    setScanError(null);
-    setActiveChip(clean);
-    try {
-      const res = await fetch(`/api/indian/swing/quote?symbol=${encodeURIComponent(clean)}`, {
-        cache: "no-store",
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.data) {
-          setScannedStock(json.data);
-          setSearchQuery(clean);
-        } else {
-          setScanError(json.error || `Unable to fetch quote for ${clean}`);
-        }
-      } else {
-        setScanError(`Failed to fetch live quote for ${clean} (HTTP ${res.status})`);
-      }
-    } catch (err: any) {
-      setScanError(err.message || "Failed to reach market data service");
-    } finally {
-      setIsScanning(false);
-    }
-  };
+  const [editEntry, setEditEntry] = useState<string>("");
+  const [editSL, setEditSL] = useState<string>("");
+  const [editTP, setEditTP] = useState<string>("");
+  const [unlockOverride, setUnlockOverride] = useState<boolean>(false);
 
   useEffect(() => {
-    scanStock("TRENT");
+    try {
+      const parsedActive = readPersistedTrades<ActivePortfolioTrade>(STORAGE_KEY_ACTIVE_TRADES, LEGACY_ACTIVE_KEYS);
+      if (parsedActive) {
+        const sanitized = parsedActive
+          .filter((t) => t && typeof t.tradeId === "string" && Number(t.entryPrice) > 0)
+          .map((t) => {
+            const cleanSym = String(t.cleanSymbol || t.symbol || "")
+              .toUpperCase()
+              .replace(/\.NS$/i, "")
+              .replace(/\.BO$/i, "");
+            const entry = Number(t.entryPrice);
+            const liveLtp = Number(t.currentMarketPrice ?? t.currentSimulatedPrice ?? entry);
+            const qty = Number(t.quantity || Math.floor(300000 / entry));
+            return {
+              ...t,
+              cleanSymbol: cleanSym,
+              currentMarketPrice: liveLtp,
+              currentSimulatedPrice: liveLtp,
+              quantity: qty,
+              pnlAmount: Math.round((liveLtp - entry) * qty),
+              pnlPercent: Number((((liveLtp - entry) / entry) * 100).toFixed(2)),
+              status: "ACTIVE" as const,
+            };
+          });
+        setAutoTrades(sanitized);
+        autoTradesRef.current = sanitized;
+      }
+      const parsedH = readPersistedTrades<ActivePortfolioTrade>(STORAGE_KEY_BACKTEST_HISTORY, LEGACY_HISTORY_KEYS);
+      if (parsedH && parsedH.length > 0) {
+        setBacktestHistory(parsedH);
+      } else {
+        setBacktestHistory(DEFAULT_CLOSED_TRADE_AUDIT_SEEDS as any);
+      }
+    } catch { } finally {
+      setIsStorageHydrated(true);
+    }
   }, []);
 
-  const loadScannedStockIntoCalculator = () => {
-    if (!scannedStock) return;
-    setCalcSymbol(scannedStock.cleanSymbol);
-    setCalcEntry(scannedStock.detectedSetup.entryPrice);
-    setCalcStopLoss(scannedStock.detectedSetup.stopLossPrice);
-    setCalcTarget(scannedStock.detectedSetup.target1Price);
-    setCalcNotice(`✓ Loaded ${scannedStock.cleanSymbol} (Entry: ₹${scannedStock.detectedSetup.entryPrice}, SL: ₹${scannedStock.detectedSetup.stopLossPrice}) into Risk Calculator`);
-    setTimeout(() => setCalcNotice(null), 5000);
-    const el = document.getElementById("risk-calculator-section");
-    if (el) el.scrollIntoView({ behavior: "smooth" });
+  useEffect(() => {
+    if (!isStorageHydrated) return;
+    localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(autoTrades));
+  }, [autoTrades, isStorageHydrated]);
+
+  useEffect(() => {
+    if (!isStorageHydrated) return;
+    localStorage.setItem(STORAGE_KEY_BACKTEST_HISTORY, JSON.stringify(backtestHistory));
+  }, [backtestHistory, isStorageHydrated]);
+
+  useEffect(() => {
+    if (selectedTradeModal) {
+      setEditEntry(String(selectedTradeModal.entryPrice));
+      setEditSL(String(selectedTradeModal.stopLossPrice));
+      setEditTP(String(selectedTradeModal.targetPrice));
+      setUnlockOverride(false);
+    }
+  }, [selectedTradeModal?.tradeId]);
+
+  const parseRealStockItem = (
+    raw: any,
+    idx: number,
+    dailyLocks: Record<string, { dateKey: string; entry: number; sl: number; tp: number; breakout: number }>
+  ): NormalizedRealStock | null => {
+    if (!raw) return null;
+    const cleanSymbol = String(raw.cleanSymbol || raw.symbol || "")
+      .replace(/\.NS$/i, "")
+      .replace(/\.BO$/i, "")
+      .toUpperCase();
+    if (!cleanSymbol) return null;
+
+    const liveLtp = Number(raw.currentPrice ?? raw.price ?? 0);
+    if (!liveLtp || liveLtp <= 0) return null;
+
+    const pat = raw.patternDetails || {};
+    const todayKey = getTodayDateKey();
+    const existingLock = dailyLocks[cleanSymbol];
+
+    let lockedEntry = Number(raw.entryPrice ?? liveLtp);
+    let lockedSL = Number(raw.stopLossPrice ?? Number((lockedEntry * 0.968).toFixed(2)));
+    let lockedTP = Number(raw.target1Price ?? Number((lockedEntry * 1.07).toFixed(2)));
+    let lockedBreakout = Number(raw.breakoutLevel ?? pat.boxHigh ?? lockedEntry);
+
+    if (existingLock && existingLock.dateKey === todayKey) {
+      lockedEntry = existingLock.entry;
+      lockedSL = existingLock.sl;
+      lockedTP = existingLock.tp;
+      lockedBreakout = existingLock.breakout;
+    } else {
+      dailyLocks[cleanSymbol] = {
+        dateKey: todayKey,
+        entry: lockedEntry,
+        sl: lockedSL,
+        tp: lockedTP,
+        breakout: lockedBreakout,
+      };
+    }
+
+    const risk = Math.max(0.5, Math.abs(lockedEntry - lockedSL));
+    const rewardRiskRatio = Number(((lockedTP - lockedEntry) / risk).toFixed(2));
+    const volumeMultiplier = Number(Number(raw.relativeVolume ?? raw.volumeMultiplier ?? 1.5).toFixed(2));
+    const confluenceScore = Number(raw.confluenceScore ?? 86);
+
+    const validCodes: Array<Exclude<InstitutionalStrategyCode, "ALL_STRATEGIES">> = [
+      "RANGE_SUPPORT_BUY",
+      "TRENDLINE_5D_RANGE_DOJI",
+      "RESISTANCE_DOJI_SQUEEZE",
+      "VCP_POCKET_PIVOT",
+    ];
+
+    const rawPrimary = String(raw.primaryStrategy || "TRENDLINE_5D_RANGE_DOJI") as Exclude<
+      InstitutionalStrategyCode,
+      "ALL_STRATEGIES"
+    >;
+    const primary: Exclude<InstitutionalStrategyCode, "ALL_STRATEGIES"> = validCodes.includes(rawPrimary)
+      ? rawPrimary
+      : "TRENDLINE_5D_RANGE_DOJI";
+
+    const rawMatched: string[] = Array.isArray(raw.matchedStrategies) ? raw.matchedStrategies : [primary];
+    const matched = rawMatched.filter((c): c is Exclude<InstitutionalStrategyCode, "ALL_STRATEGIES"> =>
+      validCodes.includes(c as any)
+    );
+    if (matched.length === 0) matched.push(primary);
+
+    const supportLevel = pat.supportZoneLow ?? Number((lockedEntry * 0.92).toFixed(1));
+    const rallyPct = pat.rallyFromSupportPct ?? 5.4;
+    const boxLow = pat.boxLow ?? Number((lockedEntry * 0.975).toFixed(1));
+    const boxWidth = pat.boxRangePct ?? 2.8;
+    const dojiCount = pat.dojiCount ?? 1;
+
+    const isPurpleBox = matched.includes("RANGE_SUPPORT_BUY");
+
+    const supportBounceInfo = isPurpleBox
+      ? `🟣 Purple Box Trapped Range: VAL Floor ₹${pat.purpleBoxFloorVAL ?? boxLow} | POC ₹${pat.purpleBoxPOC ?? lockedEntry} | VAH Ceiling ₹${pat.purpleBoxCeilingVAH ?? lockedTP}`
+      : `Support Bounce from ₹${supportLevel} (+${rallyPct}%) & Falling Trendline Broken`;
+
+    const fiveDayBoxInfo = isPurpleBox
+      ? `Box Containment: Tested Support (Bull OB/SSL) ${pat.supportTouches ?? 3}x & Resistance (Bear OB) ${pat.resistanceTouches ?? 2}x (${pat.purpleBoxWidthPct ?? boxWidth}% Box)`
+      : `5–6D Tight Box: ₹${boxLow} – ₹${lockedBreakout} (${boxWidth}% Width) · Fixed Breakout: ₹${lockedBreakout}`;
+
+    const dojiCandleInfo = isPurpleBox
+      ? pat.purpleBoxMode === "PURPLE_BOX_BREAKOUT"
+        ? `🚀 Stepping Out Above Purple Box VAH Ceiling (₹${pat.purpleBoxCeilingVAH}) after 1–2M Consolidation!`
+        : `🎯 Bouncing off Bull OB / Support Zone (${pat.positionInBoxPct ?? 20}% height of box) → Target VAH ₹${lockedTP}`
+      : `${dojiCount} Doji / Inside-Bar Squeeze Candle(s) inside 5–6D box before +7% breakout`;
+
+    return {
+      id: `${cleanSymbol}-${todayKey}`,
+      symbol: `${cleanSymbol}.NS`,
+      cleanSymbol,
+      companyName: raw.companyName || cleanSymbol,
+      sector: raw.sector || "NSE Institutional",
+      lockedDateKey: todayKey,
+      currentPrice: liveLtp,
+      changePercent: Number(raw.changePercent ?? 0),
+      breakoutLevel: lockedBreakout,
+      entryPrice: lockedEntry,
+      stopLossPrice: lockedSL,
+      target1Price: lockedTP,
+      rewardRiskRatio,
+      confluenceScore,
+      volumeMultiplier,
+      primaryQuantStrategy: primary,
+      matchedQuantStrategies: matched,
+      supportBounceInfo,
+      fiveDayBoxInfo,
+      dojiCandleInfo,
+      realRationale: raw.tradeRationale || [STRATEGY_METADATA[primary].logicDesc],
+    };
   };
 
-  // ── Automated Daily Strategy Scanner Fetch ────────────────────────────────
-  const fetchDailyScannerData = async (
-    universe = selectedUniverse,
-    strategy = selectedStrategyTab,
-    forceRefresh = false,
-    targetDate = selectedScanDate
-  ) => {
-    setIsDailyScanning(true);
-    try {
-      let url = `/api/indian/swing/daily-scanner?universe=${encodeURIComponent(
-        universe
-      )}&strategy=${encodeURIComponent(strategy)}${
-        forceRefresh ? "&forceRefresh=true" : ""
-      }`;
-      if (targetDate) {
-        url += `&date=${encodeURIComponent(targetDate)}`;
-      }
-      const res = await fetch(url, { cache: "no-store" });
-      const json = await res.json();
-      setScanHasRun(true);
-      if (json.success) {
-        if (json.opportunities) setDailyOpportunities(json.opportunities);
-        if (json.multiStrategyMatches)
-          setMultiStrategyMatches(json.multiStrategyMatches);
-        if (json.strategyCounts) setStrategyCounts(json.strategyCounts);
-        // Update coverage stats
-        if (json.coverage) setScanCoverage(json.coverage);
-        if (json.scanRun || json.scanDate) {
-          setScanRunInfo({
-            scanDate: json.scanDate || null,
-            completedAt: json.completedAt || null,
-            scanType: json.scanType || null,
-            status: json.scanStatus || null,
-            durationMs: json.durationMs || null,
-            isPersisted: Boolean(json.isPersisted),
+  // Force-synchronize all active trades with exact live quote snapshot LTP
+  const synchronizeActiveTradesWithLiveLtp = useCallback(
+    (incomingPrices: Map<string, number>, currentStocks: NormalizedRealStock[]) => {
+      const currentActive = autoTradesRef.current;
+      if (currentActive.length === 0 && (!autoExecuteEnabled || currentStocks.length === 0)) return;
+
+      const syncStamp = new Date().toLocaleTimeString("en-IN", { hour12: false });
+      const updatedActive: ActivePortfolioTrade[] = [];
+      const newlyCompleted: ActivePortfolioTrade[] = [];
+      const newlyAutoEntered: ActivePortfolioTrade[] = [];
+
+      currentActive.forEach((trade) => {
+        const cleanSym = String(trade.cleanSymbol || trade.symbol || "")
+          .toUpperCase()
+          .replace(/\.NS$/i, "")
+          .replace(/\.BO$/i, "");
+        const tickPrice = incomingPrices.get(cleanSym);
+        const hasTick = typeof tickPrice === "number" && Number.isFinite(tickPrice) && tickPrice > 0;
+        const liveLtp = hasTick ? Number(tickPrice.toFixed(2)) : Number(trade.currentMarketPrice ?? trade.entryPrice);
+        const entry = Number(trade.entryPrice);
+        const qty = Number(trade.quantity);
+        const peak = Math.max(liveLtp, trade.peakSimulatedPrice ?? entry);
+        const diff = (liveLtp - entry) * qty;
+        const pct = Number((((liveLtp - entry) / entry) * 100).toFixed(2));
+
+        // Smart Reversal & News Shield + Automated Profit Locking (TSL to Cost at 70% Target Distance)
+        const smartShield = evaluateActiveTradeSmartShield({
+          symbol: cleanSym,
+          direction: "LONG",
+          entryPrice: entry,
+          stopLossPrice: trade.stopLossPrice,
+          targetPrice: trade.targetPrice,
+          currentPrice: liveLtp,
+          peakPrice: peak,
+          quantity: qty,
+          isTslCostLocked: trade.isTslCostLocked,
+        });
+
+        const effectiveStop = smartShield.updatedStopLossPrice;
+
+        if (smartShield.shouldAutoExit && smartShield.autoExitTag) {
+          newlyCompleted.push({
+            ...trade,
+            cleanSymbol: cleanSym,
+            currentMarketPrice: liveLtp,
+            currentSimulatedPrice: liveLtp,
+            peakSimulatedPrice: peak,
+            stopLossPrice: effectiveStop,
+            status: smartShield.autoExitTag as ActivePortfolioTrade["status"],
+            exitTime: new Date().toLocaleString("en-IN"),
+            pnlAmount: Math.round(diff),
+            pnlPercent: pct,
+            targetProgressPct: smartShield.targetProgressPct,
+            isTslCostLocked: smartShield.isTslCostLocked,
+            liveSentimentBadge: smartShield.liveSentimentBadge,
+            lastLtpSyncAt: syncStamp,
+            isLiveTick: true,
+          });
+        } else if (liveLtp >= trade.targetPrice) {
+          const tDiff = (trade.targetPrice - entry) * qty;
+          newlyCompleted.push({
+            ...trade,
+            cleanSymbol: cleanSym,
+            currentMarketPrice: trade.targetPrice,
+            currentSimulatedPrice: trade.targetPrice,
+            peakSimulatedPrice: peak,
+            status: "TARGET_HIT",
+            exitTime: new Date().toLocaleString("en-IN"),
+            pnlAmount: Math.round(tDiff),
+            pnlPercent: Number((((trade.targetPrice - entry) / entry) * 100).toFixed(2)),
+            lastLtpSyncAt: syncStamp,
+            isLiveTick: true,
+          });
+        } else if (liveLtp <= effectiveStop) {
+          const sDiff = (effectiveStop - entry) * qty;
+          newlyCompleted.push({
+            ...trade,
+            cleanSymbol: cleanSym,
+            currentMarketPrice: effectiveStop,
+            currentSimulatedPrice: effectiveStop,
+            peakSimulatedPrice: peak,
+            stopLossPrice: effectiveStop,
+            status: smartShield.isTslCostLocked ? "TSL_COST_BREAKEVEN_EXIT" : "STOP_LOSS_HIT",
+            exitTime: new Date().toLocaleString("en-IN"),
+            pnlAmount: Math.round(sDiff),
+            pnlPercent: Number((((effectiveStop - entry) / entry) * 100).toFixed(2)),
+            lastLtpSyncAt: syncStamp,
+            isLiveTick: true,
+          });
+        } else {
+          updatedActive.push({
+            ...trade,
+            cleanSymbol: cleanSym,
+            currentMarketPrice: liveLtp,
+            currentSimulatedPrice: liveLtp,
+            peakSimulatedPrice: peak,
+            stopLossPrice: effectiveStop,
+            pnlAmount: Math.round(diff),
+            pnlPercent: pct,
+            targetProgressPct: smartShield.targetProgressPct,
+            isTslCostLocked: smartShield.isTslCostLocked,
+            liveSentimentBadge: smartShield.liveSentimentBadge,
+            lastLtpSyncAt: hasTick ? syncStamp : trade.lastLtpSyncAt,
+            isLiveTick: hasTick,
           });
         }
-
-        if (json.marketRegime) {
-          setRegime((prev): RegimeUI => ({
-            spotPrice:    json.marketRegime.niftySpot    ?? prev?.spotPrice    ?? 0,
-            changePercent: json.marketRegime.niftyChangePercent ?? prev?.changePercent ?? 0,
-            ema20:        json.marketRegime.niftyEma20   ?? prev?.ema20         ?? 0,
-            ema50:        prev?.ema50  ?? 0,
-            ema200:       prev?.ema200 ?? 0,
-            bias:         json.marketRegime.bias         ?? prev?.bias          ?? "UNAVAILABLE",
-            clearance:    json.marketRegime.clearance    ?? prev?.clearance     ?? "UNAVAILABLE",
-            breadthPercentAbove50EMA: null,
-            advancingStocksCount:    null,
-            decliningStocksCount:    null,
-            regimeScore:  json.marketRegime.bias === "BULLISH_TREND" ? 85 : 62,
-            analysisSummary: json.marketRegime.analysisSummary ?? prev?.analysisSummary ?? "",
-          }));
-        }
-        setLastScanTimestamp(
-          json.completedAt
-            ? new Date(json.completedAt).toLocaleTimeString("en-IN", {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })
-            : new Date().toLocaleTimeString("en-IN", {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })
-        );
-      }
-    } catch (err) {
-      console.error("Daily scanner fetch error:", err);
-    } finally {
-      setIsDailyScanning(false);
-    }
-  };
-
-  // ── Full NSE Scanner Fetch (nse-scanner endpoint) ──────────────────────
-  const fetchFullNseScan = async (dryRun = false) => {
-    if (isNseScanning) return; // Duplicate-run protection
-    setIsNseScanning(true);
-    setNseError(null);
-    setNseUseFallbackWarning(false);
-
-    // 10-minute timeout for full NSE universe scan (~2,300 symbols)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000);
-
-    try {
-      const url = `/api/indian/swing/nse-scanner?dry_run=${dryRun}`;
-      const res = await fetch(url, {
-        cache: "no-store",
-        signal: controller.signal,
       });
 
-      if (res.status === 409) {
-        // Another scan already running server-side
-        setNseError("A scan is already running on the server. Please wait and try again.");
-        return;
-      }
+      if (autoExecuteEnabled) {
+        const todayKey = getTodayDateKey();
+        currentStocks.forEach((st) => {
+          const cleanSym = st.cleanSymbol.toUpperCase();
+          const alreadyActive = updatedActive.some(
+            (t) => String(t.cleanSymbol || t.symbol || "").replace(/\.NS$/i, "").replace(/\.BO$/i, "").toUpperCase() === cleanSym
+          );
+          if (alreadyActive) return;
 
-      const json: NseScanResult = await res.json();
+          const executionEntryPrice = Number(st.currentPrice.toFixed(2));
+          const qty = Math.floor(300000 / executionEntryPrice);
+          if (qty <= 0) return;
 
-      if (!json.success) {
-        setNseError(json.error || "NSE scanner returned an error.");
-        return;
-      }
+          const lockedSL = Number(Math.min(st.stopLossPrice, executionEntryPrice * 0.968).toFixed(2));
+          const risk = Math.max(0.5, executionEntryPrice - lockedSL);
+          const lockedTP = Number(Math.max(st.target1Price, executionEntryPrice * 1.06).toFixed(2));
+          const rr = Number(((lockedTP - executionEntryPrice) / risk).toFixed(2));
 
-      setNseScanResult(json);
-
-      // If fallback universe was used, show prominent warning
-      if (
-        json.universeMetadata?.source === "FALLBACK_NIFTY_500" ||
-        json.universeMetadata?.universeFetchError
-      ) {
-        setNseUseFallbackWarning(true);
-      }
-
-      // Populate the main opportunity list from NSE scanner results
-      if (json.opportunities?.length > 0) {
-        setDailyOpportunities(json.opportunities);
-        const counts: Record<string, number> = {};
-        for (const opp of json.opportunities) {
-          for (const st of (opp.allMatchedStrategies || [])) {
-            counts[st.strategyId] = (counts[st.strategyId] || 0) + 1;
-          }
-        }
-        setStrategyCounts(counts);
-        setMultiStrategyMatches(
-          json.opportunities.filter((o: any) => o.isMultiStrategyMatch)
-        );
-      }
-
-      // Update coverage stats
-      if (json.coverage) {
-        setScanCoverage({
-          symbolsQueued: json.coverage.symbolsQueued ?? 0,
-          scannedSuccessfully: json.coverage.successCount ?? 0,
-          skippedCount: json.coverage.skippedCount ?? 0,
-          failedCount: json.coverage.failedCount ?? 0,
-          opportunitiesFound: json.coverage.opportunitiesCount ?? 0,
-          universeSource: json.coverage.universeSource,
-          universeSize: json.coverage.universeSize,
-          successCount: json.coverage.successCount,
-          opportunitiesCount: json.coverage.opportunitiesCount,
+          newlyAutoEntered.push({
+            tradeId: `AUTO-${cleanSym}-${Date.now()}`,
+            symbol: `${cleanSym}.NS`,
+            cleanSymbol: cleanSym,
+            companyName: st.companyName,
+            strategyUsed: STRATEGY_METADATA[st.primaryQuantStrategy].shortBadge,
+            lockedDateKey: todayKey,
+            confluenceScore: st.confluenceScore,
+            volumeMultiplier: st.volumeMultiplier,
+            supportBounceInfo: st.supportBounceInfo,
+            fiveDayBoxInfo: st.fiveDayBoxInfo,
+            dojiCandleInfo: st.dojiCandleInfo,
+            rationale: st.realRationale[0],
+            breakoutLevel: st.breakoutLevel,
+            entryPrice: executionEntryPrice,
+            stopLossPrice: lockedSL,
+            targetPrice: lockedTP,
+            rewardRiskRatio: rr,
+            allocatedCapital: Math.round(qty * executionEntryPrice),
+            quantity: qty,
+            executionTime: new Date().toLocaleString("en-IN"),
+            status: "ACTIVE",
+            currentMarketPrice: executionEntryPrice,
+            currentSimulatedPrice: executionEntryPrice,
+            pnlAmount: 0,
+            pnlPercent: 0,
+            lastLtpSyncAt: syncStamp,
+            isLiveTick: true,
+          });
         });
       }
 
-      if (json.marketRegime) {
-        setRegime((prev): RegimeUI => ({
-          spotPrice:     json.marketRegime.niftySpot    ?? prev?.spotPrice    ?? 0,
-          changePercent: json.marketRegime.niftyChangePercent ?? prev?.changePercent ?? 0,
-          ema20:         json.marketRegime.niftyEma20   ?? prev?.ema20        ?? 0,
-          ema50:         prev?.ema50  ?? 0,
-          ema200:        prev?.ema200 ?? 0,
-          bias:          json.marketRegime.bias         ?? prev?.bias         ?? "UNAVAILABLE",
-          clearance:     json.marketRegime.clearance    ?? prev?.clearance    ?? "UNAVAILABLE",
-          breadthPercentAbove50EMA: null,
-          advancingStocksCount:    null,
-          decliningStocksCount:    null,
-          regimeScore:  json.marketRegime.bias === "BULLISH_TREND" ? 85 : 62,
-          analysisSummary: json.marketRegime.analysisSummary ?? prev?.analysisSummary ?? "",
-        }));
+      const finalActive = [...newlyAutoEntered, ...updatedActive];
+      autoTradesRef.current = finalActive;
+      setAutoTrades(finalActive);
+      localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(finalActive));
+
+      if (selectedTradeModal) {
+        const refreshed = finalActive.find((t) => t.tradeId === selectedTradeModal.tradeId);
+        if (refreshed) setSelectedTradeModal(refreshed);
       }
 
-      setLastScanTimestamp(
-        new Date().toLocaleTimeString("en-IN", {
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-        })
-      );
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        setNseError("NSE scan timed out after 10 minutes. The universe may be too large for a single request. Try with max_symbols parameter.");
-      } else {
-        setNseError(err?.message || "NSE scan failed unexpectedly.");
+      if (newlyCompleted.length > 0) {
+        setBacktestHistory((prev) => {
+          const finalHist = [...newlyCompleted, ...prev];
+          localStorage.setItem(STORAGE_KEY_BACKTEST_HISTORY, JSON.stringify(finalHist));
+          return finalHist;
+        });
+        setPortfolioNotice(
+          `🎯 Auto-Closed: ${newlyCompleted.map((t) => `${t.cleanSymbol} (${t.status})`).join(", ")} moved to Backtest History!`
+        );
+      } else if (newlyAutoEntered.length > 0) {
+        setPortfolioNotice(
+          `🔒 Auto-Entered ₹3L in ${newlyAutoEntered.map((t) => t.cleanSymbol).join(", ")} — Same-Day Locked Entry (Starts at ₹0 P&L)!`
+        );
       }
-    } finally {
-      clearTimeout(timeoutId);
-      setIsNseScanning(false);
-    }
-  };
+    },
+    [autoExecuteEnabled, selectedTradeModal]
+  );
 
-  // Fetch available historical scan dates
-
-  useEffect(() => {
-    fetch("/api/indian/swing/daily-scanner/history")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.success && d.runs) {
-          const dates = Array.from(new Set(d.runs.map((r: any) => r.scan_date))).filter(Boolean) as string[];
-          setAvailableScanDates(dates);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    fetchDailyScannerData(selectedUniverse, selectedStrategyTab, false, selectedScanDate);
-    const interval = setInterval(
-      () => fetchDailyScannerData(selectedUniverse, selectedStrategyTab, false, selectedScanDate),
-      60000
+  const deploySingleStockTrade = (st: NormalizedRealStock) => {
+    const cleanSym = st.cleanSymbol.toUpperCase();
+    const alreadyActive = autoTrades.some(
+      (t) =>
+        (!t.status || t.status === "ACTIVE") &&
+        String(t.cleanSymbol || t.symbol || "").replace(/\.NS$/i, "").replace(/\.BO$/i, "").toUpperCase() === cleanSym
     );
-    return () => clearInterval(interval);
-  }, [selectedUniverse, selectedStrategyTab, selectedScanDate]);
-
-  const fetchSwingData = async () => {
-    try {
-      let res = await fetch("/api/indian/swing/signals", { cache: "no-store" }).catch(() => null);
-      if (!res || !res.ok) {
-        res = await fetch(apiUrl("/api/indian/swing/signals"), { cache: "no-store" }).catch(() => null);
-      }
-      if (res && res.ok) {
-        const data = await res.json();
-        // Only populate signals if the API returns validated, non-empty results.
-        // Never fall back to hardcoded stocks.
-        if (data.success && data.signals && data.signals.length > 0) {
-          setSignals(data.signals);
-          if (data.regime) setRegime(data.regime);
-        }
-        // If API returns empty or fails, signals stays as [] — empty state is correct.
-      }
-    } catch {
-      // API unreachable — leave signals empty, show empty state
+    if (alreadyActive) {
+      setPortfolioNotice(`ℹ️ ${cleanSym} is already running in Active Trades!`);
+      setMainTab("PORTFOLIO");
+      return;
     }
-  };
 
-  useEffect(() => {
-    fetchSwingData();
-  }, []);
+    const exactLiveLtp = Number((liveQuotesMap[cleanSym] ?? st.currentPrice).toFixed(2));
+    const qty = Math.floor(300000 / exactLiveLtp);
+    if (qty <= 0) return;
 
-  // Filter legacy signals
-  const filteredSignals = signals.filter((s) => {
-    if (selectedFilter === "ALL") return true;
-    if (selectedFilter === "SETUP_A") return s.setupId === "SETUP_A_BREAKOUT_RETEST";
-    if (selectedFilter === "SETUP_B") return s.setupId === "SETUP_B_LIQUIDITY_SWEEP";
-    if (selectedFilter === "SETUP_C") return s.setupId === "SETUP_C_TREND_PULLBACK";
-    if (selectedFilter === "SETUP_D") return s.setupId === "SETUP_D_BASE_BREAKOUT";
-    return true;
-  });
+    const lockedSL = Number(Math.min(st.stopLossPrice, exactLiveLtp * 0.968).toFixed(2));
+    const risk = Math.max(0.5, exactLiveLtp - lockedSL);
+    const lockedTP = Number(Math.max(st.target1Price, exactLiveLtp * 1.06).toFixed(2));
+    const rr = Number(((lockedTP - exactLiveLtp) / risk).toFixed(2));
+    const syncStamp = new Date().toLocaleTimeString("en-IN", { hour12: false });
 
-  // Filter daily 8-strategy opportunities
-  const filteredOpportunities = dailyOpportunities.filter((opp) => {
-    if (selectedStrategyTab !== "ALL") {
-      const matchesStrat = opp.allMatchedStrategies.some((s) => s.strategyId === selectedStrategyTab);
-      if (!matchesStrat) return false;
-    }
-    if (directionFilter !== "ALL" && opp.direction !== directionFilter) return false;
-    if (minScoreFilter > 0 && opp.confluenceScore < minScoreFilter) return false;
-    if (minRRFilter > 0 && opp.rewardRiskRatio < minRRFilter) return false;
-    if (tableSearchQuery.trim()) {
-      const q = tableSearchQuery.trim().toUpperCase();
-      return (
-        opp.cleanSymbol.includes(q) ||
-        opp.companyName.toUpperCase().includes(q) ||
-        opp.sector.toUpperCase().includes(q)
-      );
-    }
-    return true;
-  });
-
-  // Dynamic Position Sizing Math
-  const riskPerShare = Math.max(0.01, Math.abs(calcEntry - calcStopLoss));
-  const gainPerShare = Math.max(0.01, Math.abs(calcTarget - calcEntry));
-  const maxRiskAmount = Math.round((accountCapital * (riskPercent / 100)) * 100) / 100;
-  const recommendedQuantity = Math.floor(maxRiskAmount / riskPerShare);
-  const totalCapitalRequired = Math.round(recommendedQuantity * calcEntry);
-  const capitalExposurePercent =
-    accountCapital > 0 ? Math.round((totalCapitalRequired / accountCapital) * 1000) / 10 : 0;
-  const potentialRewardAmount = Math.round(recommendedQuantity * gainPerShare);
-  const rewardRiskRatio = Math.round((gainPerShare / riskPerShare) * 100) / 100;
-
-  const loadSignalIntoCalculator = (sig: SwingSignalUI) => {
-    setCalcSymbol(sig.symbol);
-    setCalcEntry(sig.entryPrice);
-    setCalcStopLoss(sig.stopLossPrice);
-    setCalcTarget(sig.target1Price);
-    setCalcNotice(`✓ Loaded ${sig.symbol} (Entry: ₹${sig.entryPrice}, SL: ₹${sig.stopLossPrice}) into Risk Calculator`);
-    setTimeout(() => setCalcNotice(null), 5000);
-    const el = document.getElementById("risk-calculator-section");
-    if (el) el.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const loadOpportunityIntoCalculator = (opp: MatchedStockOpportunity) => {
-    setCalcSymbol(opp.cleanSymbol);
-    setCalcEntry(opp.entryTrigger);
-    setCalcStopLoss(opp.stopLoss);
-    setCalcTarget(opp.target1);
-    setCalcNotice(
-      `✓ Loaded ${opp.cleanSymbol} (${opp.primaryStrategy.strategyName}: Entry ₹${opp.entryTrigger}, SL ₹${opp.stopLoss}) into Risk Calculator`
-    );
-    setTimeout(() => setCalcNotice(null), 5000);
-    const el = document.getElementById("risk-calculator-section");
-    if (el) el.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const openBacktest = (sym: string, strat?: StrategyId) => {
-    setBacktestSymbol(sym);
-    if (strat) setBacktestStrategy(strat);
-    setBacktestModalOpen(true);
-  };
-
-  const executePaperOrder = () => {
-    const newTrade = {
-      id: `PAPER-${Date.now()}`,
-      symbol: calcSymbol,
-      entry: calcEntry,
-      stopLoss: calcStopLoss,
-      target1: calcTarget,
-      quantity: recommendedQuantity,
-      capital: totalCapitalRequired,
-      riskAmount: maxRiskAmount,
-      date: `${new Date().toLocaleDateString("en-IN")} ${new Date().toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      })}`,
+    const newTrade: ActivePortfolioTrade = {
+      tradeId: `TRADE-${cleanSym}-${Date.now()}`,
+      symbol: `${cleanSym}.NS`,
+      cleanSymbol: cleanSym,
+      companyName: st.companyName,
+      strategyUsed: STRATEGY_METADATA[st.primaryQuantStrategy].shortBadge,
+      lockedDateKey: getTodayDateKey(),
+      confluenceScore: st.confluenceScore,
+      volumeMultiplier: st.volumeMultiplier,
+      supportBounceInfo: st.supportBounceInfo,
+      fiveDayBoxInfo: st.fiveDayBoxInfo,
+      dojiCandleInfo: st.dojiCandleInfo,
+      rationale: st.realRationale[0],
+      breakoutLevel: st.breakoutLevel,
+      entryPrice: exactLiveLtp,
+      stopLossPrice: lockedSL,
+      targetPrice: lockedTP,
+      rewardRiskRatio: rr,
+      allocatedCapital: Math.round(qty * exactLiveLtp),
+      quantity: qty,
+      executionTime: new Date().toLocaleString("en-IN"),
       status: "ACTIVE",
+      currentMarketPrice: exactLiveLtp,
+      currentSimulatedPrice: exactLiveLtp,
+      pnlAmount: 0,
+      pnlPercent: 0,
+      lastLtpSyncAt: syncStamp,
+      isLiveTick: true,
     };
-    setPaperTrades((prev) => [newTrade, ...prev]);
-    setPaperTradeNotice(
-      `⚡ Simulated Paper Order: Bought ${recommendedQuantity} ${calcSymbol} at ₹${calcEntry} (Capital: ₹${totalCapitalRequired.toLocaleString("en-IN")})`
-    );
-    setTimeout(() => setPaperTradeNotice(null), 6000);
+
+    const nextActive = [newTrade, ...autoTrades];
+    autoTradesRef.current = nextActive;
+    setAutoTrades(nextActive);
+    localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(nextActive));
+    setPortfolioNotice(`⚡ Deployed ${cleanSym} (${qty} Qty) at exact Live LTP ₹${exactLiveLtp} (Initial P&L: ₹0 / 0%)!`);
+    setMainTab("PORTFOLIO");
   };
+
+  const fetchLiveApiData = async (forceRefresh = false) => {
+    setIsLoading(true);
+    try {
+      let dailyLocks: Record<string, { dateKey: string; entry: number; sl: number; tp: number; breakout: number }> = {};
+      try {
+        const rawLocks = localStorage.getItem(STORAGE_KEY_DAILY_SIGNAL_LOCK);
+        if (rawLocks) dailyLocks = JSON.parse(rawLocks);
+      } catch { }
+
+      // Read active symbols from ref or localStorage so scanner:
+      // 1. Always quotes their live LTP in `livePrices`
+      // 2. Excludes them from `opportunities` while `status === "ACTIVE"`
+      let activeSource = autoTradesRef.current;
+      if (activeSource.length === 0 && typeof window !== "undefined") {
+        const persisted = readPersistedTrades<ActivePortfolioTrade>(STORAGE_KEY_ACTIVE_TRADES, LEGACY_ACTIVE_KEYS);
+        if (persisted) activeSource = persisted;
+      }
+      const activeSymbols = Array.from(
+        new Set(
+          activeSource
+            .filter((t) => !t.status || t.status === "ACTIVE")
+            .map((t) => String(t.cleanSymbol || t.symbol || "").toUpperCase().replace(/\.NS$/i, "").replace(/\.BO$/i, ""))
+            .filter(Boolean)
+        )
+      );
+      const activeParam =
+        activeSymbols.length > 0
+          ? `&activeSymbols=${encodeURIComponent(activeSymbols.join(","))}&excludeActive=true`
+          : "";
+
+      const incomingPrices = new Map<string, number>();
+      const map = new Map<string, NormalizedRealStock>();
+      const res = await fetch(
+        `/api/indian/swing/daily-scanner?universe=ALL_LIQUID&strategy=ALL${activeParam}&_t=${Date.now()}${forceRefresh ? "&forceRefresh=true" : ""}`,
+        { cache: "no-store" }
+      );
+      if (res.ok) {
+        const json = await res.json();
+
+        // 1. Ingest exact livePrices snapshot dictionary
+        if (json.livePrices && typeof json.livePrices === "object") {
+          Object.entries(json.livePrices).forEach(([sym, obj]: [string, any]) => {
+            const clean = sym.toUpperCase().replace(/\.NS$/i, "").replace(/\.BO$/i, "");
+            const price = Number(obj?.ltp ?? obj);
+            if (Number.isFinite(price) && price > 0) {
+              incomingPrices.set(clean, Number(price.toFixed(2)));
+            }
+          });
+        }
+
+        // 2. Ingest opportunities & force-match `currentPrice` with exact snapshot `ltp`
+        if (json.success && Array.isArray(json.opportunities)) {
+          json.opportunities.forEach((item: any, i: number) => {
+            const parsed = parseRealStockItem(item, i, dailyLocks);
+            if (parsed) {
+              const exactSnapLtp = incomingPrices.get(parsed.cleanSymbol);
+              if (typeof exactSnapLtp === "number" && exactSnapLtp > 0) {
+                parsed.currentPrice = exactSnapLtp;
+              } else {
+                incomingPrices.set(parsed.cleanSymbol, parsed.currentPrice);
+              }
+              map.set(parsed.cleanSymbol, parsed);
+            }
+          });
+        }
+      }
+
+      try {
+        localStorage.setItem(STORAGE_KEY_DAILY_SIGNAL_LOCK, JSON.stringify(dailyLocks));
+      } catch { }
+
+      const list = Array.from(map.values()).sort(
+        (a, b) => b.confluenceScore + b.volumeMultiplier * 5 - (a.confluenceScore + a.volumeMultiplier * 5)
+      );
+      setStocks(list);
+      setDataSourceStatus(`Live NSE Feed (${list.length} Verified Setups)`);
+
+      if (incomingPrices.size > 0) {
+        const plainObj: Record<string, number> = {};
+        incomingPrices.forEach((v, k) => {
+          plainObj[k] = v;
+        });
+        setLiveQuotesMap((prev) => ({ ...prev, ...plainObj }));
+        setLastLtpSyncTime(new Date().toLocaleTimeString("en-IN", { hour12: false }));
+      }
+
+      // Immediately synchronize all active trades with exact live LTP
+      synchronizeActiveTradesWithLiveLtp(incomingPrices, list);
+    } catch { } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLiveApiData(false);
+    const timer = setInterval(() => fetchLiveApiData(false), 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleSaveAdjustedLevels = () => {
+    if (!selectedTradeModal) return;
+    const newEntry = Number(editEntry);
+    const newSL = Number(editSL);
+    const newTP = Number(editTP);
+
+    if (!newEntry || !newSL || !newTP || newSL >= newTP) {
+      alert("Please enter valid Entry, Stop-Loss, and Target prices (SL must be below Target).");
+      return;
+    }
+
+    const updatedList = autoTrades.map((t) => {
+      if (t.tradeId !== selectedTradeModal.tradeId) return t;
+      const qty = Math.floor(300000 / newEntry);
+      const liveLtp = t.currentMarketPrice;
+      const pnlAmt = Math.round((liveLtp - newEntry) * qty);
+      const pnlPct = Number((((liveLtp - newEntry) / newEntry) * 100).toFixed(2));
+      const risk = Math.max(0.5, Math.abs(newEntry - newSL));
+      const rr = Number(((newTP - newEntry) / risk).toFixed(2));
+
+      const updatedTrade: ActivePortfolioTrade = {
+        ...t,
+        entryPrice: Number(newEntry.toFixed(2)),
+        stopLossPrice: Number(newSL.toFixed(2)),
+        targetPrice: Number(newTP.toFixed(2)),
+        rewardRiskRatio: rr,
+        quantity: qty,
+        allocatedCapital: Math.round(qty * newEntry),
+        pnlAmount: pnlAmt,
+        pnlPercent: pnlPct,
+      };
+      setSelectedTradeModal(updatedTrade);
+      return updatedTrade;
+    });
+
+    setAutoTrades(updatedList);
+    localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(updatedList));
+    setPortfolioNotice(
+      `✅ Updated SL/Target for ${selectedTradeModal.cleanSymbol} (Reference Level ₹${selectedTradeModal.breakoutLevel} kept fixed!)`
+    );
+  };
+
+  const resolveTradeOutcome = (tradeId: string, outcome: "TARGET" | "STOPLOSS", e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const targetTrade = autoTrades.find((t) => t.tradeId === tradeId);
+    if (!targetTrade) return;
+
+    const finalPrice = outcome === "TARGET" ? targetTrade.targetPrice : targetTrade.stopLossPrice;
+    const diff = (finalPrice - targetTrade.entryPrice) * targetTrade.quantity;
+    const pct = Number((((finalPrice - targetTrade.entryPrice) / targetTrade.entryPrice) * 100).toFixed(2));
+
+    const resolved: ActivePortfolioTrade = {
+      ...targetTrade,
+      currentMarketPrice: finalPrice,
+      status: outcome === "TARGET" ? "TARGET_HIT" : "STOP_LOSS_HIT",
+      exitTime: new Date().toLocaleString("en-IN"),
+      pnlAmount: Math.round(diff),
+      pnlPercent: pct,
+    };
+
+    const rem = autoTrades.filter((t) => t.tradeId !== tradeId);
+    const hist = [resolved, ...backtestHistory];
+    setAutoTrades(rem);
+    setBacktestHistory(hist);
+    localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(rem));
+    localStorage.setItem(STORAGE_KEY_BACKTEST_HISTORY, JSON.stringify(hist));
+    if (selectedTradeModal?.tradeId === tradeId) setSelectedTradeModal(null);
+  };
+
+  // Manual Override & Emergency Square-Off Now at exact Live LTP
+  const handleEmergencySquareOffNow = (tradeId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const targetTrade = autoTrades.find((t) => t.tradeId === tradeId);
+    if (!targetTrade) return;
+
+    const cleanSym = String(targetTrade.cleanSymbol || targetTrade.symbol || "")
+      .toUpperCase()
+      .replace(/\.NS$/i, "")
+      .replace(/\.BO$/i, "");
+    const exactLiveLtp = Number((liveQuotesMap[cleanSym] ?? targetTrade.currentMarketPrice ?? targetTrade.entryPrice).toFixed(2));
+    const diff = (exactLiveLtp - targetTrade.entryPrice) * targetTrade.quantity;
+    const pct = Number((((exactLiveLtp - targetTrade.entryPrice) / targetTrade.entryPrice) * 100).toFixed(2));
+
+    const squaredOff: ActivePortfolioTrade = {
+      ...targetTrade,
+      cleanSymbol: cleanSym,
+      currentMarketPrice: exactLiveLtp,
+      currentSimulatedPrice: exactLiveLtp,
+      status: "MANUAL_EMERGENCY_EXIT",
+      exitTime: new Date().toLocaleString("en-IN"),
+      pnlAmount: Math.round(diff),
+      pnlPercent: pct,
+    };
+
+    const rem = autoTrades.filter((t) => t.tradeId !== tradeId);
+    const hist = [squaredOff, ...backtestHistory];
+    autoTradesRef.current = rem;
+    setAutoTrades(rem);
+    setBacktestHistory(hist);
+    localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(rem));
+    localStorage.setItem(STORAGE_KEY_BACKTEST_HISTORY, JSON.stringify(hist));
+    if (selectedTradeModal?.tradeId === tradeId) setSelectedTradeModal(null);
+    setPortfolioNotice(
+      `⚡ Emergency Exit Complete: ${cleanSym} squared off at Live LTP ₹${exactLiveLtp} (${diff >= 0 ? "+" : ""}₹${Math.round(diff).toLocaleString("en-IN")} / ${pct >= 0 ? "+" : ""}${pct}%), archived to Backtest History & capital freed!`
+    );
+  };
+
+  // AI News & Reversal Reader Background Worker Hook
+  const {
+    aiShieldReports,
+    isScanningNews,
+    lastNewsScanIst,
+    runNewsScan,
+  } = useAiNewsReversalWorker({
+    activeTrades: autoTrades,
+    pollIntervalMs: 45_000,
+    enabled: true,
+    onAutoExitTriggered: (report) => {
+      const exitStamp = new Date().toLocaleString("en-IN");
+      setAutoTrades((prev) => {
+        const targetTrade = prev.find((t) => {
+          const sym = String(t.cleanSymbol || t.symbol || "").toUpperCase().replace(/\.NS$/i, "").replace(/\.BO$/i, "");
+          return sym === report.symbol;
+        });
+        if (!targetTrade) return prev;
+
+        const cleanSym = String(targetTrade.cleanSymbol || targetTrade.symbol || "").toUpperCase().replace(/\.NS$/i, "").replace(/\.BO$/i, "");
+        const exactLiveLtp = Number((liveQuotesMap[cleanSym] ?? targetTrade.currentMarketPrice ?? targetTrade.entryPrice).toFixed(2));
+        const diff = (exactLiveLtp - targetTrade.entryPrice) * targetTrade.quantity;
+        const pct = Number((((exactLiveLtp - targetTrade.entryPrice) / targetTrade.entryPrice) * 100).toFixed(2));
+
+        const exitedTrade: ActivePortfolioTrade = {
+          ...targetTrade,
+          cleanSymbol: cleanSym,
+          currentMarketPrice: exactLiveLtp,
+          currentSimulatedPrice: exactLiveLtp,
+          status: "NEWS_TRIGGER_EXIT",
+          exitTime: exitStamp,
+          pnlAmount: Math.round(diff),
+          pnlPercent: pct,
+        };
+
+        const rem = prev.filter((t) => t.tradeId !== targetTrade.tradeId);
+        autoTradesRef.current = rem;
+        localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(rem));
+
+        setBacktestHistory((histPrev) => {
+          if (histPrev.some((h) => h.tradeId === exitedTrade.tradeId)) return histPrev;
+          const nextHist = [exitedTrade, ...histPrev];
+          localStorage.setItem(STORAGE_KEY_BACKTEST_HISTORY, JSON.stringify(nextHist));
+          return nextHist;
+        });
+
+        setPortfolioNotice(
+          `🚨 AI Sentiment Shield Auto-Exit [NEWS_TRIGGER_EXIT]: ${cleanSym} closed at ₹${exactLiveLtp} (${diff >= 0 ? "+" : ""}₹${Math.round(diff).toLocaleString("en-IN")}) — ${report.exitReason || report.topHeadline}`
+        );
+
+        return rem;
+      });
+    },
+  });
+
+  const clearInvalidTrades = () => {
+    if (confirm("Clear old cached trades and re-scan with the new Purple Box Range detector?")) {
+      setAutoTrades([]);
+      localStorage.removeItem(STORAGE_KEY_ACTIVE_TRADES);
+      localStorage.removeItem(STORAGE_KEY_DAILY_SIGNAL_LOCK);
+      fetchLiveApiData(true);
+    }
+  };
+
+  // Active symbols set (status === "ACTIVE"): excluded from Screener until closed to Backtest History
+  const activeSymbolSet = useMemo(() => {
+    return new Set(
+      autoTrades
+        .filter((t) => !t.status || t.status === "ACTIVE")
+        .map((t) => String(t.cleanSymbol || t.symbol || "").toUpperCase().replace(/\.NS$/i, "").replace(/\.BO$/i, ""))
+        .filter(Boolean)
+    );
+  }, [autoTrades]);
+
+  const displayedStocks = useMemo(() => {
+    return stocks.filter((st) => {
+      // DUPLICATE ACTIVE TRADE PREVENTION: Exclude any symbol currently running with status === "ACTIVE"
+      if (activeSymbolSet.has(st.cleanSymbol.toUpperCase())) return false;
+      if (strategyFilter !== "ALL_STRATEGIES" && !st.matchedQuantStrategies.includes(strategyFilter)) return false;
+      if (searchFilter.trim()) {
+        const q = searchFilter.trim().toUpperCase();
+        if (!st.cleanSymbol.includes(q) && !st.companyName.toUpperCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [stocks, activeSymbolSet, strategyFilter, searchFilter]);
+
+  const purpleBoxCount = useMemo(
+    () => stocks.filter((s) => s.matchedQuantStrategies.includes("RANGE_SUPPORT_BUY")).length,
+    [stocks]
+  );
+
+  const todayDateKey = getTodayDateKey();
 
   return (
-    <div className="space-y-6">
-      {/* ── Top Header Strip ──────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+    <div className="space-y-6 p-4 max-w-7xl mx-auto font-mono">
+      {/* Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#0d1322] p-5 rounded-2xl border border-slate-800">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-xl font-bold text-slate-100 tracking-tight flex items-center gap-2">
-              <Crosshair className="w-5 h-5 text-cyan-400" />
-              SWING TRADING TERMINAL
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+              <Crosshair className="w-5 h-5 text-fuchsia-400" />
+              PURPLE BOX TRAPPED RANGE &amp; 5-6D DOJI BREAKOUT TERMINAL
             </h2>
-            <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-              5-PILLAR FRAMEWORK
+            <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40">
+              🟣 PURPLE BOX RANGE ({purpleBoxCount} FOUND)
             </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              LIVE NSE FEED
+            <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+              🔒 SAME-DAY PRICE FREEZE ({todayDateKey})
             </span>
-            <IMStatusBadge status="PAPER MODE" size="sm" />
           </div>
-          <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Regime · Fundamentals · Liquidity Sweeps · Price Action & Volume · Strict Risk Management
+          <p className="text-xs text-slate-400 mt-1">
+            Finds Stocks Stuck in 1–2M Horizontal Purple Box (Uptrend or Downtrend: VAL Support → POC → VAH Target) + 5-6D Doji Breakouts
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800 text-right">
-            <div className="text-[9px] text-slate-500 font-mono uppercase">Framework Clearance</div>
-            <div className="text-xs font-bold font-mono text-emerald-400 flex items-center justify-end gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              {regime ? regime.clearance.replace(/_/g, " ") : "Loading..."}
-            </div>
-          </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setAutoExecuteEnabled(!autoExecuteEnabled)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold border cursor-pointer ${autoExecuteEnabled
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                : "bg-slate-900 text-slate-400 border-slate-700"
+              }`}
+          >
+            ⚡ Auto-Trade: {autoExecuteEnabled ? "ON" : "OFF"}
+          </button>
+          <button
+            onClick={() => fetchLiveApiData(true)}
+            className="px-3.5 py-2 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-xs font-bold cursor-pointer flex items-center gap-1.5"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            <span>Sync Live LTP</span>
+          </button>
         </div>
       </div>
 
-      <IMHeader />
-
-      {/* ── REAL-TIME STOCK SCANNER & STRATEGY MATCHER ──────────────────────── */}
-      <section className="p-5 rounded-2xl bg-[#0d1322]/90 border border-slate-800/90 shadow-2xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
-              <Search className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold font-mono text-slate-100 flex items-center gap-2">
-                LIVE REAL-TIME STOCK SCANNER & STRATEGY MATCHER
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 font-semibold">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  DYNAMIC FEED
-                </span>
-              </h3>
-              <p className="text-xs text-slate-400 font-mono">
-                Type any NSE ticker or select a watchlist stock to analyze live candles & 5-pillar setups
-              </p>
-            </div>
-          </div>
-
-          {/* Search Input Box */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              scanStock(searchQuery);
-            }}
-            className="flex items-center gap-2 w-full sm:w-auto"
+      {/* Main Navigation Tabs */}
+      <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => setMainTab("SCREENER")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 ${mainTab === "SCREENER"
+                ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50"
+                : "bg-slate-900 text-slate-400 border border-slate-800"
+              }`}
           >
-            <div className="relative flex-1 sm:w-64">
-              <input
-                type="text"
-                placeholder="e.g. BSE, CDSL, TRENT, DIXON, RELIANCE..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-3 py-2 pl-8 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 uppercase"
-              />
-              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-3" />
-            </div>
-            <button
-              type="submit"
-              disabled={isScanning || !searchQuery.trim()}
-              className="px-4 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold transition flex items-center gap-1.5 shrink-0 disabled:opacity-50 cursor-pointer"
-            >
-              {isScanning ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                  <span>Scanning...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Scan Live</span>
-                </>
-              )}
-            </button>
-          </form>
+            <Layers className="w-4 h-4 text-cyan-400" />
+            <span>📊 4-Strategy Screener ({displayedStocks.length})</span>
+          </button>
+
+          <button
+            onClick={() => setMainTab("PORTFOLIO")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 ${mainTab === "PORTFOLIO"
+                ? "bg-violet-500/25 text-violet-300 border border-violet-500/50"
+                : "bg-slate-900 text-slate-400 border border-slate-800"
+              }`}
+          >
+            <Briefcase className="w-4 h-4 text-violet-400" />
+            <span>⚡ Active Trades Table ({autoTrades.length})</span>
+          </button>
+
+          <button
+            onClick={() => setMainTab("BACKTEST_HISTORY")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 ${mainTab === "BACKTEST_HISTORY"
+                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/50"
+                : "bg-slate-900 text-slate-400 border border-slate-800"
+              }`}
+          >
+            <History className="w-4 h-4 text-emerald-400" />
+            <span>📈 Backtest Log ({backtestHistory.length})</span>
+          </button>
+
+          <button
+            onClick={() => setMainTab("STRATEGY_GUIDE")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 ${mainTab === "STRATEGY_GUIDE"
+                ? "bg-amber-500/25 text-amber-300 border border-amber-500/50"
+                : "bg-slate-900 text-slate-400 border border-slate-800"
+              }`}
+          >
+            <BookOpen className="w-4 h-4 text-amber-400" />
+            <span>🧠 4-Strategy Rules</span>
+          </button>
         </div>
 
-        {/* Quick Watchlist Chips */}
-        <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-800/60">
-          <span className="text-[10px] font-mono uppercase text-slate-500 font-semibold tracking-wider">
-            Quick Watchlist:
-          </span>
-          {["TRENT", "DIXON", "BSE", "CDSL", "HAL", "PERSISTENT", "POLYCAB", "RELIANCE"].map((sym) => {
-            const isActive = activeChip === sym;
+        {autoTrades.length > 0 && (
+          <button
+            onClick={clearInvalidTrades}
+            className="px-3 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Reset &amp; Re-Scan</span>
+          </button>
+        )}
+      </div>
+
+      {portfolioNotice && (
+        <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-xs text-emerald-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+            <span>{portfolioNotice}</span>
+          </div>
+          <button onClick={() => setPortfolioNotice(null)} className="cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* STRATEGY GUIDE TAB */}
+      {mainTab === "STRATEGY_GUIDE" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {(Object.keys(STRATEGY_METADATA) as Array<Exclude<InstitutionalStrategyCode, "ALL_STRATEGIES">>).map((key) => {
+            const meta = STRATEGY_METADATA[key];
             return (
-              <button
-                key={sym}
-                onClick={() => scanStock(sym)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition flex items-center gap-1.5 cursor-pointer ${isActive
-                  ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 shadow-sm"
-                  : "bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
-                  }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-cyan-400 animate-pulse" : "bg-slate-600"}`} />
-                <span>{sym}</span>
-              </button>
+              <div key={key} className="p-5 rounded-2xl bg-[#0d1322] border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs px-2.5 py-1 rounded-lg font-bold border ${meta.colorClass}`}>
+                    {meta.shortBadge}
+                  </span>
+                  <span className="text-xs font-bold text-emerald-400">Win Rate: ~{meta.winProbBase}%</span>
+                </div>
+                <h4 className="text-sm font-bold text-slate-100">{meta.title}</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">{meta.logicDesc}</p>
+              </div>
             );
           })}
         </div>
+      )}
 
-        {/* Scan Error Notice */}
-        {scanError && (
-          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs font-mono text-rose-300 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{scanError}</span>
-          </div>
-        )}
-
-        {/* Scanned Stock Live Technical Chart Terminal */}
-        {scannedStock && (
-          <div id="swing-strategy-chart-section" className="space-y-4">
-            {scannedStock.detectedSetup ? (
-              <SwingStrategyChart
-                symbol={scannedStock.cleanSymbol}
-                companyName={scannedStock.companyName || `${scannedStock.cleanSymbol} India`}
-                currentPrice={scannedStock.price}
-                change={scannedStock.change}
-                changePercent={scannedStock.changePercent}
-                setupBadge={scannedStock.detectedSetup.setupBadge}
-                setupTitle={scannedStock.detectedSetup.setupName}
-                entryPrice={scannedStock.detectedSetup.entryPrice}
-                stopLossPrice={scannedStock.detectedSetup.stopLossPrice}
-                target1Price={scannedStock.detectedSetup.target1Price}
-                target2Price={scannedStock.detectedSetup.target2Price}
-                riskPerShare={scannedStock.detectedSetup.riskPerShare}
-                rewardRiskRatio={scannedStock.detectedSetup.rewardRiskRatio}
-                ema20={scannedStock.ema20}
-                ema50={scannedStock.ema50}
-                candles={scannedStock.candleHistory}
-                onLoadIntoCalculator={loadScannedStockIntoCalculator}
-              />
-            ) : (
-              <div className="p-4 rounded-xl bg-[#090e1a] border border-slate-700/40 text-center text-slate-500 text-sm">
-                No setup detected for {scannedStock.cleanSymbol} — no strategy conditions matched.
-              </div>
-            )}
-
-            {/* Strategy Trade Levels & Rationale Breakdown Strip — only shown when a setup was detected */}
-            {scannedStock.detectedSetup && (
-              <div className="p-4 rounded-xl bg-[#090e1a] border border-cyan-500/25 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
-                  <div className="flex items-center gap-2">
-                    <Flame className="w-4 h-4 text-amber-400" />
-                    <span className="text-xs font-bold font-mono text-slate-200">
-                      5-Pillar Rationale: {scannedStock.detectedSetup.setupName}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
-                      Confluence: {scannedStock.detectedSetup.confluenceScore}/100
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-bold">
-                      Min 1:{scannedStock.detectedSetup.rewardRiskRatio.toFixed(1)} R:R
-                    </span>
-                  </div>
-                </div>
-
-                {/* Rationale items */}
-                <ul className="text-xs font-mono text-slate-300 space-y-1 list-disc list-inside">
-                  {scannedStock.detectedSetup.rationale.map((r: string, idx: number) => (
-                    <li key={idx}>{r}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-          </div>
-        )}
-
-        {/* ── 8-STRATEGY AUTOMATED DAILY SCANNER & MULTI-STRATEGY CONFLUENCE TERMINAL ── */}
-        <div className="space-y-4 pt-4 border-t border-slate-800/80">
-          {/* Header & Controls Strip */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#0a0f1d] p-3.5 rounded-xl border border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400">
-                <Layers className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-xs font-bold font-mono text-slate-100 flex items-center gap-2 flex-wrap">
-                  DAILY STRATEGY SCANNER & MULTI-STRATEGY MATCHER
-                  {scanRunInfo?.scanType && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 font-semibold uppercase">
-                      {scanRunInfo.scanType === "scheduled" ? "Scheduled (15:45 IST)" : "Manual Scan"}
-                    </span>
-                  )}
-                  {scanRunInfo?.status && (
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold uppercase border ${
-                      scanRunInfo.status === "completed"
-                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                        : scanRunInfo.status === "partial"
-                        ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                        : "bg-slate-700/30 text-slate-400 border-slate-700/50"
-                    }`}>
-                      {scanRunInfo.status}
-                    </span>
-                  )}
-                </h4>
-                <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2 mt-0.5 flex-wrap">
-                  {scanRunInfo?.scanDate && (
-                    <span>Date: <strong className="text-slate-200">{scanRunInfo.scanDate}</strong></span>
-                  )}
-                  {scanRunInfo?.scanDate && <span>•</span>}
-                  <span>Completed: {lastScanTimestamp}</span>
-                  {scanRunInfo?.durationMs ? (
-                    <>
-                      <span>•</span>
-                      <span>Duration: {(scanRunInfo.durationMs / 1000).toFixed(1)}s</span>
-                    </>
-                  ) : null}
-                  <span>•</span>
-                  {scanCoverage ? (
-                    <>
-                      <span className="text-slate-300">{scanCoverage.symbolsQueued} queued</span>
-                      <span>•</span>
-                      <span className="text-emerald-400">{scanCoverage.scannedSuccessfully} scanned</span>
-                      {scanCoverage.failedCount > 0 && (
-                        <><span>•</span><span className="text-rose-400">{scanCoverage.failedCount} failed</span></>
-                      )}
-                      <span>•</span>
-                      <span className="text-amber-400 font-bold">{scanCoverage.opportunitiesFound} opportunities</span>
-                    </>
-                  ) : (
-                    <span>Opportunities: <strong className="text-cyan-300">{dailyOpportunities.length}</strong></span>
-                  )}
-
-                  <span>•</span>
-                  <span className="text-emerald-400 font-bold">{multiStrategyMatches.length} Multi-Strategy Matches</span>
-                  {scanCoverage?.universeSource && (
-                    <>
-                      <span>•</span>
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${
-                          scanCoverage.universeSource === "NSE_CSV"
-                            ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                            : "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                        }`}
-                      >
-                        {scanCoverage.universeSource === "NSE_CSV"
-                          ? `NSE CSV · ${scanCoverage.universeSize ?? "?"} symbols`
-                          : `FALLBACK · ${scanCoverage.universeSize ?? "148"} symbols`}
-                      </span>
-                    </>
-                  )}
-                  {nseScanResult?.status === "PARTIAL" && (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                      PARTIAL SCAN
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Universe & Date Selectors & Scan Market Now Button */}
+      {/* SCREENER TAB WITH ALL 4 STRATEGY FILTER BUTTONS */}
+      {mainTab === "SCREENER" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap bg-[#0d1322] p-4 rounded-2xl border border-slate-800">
             <div className="flex items-center gap-2 flex-wrap">
-              {availableScanDates.length > 0 && (
-                <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
-                  <span className="text-[10px] font-mono text-slate-400 font-bold">DATE:</span>
-                  <select
-                    value={selectedScanDate}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSelectedScanDate(val);
-                      fetchDailyScannerData(selectedUniverse, selectedStrategyTab, false, val);
-                    }}
-                    className="bg-transparent text-xs font-mono text-cyan-300 focus:outline-none cursor-pointer"
-                  >
-                    <option value="" className="bg-slate-900 text-slate-200">Latest Completed</option>
-                    {availableScanDates.map((d) => (
-                      <option key={d} value={d} className="bg-slate-900 text-slate-200">
-                        {d}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <span className="text-[10px] font-mono uppercase text-slate-500 font-bold">Universe:</span>
-              {[
-                { id: "MOMENTUM_LEADERS", label: "🚀 Momentum Leaders" },
-                { id: "NIFTY_50", label: "🏛️ NIFTY 50" },
-                { id: "NIFTY_NEXT_50", label: "⚡ Midcap High Beta" },
-                { id: "ALL_LIQUID", label: "🌐 All Liquid" },
-              ].map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => {
-                    setSelectedUniverse(u.id);
-                    fetchDailyScannerData(u.id, selectedStrategyTab, false, selectedScanDate);
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition cursor-pointer ${
-                    selectedUniverse === u.id
-                      ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 shadow-sm"
-                      : "bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800"
+              <button
+                onClick={() => setStrategyFilter("ALL_STRATEGIES")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${strategyFilter === "ALL_STRATEGIES"
+                    ? "bg-white/15 text-white border-white/40"
+                    : "bg-slate-900 text-slate-400 border-slate-800"
                   }`}
-                >
-                  {u.label}
-                </button>
-              ))}
-
-              <button
-                onClick={() => fetchDailyScannerData(selectedUniverse, selectedStrategyTab, true, selectedScanDate)}
-                disabled={isDailyScanning || isNseScanning}
-
-                className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isDailyScanning ? "animate-spin" : ""}`} />
-                <span>{isDailyScanning ? "Scanning Market..." : "Scan Market Now"}</span>
+                All 4 Strategies ({stocks.length})
               </button>
 
-              {/* Run Full NSE Scan — connects to nse-scanner endpoint */}
-              <button
-                id="run-full-nse-scan-btn"
-                onClick={() => fetchFullNseScan(false)}
-                disabled={isNseScanning || isDailyScanning}
-                title="Scans the complete NSE EQ universe (~2,300 symbols) using live Yahoo Finance data. Takes 5–10 minutes."
-                className="px-3 py-1 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 border border-violet-500/40 text-xs font-mono font-bold transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-              >
-                {isNseScanning ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
-                    <span>Full NSE Scan Running…</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>
-                    <span>Run Full NSE Scan</span>
-                  </>
-                )}
-              </button>
+              {(Object.keys(STRATEGY_METADATA) as Array<Exclude<InstitutionalStrategyCode, "ALL_STRATEGIES">>).map(
+                (key) => (
+                  <button
+                    key={key}
+                    onClick={() => setStrategyFilter(strategyFilter === key ? "ALL_STRATEGIES" : key)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${strategyFilter === key
+                        ? STRATEGY_METADATA[key].colorClass
+                        : "bg-slate-900 text-slate-400 border-slate-800"
+                      }`}
+                  >
+                    {STRATEGY_METADATA[key].shortBadge}
+                  </button>
+                )
+              )}
             </div>
+
+            <input
+              type="text"
+              placeholder="Search stock..."
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-100 uppercase w-44"
+            />
           </div>
 
-          {/* ── NSE Fallback Warning Banner ──────────────────────────────── */}
-          {nseUseFallbackWarning && (
-            <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-xs font-mono">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="text-amber-300 font-bold">Limited Coverage: NSE CSV Unavailable</p>
-                <p className="text-amber-200/80">
-                  The NSE EQUITY_L.csv could not be fetched (server may be blocked by NSE bot-protection).
-                  This scan used the <strong>FALLBACK_NIFTY_500</strong> list ({scanCoverage?.universeSize ?? 148} symbols)
-                  instead of the full NSE EQ universe (~2,300 symbols). Results are <strong>not</strong> full-market coverage.
-                </p>
-                {nseScanResult?.universeMetadata?.universeFetchError && (
-                  <p className="text-amber-200/60 text-[10px]">
-                    Reason: {nseScanResult.universeMetadata.universeFetchError}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ── NSE Scan Error Banner ─────────────────────────────────────── */}
-          {nseError && (
-            <div className="flex items-start gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs font-mono">
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="text-rose-300 font-bold">NSE Full Scan Failed</p>
-                <p className="text-rose-200/80">{nseError}</p>
-              </div>
-            </div>
-          )}
-
-          {/* ── NSE Run Status Strip ──────────────────────────────────────── */}
-          {nseScanResult && !nseError && (
-            <div className="flex flex-wrap items-center gap-3 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-[10px] font-mono">
-              <span className={`px-2 py-0.5 rounded font-bold border ${
-                nseScanResult.status === "COMPLETED"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                  : "bg-amber-500/15 text-amber-400 border-amber-500/30"
-              }`}>
-                {nseScanResult.status}
-              </span>
-              <span className="text-slate-400">
-                {nseScanResult.coverage.symbolsQueued} queued
-                · {nseScanResult.coverage.successCount} scanned
-                · {nseScanResult.coverage.skippedCount} skipped
-                · {nseScanResult.coverage.failedCount} failed
-                · <span className="text-amber-400 font-bold">{nseScanResult.coverage.opportunitiesCount} qualified</span>
-              </span>
-              <span className={`px-2 py-0.5 rounded font-bold border ${
-                nseScanResult.persistenceStatus === "PERSISTED"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                  : "bg-rose-500/15 text-rose-400 border-rose-500/30"
-              }`}>
-                DB: {nseScanResult.persistenceStatus}
-              </span>
-              {nseScanResult.persistenceError && (
-                <span className="text-rose-400/70 truncate max-w-xs" title={nseScanResult.persistenceError}>
-                  {nseScanResult.persistenceError}
-                </span>
-              )}
-              <span className="text-slate-500 ml-auto">
-                {Math.round(nseScanResult.scanDurationMs / 1000)}s · {nseScanResult.scanDate}
-              </span>
-            </div>
-          )}
-
-          {/* ── 8 STRATEGY TABS ──────────────────────────────────────────────── */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
-            {[
-              { id: "ALL", label: `All Setups (${dailyOpportunities.length > 0 ? dailyOpportunities.length : signals.length})` },
-              { id: "STRATEGY_A_BREAKOUT", label: `Strategy A: Breakout (${strategyCounts["STRATEGY_A_BREAKOUT"] || 0})` },
-              { id: "STRATEGY_B_PULLBACK", label: `Strategy B: Pullback (${strategyCounts["STRATEGY_B_PULLBACK"] || 0})` },
-              { id: "STRATEGY_C_SUPPORT_BOUNCE", label: `Strategy C: Support Bounce (${strategyCounts["STRATEGY_C_SUPPORT_BOUNCE"] || 0})` },
-              { id: "STRATEGY_D_MA_CROSSOVER", label: `Strategy D: MA Cross (${strategyCounts["STRATEGY_D_MA_CROSSOVER"] || 0})` },
-              { id: "STRATEGY_E_MOMENTUM", label: `Strategy E: Momentum (${strategyCounts["STRATEGY_E_MOMENTUM"] || 0})` },
-              { id: "STRATEGY_F_RANGE_BREAKOUT", label: `Strategy F: Range Breakout (${strategyCounts["STRATEGY_F_RANGE_BREAKOUT"] || 0})` },
-              { id: "STRATEGY_G_TREND_CONTINUATION", label: `Strategy G: Trend Cont. (${strategyCounts["STRATEGY_G_TREND_CONTINUATION"] || 0})` },
-              { id: "STRATEGY_H_VOLUME_BREAKOUT", label: `Strategy H: Volume Breakout (${strategyCounts["STRATEGY_H_VOLUME_BREAKOUT"] || 0})` },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setSelectedStrategyTab(tab.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition shrink-0 cursor-pointer ${
-                  selectedStrategyTab === tab.id
-                    ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 shadow-sm"
-                    : "bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-800"
-                }`}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {displayedStocks.map((sig) => (
+              <div
+                key={sig.id}
+                className={`p-5 rounded-2xl bg-[#0d1322] border space-y-3 ${sig.matchedQuantStrategies.includes("RANGE_SUPPORT_BUY")
+                    ? "border-fuchsia-500/40"
+                    : "border-slate-800"
+                  }`}
               >
-                {tab.label}
-              </button>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-lg font-bold text-slate-100">{sig.cleanSymbol}</span>
+                    <div className="text-xs text-slate-400">{sig.companyName}</div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-bold px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300">
+                      Score {sig.confluenceScore}/100 · {sig.volumeMultiplier}x Vol
+                    </span>
+                    <span className="text-xs text-white font-bold block mt-1">
+                      Market Price (LTP): ₹{sig.currentPrice}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Strategy Badges */}
+                <div className="flex gap-1.5 flex-wrap">
+                  {sig.matchedQuantStrategies.map((k) => (
+                    <span
+                      key={k}
+                      className={`text-[10px] px-2.5 py-0.5 rounded-md border font-bold ${STRATEGY_METADATA[k].colorClass}`}
+                    >
+                      {STRATEGY_METADATA[k].shortBadge}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-1">
+                  <div>
+                    <strong className="text-fuchsia-300">1. Box Levels:</strong> {sig.supportBounceInfo}
+                  </div>
+                  <div>
+                    <strong className="text-amber-300">2. Touches &amp; Width:</strong> {sig.fiveDayBoxInfo}
+                  </div>
+                  <div>
+                    <strong className="text-emerald-400">3. Action Trigger:</strong> {sig.dojiCandleInfo}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-2 text-xs pt-2 border-t border-slate-800">
+                  <div>
+                    <span className="text-[9px] text-slate-500 block">BOX FLOOR / BREAKOUT</span>
+                    <span className="font-bold text-orange-300">₹{sig.breakoutLevel}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] text-slate-500 block">LOCKED ENTRY</span>
+                    <span className="font-bold text-cyan-300">₹{sig.entryPrice}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] text-slate-500 block">LOCKED SL</span>
+                    <span className="font-bold text-rose-400">₹{sig.stopLossPrice}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] text-slate-500 block">LOCKED TARGET (VAH)</span>
+                    <span className="font-bold text-emerald-400">₹{sig.target1Price}</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <button
+                    onClick={() => deploySingleStockTrade(sig)}
+                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-600/40 to-cyan-600/40 hover:from-violet-500/50 hover:to-cyan-500/50 text-cyan-200 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    <span>⚡ Deploy Trade (Lock LTP ₹{sig.currentPrice})</span>
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
-
-          {/* ── SECTION C: MULTI-STRATEGY MATCHES (CONFLUENCE RADAR) ─────────── */}
-          {multiStrategyMatches.length > 0 && (
-            <div className="p-4 rounded-xl bg-gradient-to-r from-[#0d1322] via-[#09152b] to-[#0d1322] border border-amber-500/30 space-y-3 shadow-xl">
-              <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
-                <div className="flex items-center gap-2">
-                  <Flame className="w-4 h-4 text-amber-400 animate-pulse" />
-                  <h4 className="text-xs font-bold font-mono text-amber-300 uppercase tracking-wider">
-                    MULTI-STRATEGY CONFLUENCE MATCHES ({multiStrategyMatches.length} STOCKS QUALIFIED FOR 2+ STRATEGIES)
-                  </h4>
-                </div>
-                <span className="text-[10px] font-mono text-amber-400/90 font-semibold">
-                  Highest Statistical Win Probability
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {multiStrategyMatches.map((opp) => (
-                  <div
-                    key={opp.id}
-                    onClick={() => {
-                      scanStock(opp.cleanSymbol);
-                      const el = document.getElementById("swing-strategy-chart-section");
-                      if (el) el.scrollIntoView({ behavior: "smooth" });
-                    }}
-                    className="p-3 rounded-xl bg-[#080d19] border border-amber-500/30 hover:border-cyan-400/60 transition cursor-pointer flex flex-col justify-between space-y-2 group"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-bold font-mono text-slate-100 group-hover:text-cyan-400 transition">
-                            {opp.cleanSymbol}
-                          </span>
-                          <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
-                            {opp.companyName}
-                          </span>
-                        </div>
-                        <div className="text-xs font-bold font-mono text-slate-200 mt-0.5">
-                          ₹{opp.currentPrice.toLocaleString("en-IN")}
-                          <span
-                            className={`ml-1 text-[10px] ${
-                              opp.changePercent >= 0 ? "text-emerald-400" : "text-rose-400"
-                            }`}
-                          >
-                            {opp.changePercent >= 0 ? "+" : ""}
-                            {opp.changePercent}%
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                          {opp.confluenceScore}/100
-                        </span>
-                        <span className="text-[9px] text-slate-500 font-mono block mt-0.5">
-                          {opp.matchedStrategyCount} Setups
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Matched Strategy Badges */}
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {opp.allMatchedStrategies.map((st) => (
-                        <span
-                          key={st.strategyId}
-                          className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/25"
-                        >
-                          {st.strategyName}
-                        </span>
-                      ))}
-                    </div>
-
-                    {/* Trade Levels Strip */}
-                    <div className="grid grid-cols-3 gap-1 pt-1 border-t border-slate-800 text-[10px] font-mono">
-                      <div>
-                        <span className="text-slate-500 block text-[9px]">Entry</span>
-                        <span className="text-cyan-300 font-bold">₹{opp.entryTrigger}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[9px]">Stop Loss</span>
-                        <span className="text-rose-400 font-bold">₹{opp.stopLoss}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[9px]">Target 1 (2R)</span>
-                        <span className="text-emerald-400 font-bold">₹{opp.target1}</span>
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center justify-end gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => openBacktest(opp.cleanSymbol, opp.primaryStrategy.strategyId)}
-                        className="px-2 py-1 rounded text-[10px] font-mono font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1 cursor-pointer"
-                      >
-                        <BarChart2 className="w-3 h-3 text-cyan-400" />
-                        <span>Backtest</span>
-                      </button>
-                      <button
-                        onClick={() => loadOpportunityIntoCalculator(opp)}
-                        className="px-2 py-1 rounded text-[10px] font-mono font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 transition flex items-center gap-1 cursor-pointer"
-                      >
-                        <Calculator className="w-3 h-3 text-cyan-400" />
-                        <span>Size 1%</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── FILTERS TOOLBAR ──────────────────────────────────────────────── */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Filter stock or sector..."
-                  value={tableSearchQuery}
-                  onChange={(e) => setTableSearchQuery(e.target.value)}
-                  className="px-3 py-1.5 pl-8 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-400 uppercase w-48"
-                />
-                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
-              </div>
-
-              {/* Min Confluence Filter */}
-              <select
-                value={minScoreFilter}
-                onChange={(e) => setMinScoreFilter(Number(e.target.value))}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 focus:outline-none focus:border-cyan-400 cursor-pointer"
-              >
-                <option value={0}>All Confluence Scores</option>
-                <option value={75}>Score &ge; 75 (High)</option>
-                <option value={85}>Score &ge; 85 (Elite)</option>
-              </select>
-
-              {/* Min R:R Filter */}
-              <select
-                value={minRRFilter}
-                onChange={(e) => setMinRRFilter(Number(e.target.value))}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 focus:outline-none focus:border-cyan-400 cursor-pointer"
-              >
-                <option value={0}>All R:R Ratios</option>
-                <option value={1.5}>Min 1:1.5 R:R</option>
-                <option value={2.0}>Min 1:2.0 R:R</option>
-              </select>
-
-              {/* Direction Filter */}
-              <select
-                value={directionFilter}
-                onChange={(e) => setDirectionFilter(e.target.value)}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 focus:outline-none focus:border-cyan-400 cursor-pointer"
-              >
-                <option value="ALL">All Directions</option>
-                <option value="BULLISH">Bullish Longs Only</option>
-              </select>
-            </div>
-
-            <div className="text-[10px] font-mono text-slate-400">
-              Active on Chart: <span className="font-bold text-cyan-400">{scannedStock?.cleanSymbol || activeChip}</span>
-            </div>
-          </div>
-
-          {/* ── TODAY'S OPPORTUNITIES SCREENER TABLE ─────────────────────────── */}
-          <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-[#090e1a]">
-            <table className="w-full text-[11px] font-mono whitespace-nowrap">
-              <thead>
-                <tr className="bg-slate-900/90 text-slate-400 uppercase text-[10px] border-b border-slate-800">
-                  <th className="py-2.5 px-3 text-left">Stock / Company</th>
-                  <th className="py-2.5 px-3 text-left">Live Price</th>
-                  <th className="py-2.5 px-3 text-left">Matched Strategy</th>
-                  <th className="py-2.5 px-3 text-left">Direction</th>
-                  <th className="py-2.5 px-3 text-left text-cyan-400">Entry Trigger</th>
-                  <th className="py-2.5 px-3 text-left text-rose-400">Stop Loss</th>
-                  <th className="py-2.5 px-3 text-left text-emerald-400">Target 1 (2R)</th>
-                  <th className="py-2.5 px-3 text-left">R:R</th>
-                  <th className="py-2.5 px-3 text-left">Rel Vol</th>
-                  <th className="py-2.5 px-3 text-left">RSI</th>
-                  <th className="py-2.5 px-3 text-left">Trend</th>
-                  <th className="py-2.5 px-3 text-center">Score</th>
-                  <th className="py-2.5 px-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/40">
-                {isDailyScanning && filteredOpportunities.length === 0 ? (
-                  <tr>
-                    <td colSpan={13} className="py-8 text-center text-slate-400">
-                      <div className="flex items-center justify-center gap-2 font-mono">
-                        <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
-                        <span>Querying persisted daily scanner records...</span>
-                      </div>
-                    </td>
-                  </tr>
-                ) : scanHasRun && filteredOpportunities.length === 0 ? (
-                  <tr>
-                    <td colSpan={13} className="py-8 text-center text-slate-400 font-mono">
-                      <div className="flex flex-col items-center justify-center gap-2">
-                        <CheckCircle2 className="w-7 h-7 text-emerald-400/70" />
-                        <span className="text-sm font-semibold text-slate-200">
-                          No Stock Setups Qualified for this Session
-                        </span>
-                        <span className="text-xs text-slate-400 max-w-md">
-                          {scanRunInfo?.scanDate
-                            ? `Daily scanner executed for ${scanRunInfo.scanDate} (${scanRunInfo.status || "completed"}). Zero stocks met all strict 5-pillar filters — no forced trades.`
-                            : "No stocks matched the active strategy filter. Strict cash risk management preserved."}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (filteredOpportunities.length > 0 ? filteredOpportunities : filteredSignals).map((item: any) => {
-
-                  const sym = item.cleanSymbol || item.symbol;
-                  const isSelected = (scannedStock?.cleanSymbol || activeChip) === sym;
-                  const price = item.currentPrice;
-                  const changePct = item.changePercent;
-                  const entry = item.entryTrigger || item.entryPrice;
-                  const sl = item.stopLoss || item.stopLossPrice;
-                  const t1 = item.target1 || item.target1Price;
-                  const rr = item.rewardRiskRatio;
-                  const score = item.confluenceScore;
-                  const vol = item.relativeVolume || item.volumeMultiplier;
-                  const rsiVal = item.rsi || 58;
-                  const trendStr = item.trendStrength || "Strong Uptrend";
-                  const strategiesList: any[] = item.allMatchedStrategies || [
-                    { strategyId: item.setupId, strategyName: item.setupBadge },
-                  ];
-
-                  return (
-                    <tr
-                      key={item.id}
-                      onClick={() => {
-                        scanStock(sym);
-                        const el = document.getElementById("swing-strategy-chart-section");
-                        if (el) el.scrollIntoView({ behavior: "smooth" });
-                      }}
-                      className={`cursor-pointer transition-colors ${
-                        isSelected
-                          ? "bg-cyan-500/15 font-medium border-l-2 border-l-cyan-400"
-                          : "hover:bg-slate-800/40"
-                      }`}
-                    >
-                      {/* Stock Symbol */}
-                      <td className="py-2.5 px-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-slate-100">{sym}</span>
-                          <span className="text-[9px] text-slate-400 truncate max-w-[120px]">
-                            {item.companyName}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Live Price */}
-                      <td className="py-2.5 px-3">
-                        <div className="font-bold text-slate-200">
-                          ₹{price.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                          <span
-                            className={`ml-1 text-[10px] ${
-                              changePct >= 0 ? "text-emerald-400" : "text-rose-400"
-                            }`}
-                          >
-                            {changePct >= 0 ? "+" : ""}
-                            {changePct}%
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Matched Strategy Badges */}
-                      <td className="py-2.5 px-3">
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {strategiesList.slice(0, 2).map((st: any, idx: number) => (
-                            <span
-                              key={idx}
-                              className="text-[10px] px-2 py-0.5 rounded font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30"
-                            >
-                              {st.strategyName || st.setupBadge}
-                            </span>
-                          ))}
-                          {item.liquiditySweep && (
-                            <span
-                              className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                              title={item.liquiditySweep.description}
-                            >
-                              ⚡ Sweep: {item.liquiditySweep.levelType} ₹{item.liquiditySweep.sweptLevel}
-                            </span>
-                          )}
-                          {item.choch && (
-                            <span
-                              className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40"
-                              title={item.choch.description}
-                            >
-                              🔄 {item.choch.direction} CHoCH
-                            </span>
-                          )}
-                          {strategiesList.length > 2 && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
-                              +{strategiesList.length - 2} more
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Direction */}
-                      <td className="py-2.5 px-3">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                          BULLISH
-                        </span>
-                      </td>
-
-                      {/* Entry Trigger */}
-                      <td className="py-2.5 px-3 font-bold text-cyan-300">
-                        ₹{entry.toLocaleString("en-IN")}
-                      </td>
-
-                      {/* Stop Loss */}
-                      <td className="py-2.5 px-3 font-bold text-rose-400">
-                        ₹{sl.toLocaleString("en-IN")}
-                      </td>
-
-                      {/* Target 1 */}
-                      <td className="py-2.5 px-3 font-bold text-emerald-400">
-                        ₹{t1.toLocaleString("en-IN")}
-                      </td>
-
-                      {/* R:R */}
-                      <td className="py-2.5 px-3 font-bold text-slate-300">
-                        1:{typeof rr === "number" ? rr.toFixed(1) : rr}
-                      </td>
-
-                      {/* Rel Vol */}
-                      <td className="py-2.5 px-3 font-bold text-amber-400">
-                        {vol}x
-                      </td>
-
-                      {/* RSI */}
-                      <td className="py-2.5 px-3 text-slate-300 font-bold">
-                        {rsiVal}
-                      </td>
-
-                      {/* Trend */}
-                      <td className="py-2.5 px-3">
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                          {trendStr}
-                        </span>
-                      </td>
-
-                      {/* Confluence Score */}
-                      <td className="py-2.5 px-3 text-center">
-                        <span className="text-emerald-400 font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25">
-                          {score}/100
-                        </span>
-                      </td>
-
-                      {/* Action Buttons */}
-                      <td className="py-2.5 px-3 text-right">
-                        <div
-                          className="flex items-center justify-end gap-1.5"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => {
-                              scanStock(sym);
-                              const el = document.getElementById("swing-strategy-chart-section");
-                              if (el) el.scrollIntoView({ behavior: "smooth" });
-                            }}
-                            className={`px-2 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
-                              isSelected
-                                ? "bg-cyan-500/30 text-cyan-300 border border-cyan-500/50"
-                                : "bg-slate-800 text-slate-300 hover:bg-cyan-500/20 hover:text-cyan-300"
-                            }`}
-                          >
-                            <BarChart3 className="w-3 h-3 text-cyan-400" />
-                            <span>{isSelected ? "Chart Active" : "Chart"}</span>
-                          </button>
-                          <button
-                            onClick={() => openBacktest(sym)}
-                            className="px-2 py-1 rounded text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1 cursor-pointer"
-                          >
-                            <BarChart2 className="w-3 h-3 text-cyan-400" />
-                            <span>Backtest</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (item.entryTrigger) loadOpportunityIntoCalculator(item);
-                              else loadSignalIntoCalculator(item);
-                            }}
-                            className="px-2 py-1 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/30 transition flex items-center gap-1 cursor-pointer"
-                          >
-                            <Calculator className="w-3 h-3 text-cyan-400" />
-                            <span>Size</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-                }
-
-              </tbody>
-            </table>
-          </div>
         </div>
-      </section>
+      )}
 
-      {/* ── 5 PILLARS SYSTEM STATUS STRIP ─────────────────────────────────── */}
-      <section className="space-y-2.5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[10px] uppercase font-mono font-bold tracking-widest text-slate-400 flex items-center gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            THE 5 PILLARS VERIFICATION MATRIX
-          </h3>
-          <span className="text-[10px] font-mono text-slate-500">
-            Confluence Threshold: &gt; 85/100
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {/* Pillar 1: Market Regime */}
-          <div className="p-3.5 rounded-xl bg-[#11192e]/90 border border-cyan-500/25 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono uppercase font-bold text-cyan-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                1. Market Regime
-              </span>
-              <span className="text-[10px] font-mono text-emerald-400 font-bold">
-                {regime?.regimeScore ?? "—"}/100
-              </span>
-            </div>
-            <div className="mt-2">
-              <div className="text-sm font-bold font-mono text-slate-100 flex items-center gap-1.5">
-                <TrendingUp className="w-4 h-4 text-emerald-400" />
-                NIFTY {regime?.bias?.replace(/_/g, " ") ?? "Loading..."}
-              </div>
-              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                {regime?.spotPrice ? `Spot: ₹${regime.spotPrice.toLocaleString("en-IN")} › 20 EMA` : "Run scan to load NIFTY data"}
-              </div>
-            </div>
-            <div className="mt-2 pt-2 border-t border-slate-800/80 text-[10px] text-emerald-400/90 font-mono">
-              {regime?.breadthPercentAbove50EMA != null
-                ? `Breadth: ${regime.breadthPercentAbove50EMA}% > 50 EMA`
-                : "Breadth: Data unavailable (requires separate source)"}
-            </div>
-          </div>
-
-
-          {/* Pillar 2: Fundamentally Strong */}
-          <div className="p-3.5 rounded-xl bg-[#11192e]/90 border border-emerald-500/25 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono uppercase font-bold text-emerald-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                2. Fundamentals
-              </span>
-              <span className="text-[10px] font-mono text-emerald-400 font-bold">QUALIFIED</span>
-            </div>
-            <div className="mt-2">
-              <div className="text-sm font-bold font-mono text-slate-100">
-                ROE &gt; 15% · ROCE &gt; 18%
-              </div>
-              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                Low Debt (D/E &lt; 0.5) · Moat
-              </div>
-            </div>
-            <div className="mt-2 pt-2 border-t border-slate-800/80 text-[10px] text-emerald-400/90 font-mono">
-              Inst. Holding: FII+DII &gt; 35%
-            </div>
-          </div>
-
-          {/* Pillar 3: Liquidity Sweeps */}
-          <div className="p-3.5 rounded-xl bg-[#11192e]/90 border border-violet-500/25 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono uppercase font-bold text-violet-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
-                3. Liquidity & S/R
-              </span>
-              <span className="text-[10px] font-mono text-violet-300 font-bold">CHoCH</span>
-            </div>
-            <div className="mt-2">
-              <div className="text-sm font-bold font-mono text-slate-100">
-                Key S/R & Sweeps
-              </div>
-              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                Sell-side liquidity grabs
-              </div>
-            </div>
-            <div className="mt-2 pt-2 border-t border-slate-800/80 text-[10px] text-violet-300/90 font-mono">
-              Structure Break Reclaims Active
-            </div>
-          </div>
-
-          {/* Pillar 4: Price Action & Volume */}
-          <div className="p-3.5 rounded-xl bg-[#11192e]/90 border border-amber-500/25 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono uppercase font-bold text-amber-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                4. Price Action
-              </span>
-              <span className="text-[10px] font-mono text-amber-300 font-bold">
-                {dailyOpportunities.length > 0 ? dailyOpportunities.length : (signals.length === 0 ? "—" : signals.length)} Setups
-              </span>
-            </div>
-            <div className="mt-2">
-              <div className="text-sm font-bold font-mono text-slate-100">
-                Volume &gt; 1.5x Confirm
-              </div>
-              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                Setups A, B, C, D Validated
-              </div>
-            </div>
-            <div className="mt-2 pt-2 border-t border-slate-800/80 text-[10px] text-amber-300/90 font-mono">
-              Retest Rejection & Expansion
-            </div>
-          </div>
-
-          {/* Pillar 5: Strict Risk Management */}
-          <div className="p-3.5 rounded-xl bg-[#11192e]/90 border border-rose-500/25 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono uppercase font-bold text-rose-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                5. Strict Risk
-              </span>
-              <span className="text-[10px] font-mono text-emerald-400 font-bold">&ge; 1:2 R:R</span>
-            </div>
-            <div className="mt-2">
-              <div className="text-sm font-bold font-mono text-slate-100">
-                1.0% Max Risk / Trade
-              </div>
-              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                Max 5 Swing Positions
-              </div>
-            </div>
-            <div className="mt-2 pt-2 border-t border-slate-800/80 text-[10px] text-emerald-400 font-mono">
-              Pre-Trade Sizing Enforced
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── SETUP FILTER TABS ─────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {[
-            { id: "ALL", label: `All Setups (${signals.length})` },
-            { id: "SETUP_A", label: "Setup A: Breakout + Retest" },
-            { id: "SETUP_B", label: "Setup B: Liquidity Sweep" },
-            { id: "SETUP_C", label: "Setup C: Trend Pullback" },
-            { id: "SETUP_D", label: "Setup D: Base Breakout" },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setSelectedFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all ${selectedFilter === tab.id
-                ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-                }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <span className="text-[10px] font-mono text-slate-500">
-          Showing {filteredSignals.length === 0 ? "0" : filteredSignals.length} legacy qualified setups
-          {signals.length === 0 && <span className="text-amber-400 ml-1">(Use Daily Scanner above for live results)</span>}
-        </span>
-      </div>
-
-      {/* ── ACTIVE SWING SIGNALS CARD GRID ─────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {filteredSignals.map((sig) => {
-          const isExtended =
-            sig.extensionFromPivotPercent !== undefined && sig.extensionFromPivotPercent > 5.0;
-
-          return (
-            <div
-              key={sig.id}
-              className="p-5 rounded-2xl bg-[#0d1322]/90 border border-slate-800/90 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between space-y-4"
-            >
-              {/* Header: Symbol, Company, Badge & Confluence */}
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg font-bold font-mono text-slate-100 tracking-tight">
-                      {sig.symbol}
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-semibold bg-slate-800 text-slate-300 border border-slate-700">
-                      {sig.sector}
-                    </span>
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold border ${sig.setupId === "SETUP_A_BREAKOUT_RETEST"
-                        ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
-                        : sig.setupId === "SETUP_B_LIQUIDITY_SWEEP"
-                          ? "bg-violet-500/10 text-violet-300 border-violet-500/30"
-                          : sig.setupId === "SETUP_C_TREND_PULLBACK"
-                            ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                            : "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                        }`}
-                    >
-                      {sig.setupBadge}
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-400 font-mono mt-0.5">
-                    {sig.companyName}
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-end">
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 font-mono text-xs font-bold">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{sig.confluenceScore}/100</span>
-                  </div>
-                  <span className="text-[9px] text-slate-500 font-mono mt-0.5">
-                    5-Pillar Score
-                  </span>
-                </div>
-              </div>
-
-              {/* Technical Confluence Badges */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-                <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800">
-                  <span className="text-[9px] text-slate-500 font-mono uppercase block">
-                    Rel. Strength (RS)
-                  </span>
-                  <span className="text-xs font-bold font-mono text-cyan-400">
-                    {sig.relativeStrengthVsNifty} vs NIFTY
-                  </span>
-                </div>
-
-                <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800">
-                  <span className="text-[9px] text-slate-500 font-mono uppercase block">
-                    Breakout Volume
-                  </span>
-                  <span className="text-xs font-bold font-mono text-amber-400">
-                    {sig.volumeMultiplier}x 20D Avg
-                  </span>
-                </div>
-
-                <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800">
-                  <span className="text-[9px] text-slate-500 font-mono uppercase block">
-                    EMA Structure
-                  </span>
-                  <span className="text-xs font-bold font-mono text-emerald-400">
-                    20 &gt; 50 &gt; 200
-                  </span>
-                </div>
-
-                <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800">
-                  <span className="text-[9px] text-slate-500 font-mono uppercase block">
-                    R:R Minimum
-                  </span>
-                  <span className="text-xs font-bold font-mono text-emerald-400">
-                    1:{sig.rewardRiskRatio != null ? sig.rewardRiskRatio.toFixed(1) : "—"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Setup Highlights / Rejection Description */}
-              <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800/80 text-xs font-mono space-y-1">
-                <div className="text-slate-300 font-semibold flex items-center gap-1.5">
-                  <Flame className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{sig.rejectionCandle || sig.setupTitle}</span>
-                </div>
-                {sig.extensionFromPivotPercent !== undefined && (
-                  <div
-                    className={`text-[10px] ${isExtended ? "text-rose-400 font-bold" : "text-emerald-400"
-                      }`}
-                  >
-                    Extension from Pivot: {sig.extensionFromPivotPercent}%{" "}
-                    {isExtended ? "(EXTENDED — DO NOT CHASE)" : "(Safe to Enter &lt; 5-7% rule)"}
-                  </div>
-                )}
-                {sig.baseLengthWeeks && (
-                  <div className="text-[10px] text-slate-400">
-                    Base Duration: {sig.baseLengthWeeks} Weeks Volatility Contraction Base
-                  </div>
-                )}
-              </div>
-
-              {/* Trade Levels: Current, Entry, SL, Target 1, Target 2 */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800/60">
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-slate-500 font-mono uppercase">Entry Trigger</span>
-                  <span className="text-sm font-bold font-mono text-cyan-300">
-                    {sig.entryPrice != null ? `₹${sig.entryPrice.toLocaleString("en-IN")}` : "—"}
-                  </span>
-                  <span className="text-[9px] text-slate-500 font-mono">
-                    LTP: {sig.currentPrice != null ? `₹${sig.currentPrice.toLocaleString("en-IN")}` : "—"}
-                  </span>
-                </div>
-
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-rose-400 font-mono uppercase">Stop Loss (SL)</span>
-                  <span className="text-sm font-bold font-mono text-rose-400">
-                    {sig.stopLossPrice != null ? `₹${sig.stopLossPrice.toLocaleString("en-IN")}` : "—"}
-                  </span>
-                  <span className="text-[9px] text-slate-500 font-mono">
-                    Risk: ₹{sig.riskPerShare}/sh
-                  </span>
-                </div>
-
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-emerald-400 font-mono uppercase">Target 1 (2R)</span>
-                  <span className="text-sm font-bold font-mono text-emerald-400">
-                    {sig.target1Price != null ? `₹${sig.target1Price.toLocaleString("en-IN")}` : "—"}
-                  </span>
-                  <span className="text-[9px] text-slate-500 font-mono">
-                    {sig.target1Price != null && sig.entryPrice != null ? `+₹${(sig.target1Price - sig.entryPrice).toFixed(0)} gain` : ""}
-                  </span>
-                </div>
-
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-amber-300 font-mono uppercase">Target 2 (3R+)</span>
-                  <span className="text-sm font-bold font-mono text-amber-300">
-                    {sig.target2Price != null ? `₹${sig.target2Price.toLocaleString("en-IN")}` : "—"}
-                  </span>
-                  <span className="text-[9px] text-slate-500 font-mono">Runner target</span>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => scanStock(sig.symbol)}
-                    className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold text-cyan-400 hover:text-cyan-200 hover:bg-slate-800 transition flex items-center gap-1 cursor-pointer"
-                  >
-                    <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Inspect Live</span>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveModalSignal(sig)}
-                    className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold text-slate-300 hover:text-slate-100 hover:bg-slate-800 transition flex items-center gap-1 cursor-pointer"
-                  >
-                    <Eye className="w-3.5 h-3.5 text-slate-400" />
-                    <span>5-Pillars</span>
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => loadSignalIntoCalculator(sig)}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Calculator className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Size Position</span>
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ── PILLAR 5: STRICT RISK MANAGEMENT CALCULATOR & DISCIPLINE CHECKLIST ── */}
-      <section
-        id="risk-calculator-section"
-        className="p-5 rounded-2xl bg-[#0d1322]/90 border border-slate-800/90 shadow-2xl space-y-5"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
+      {/* ACTIVE PORTFOLIO TABLE */}
+      {mainTab === "PORTFOLIO" && (
+        <div className="p-5 rounded-2xl bg-[#0d1322] border border-violet-500/30 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h3 className="text-base font-bold font-mono text-slate-100">
-                PILLAR 5: STRICT RISK MANAGEMENT & POSITION SIZING CALCULATOR
+              <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-emerald-400" />
+                ACTIVE TRADES — CLICK ANY ROW FOR PURPLE BOX / DOJI AUDIT &amp; NEXT-DAY SL/TP ADJUSTMENT
               </h3>
-              <p className="text-xs text-slate-400 font-mono">
-                Preserve capital · 1.0% Max Risk per trade · Exact quantity calculation · 1:2 Minimum R:R
-              </p>
-            </div>
-          </div>
-          <span className="text-[10px] px-2.5 py-1 rounded-full font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold self-start sm:self-auto">
-            1:2 R:R ENFORCED
-          </span>
-        </div>
-
-        {calcNotice && (
-          <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-xs font-mono text-cyan-300 flex items-center justify-between">
-            <span>{calcNotice}</span>
-            <button onClick={() => setCalcNotice(null)} className="text-slate-400 hover:text-slate-200">✕</button>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Inputs (7 cols) */}
-          <div className="lg:col-span-7 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] font-mono text-slate-400 uppercase font-semibold block mb-1">
-                  Account Trading Capital (₹)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-xs text-slate-500 font-mono">₹</span>
-                  <input
-                    type="number"
-                    value={accountCapital}
-                    onChange={(e) => setAccountCapital(Number(e.target.value))}
-                    className="w-full pl-7 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-400"
-                  />
+              {lastLtpSyncTime && (
+                <div className="text-[10px] text-cyan-300 mt-0.5 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Live Snapshot Synced at {lastLtpSyncTime}</span>
                 </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-mono text-slate-400 uppercase font-semibold block mb-1">
-                  Risk Per Trade (% of Capital)
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    max="2.0"
-                    value={riskPercent}
-                    onChange={(e) => setRiskPercent(Number(e.target.value))}
-                    className="w-full pl-3 pr-8 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-400"
-                  />
-                  <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-mono">%</span>
-                </div>
-                <span className="text-[9px] text-slate-500 font-mono">Strict rule: 1.0% to 1.5% max</span>
-              </div>
+              )}
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <div>
-                <label className="text-[10px] font-mono text-slate-400 uppercase font-semibold block mb-1">
-                  Stock Symbol
-                </label>
-                <input
-                  type="text"
-                  value={calcSymbol}
-                  onChange={(e) => setCalcSymbol(e.target.value.toUpperCase())}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-400"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-mono text-slate-400 uppercase font-semibold block mb-1">
-                  Entry Trigger (₹)
-                </label>
-                <input
-                  type="number"
-                  value={calcEntry}
-                  onChange={(e) => setCalcEntry(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-cyan-300 focus:outline-none focus:border-cyan-400 font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-mono text-rose-400 uppercase font-semibold block mb-1">
-                  Stop Loss Price (₹)
-                </label>
-                <input
-                  type="number"
-                  value={calcStopLoss}
-                  onChange={(e) => setCalcStopLoss(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-rose-400 focus:outline-none focus:border-rose-400 font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-mono text-emerald-400 uppercase font-semibold block mb-1">
-                  Target Price (₹)
-                </label>
-                <input
-                  type="number"
-                  value={calcTarget}
-                  onChange={(e) => setCalcTarget(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-emerald-400 focus:outline-none focus:border-emerald-400 font-bold"
-                />
-              </div>
-            </div>
-
-            {/* Pre-Trade Discipline 5-Pillar Checklist */}
-            <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2.5">
-              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Check className="w-3.5 h-3.5 text-cyan-400" />
-                Pre-Execution Discipline Checklist (All Must Pass)
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => fetchLiveApiData(true)}
+                disabled={isLoading}
+                className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+                <span>⚡ Force Refresh LTP</span>
+              </button>
+              <button
+                onClick={() => runNewsScan()}
+                disabled={isScanningNews || autoTrades.length === 0}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                title={lastNewsScanIst ? `AI Sentiment Shield last scanned at ${lastNewsScanIst}` : "Scan live financial news & reversal catalysts for all active trades"}
+              >
+                <Shield className={`w-3.5 h-3.5 ${isScanningNews ? "animate-pulse text-amber-300" : "text-emerald-400"}`} />
+                <span>{isScanningNews ? "Scanning News..." : "🛡️ AI News Shield"}</span>
+              </button>
+              <span className="text-xs text-violet-300 font-bold">
+                Capital Deployed: ₹{autoTrades.reduce((a, t) => a + t.allocatedCapital, 0).toLocaleString("en-IN")}
               </span>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={checklistDiscipline.regimeConfirmed}
-                    onChange={(e) =>
-                      setChecklistDiscipline({ ...checklistDiscipline, regimeConfirmed: e.target.checked })
-                    }
-                    className="rounded border-slate-700 text-cyan-500 focus:ring-0"
-                  />
-                  <span>1. NIFTY Regime is Bullish / Non-Hostile</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={checklistDiscipline.fundamentalApproved}
-                    onChange={(e) =>
-                      setChecklistDiscipline({
-                        ...checklistDiscipline,
-                        fundamentalApproved: e.target.checked,
-                      })
-                    }
-                    className="rounded border-slate-700 text-cyan-500 focus:ring-0"
-                  />
-                  <span>2. Fundamentally approved (ROE &gt; 15%)</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={checklistDiscipline.liquidityValidated}
-                    onChange={(e) =>
-                      setChecklistDiscipline({
-                        ...checklistDiscipline,
-                        liquidityValidated: e.target.checked,
-                      })
-                    }
-                    className="rounded border-slate-700 text-cyan-500 focus:ring-0"
-                  />
-                  <span>3. S/R flip or Liquidity sweep verified</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={checklistDiscipline.volumeConfirmed}
-                    onChange={(e) =>
-                      setChecklistDiscipline({ ...checklistDiscipline, volumeConfirmed: e.target.checked })
-                    }
-                    className="rounded border-slate-700 text-cyan-500 focus:ring-0"
-                  />
-                  <span>4. Volume &gt; 1.5x on breakout / reclaim</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300 sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={checklistDiscipline.strictlyDefinedRisk}
-                    onChange={(e) =>
-                      setChecklistDiscipline({
-                        ...checklistDiscipline,
-                        strictlyDefinedRisk: e.target.checked,
-                      })
-                    }
-                    className="rounded border-slate-700 text-cyan-500 focus:ring-0"
-                  />
-                  <span>5. R:R &ge; 1:2.0 verified with hard stop-loss placed</span>
-                </label>
-              </div>
             </div>
           </div>
 
-          {/* Right Calculated Output Cards (5 cols) */}
-          <div className="lg:col-span-5 p-4 rounded-xl bg-gradient-to-br from-[#11192e] to-[#0a101d] border border-cyan-500/30 flex flex-col justify-between space-y-4">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="text-[11px] font-mono uppercase font-bold text-slate-400">
-                  Sizing Result for {calcSymbol}
-                </span>
-                <span
-                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${rewardRiskRatio >= 2.0
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                    : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                    }`}
-                >
-                  {rewardRiskRatio >= 2.0 ? "R:R APPROVED" : "R:R REJECTED (< 2.0)"}
-                </span>
-              </div>
-
-              {/* Giant Recommended Quantity */}
-              <div className="p-3.5 rounded-xl bg-slate-900/80 border border-cyan-500/20 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-mono text-slate-400 uppercase block">
-                    Recommended Order Quantity
-                  </span>
-                  <span className="text-2xl font-bold font-mono text-cyan-400">
-                    {recommendedQuantity} Shares
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase block">
-                    Capital Required
-                  </span>
-                  <span className="text-base font-bold font-mono text-slate-100">
-                    ₹{totalCapitalRequired.toLocaleString("en-IN")}
-                  </span>
-                  <span className="text-[9px] text-slate-500 font-mono block">
-                    {capitalExposurePercent}% of portfolio
-                  </span>
-                </div>
-              </div>
-
-              {/* Metrics Grid */}
-              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                <div className="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800">
-                  <span className="text-[9px] text-rose-400 uppercase block">Max Defined Loss</span>
-                  <span className="text-sm font-bold text-rose-400">
-                    -₹{maxRiskAmount.toLocaleString("en-IN")}
-                  </span>
-                  <span className="text-[9px] text-slate-500">₹{riskPerShare}/sh risk</span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800">
-                  <span className="text-[9px] text-emerald-400 uppercase block">Expected 2R Gain</span>
-                  <span className="text-sm font-bold text-emerald-400">
-                    +₹{potentialRewardAmount.toLocaleString("en-IN")}
-                  </span>
-                  <span className="text-[9px] text-slate-500">₹{gainPerShare}/sh reward</span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800">
-                  <span className="text-[9px] text-slate-400 uppercase block">Reward-to-Risk</span>
-                  <span className="text-sm font-bold text-cyan-300">
-                    1 : {rewardRiskRatio.toFixed(2)}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-slate-900/50 border border-slate-800">
-                  <span className="text-[9px] text-slate-400 uppercase block">Capital Preservation</span>
-                  <span className="text-sm font-bold text-emerald-400">100% Protected</span>
-                </div>
-              </div>
-
-              {rewardRiskRatio < 2.0 && (
-                <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[10px] font-mono flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
-                  <span>
-                    Trade violates Rule 5! Minimum Reward:Risk must be 1:2.0. Adjust Target higher or Entry closer to SL.
-                  </span>
-                </div>
-              )}
+          {autoTrades.length === 0 ? (
+            <div className="p-10 rounded-xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
+              No active trades. Deploy any setup from the Screener tab or toggle Auto-Trade ON.
             </div>
-
-            {/* Paper Execution Button */}
-            <div className="pt-2 border-t border-slate-800 space-y-2">
-              <button
-                onClick={executePaperOrder}
-                disabled={recommendedQuantity <= 0 || rewardRiskRatio < 2.0}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500/30 to-emerald-500/30 hover:from-cyan-500/40 hover:to-emerald-500/40 text-slate-100 border border-cyan-500/40 text-xs font-mono font-bold transition flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-lg"
-              >
-                <Briefcase className="w-4 h-4 text-emerald-400" />
-                <span>⚡ EXECUTE SIMULATED PAPER ORDER ({recommendedQuantity} Shares)</span>
-              </button>
-
-              {paperTradeNotice && (
-                <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{paperTradeNotice}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="text-[10px] text-slate-400 font-mono border-t border-slate-800 pt-2 flex items-center justify-between">
-              <span>Trailing Rule: Move SL to Breakeven at 1R profit</span>
-              <span className="text-cyan-400">Discipline First</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Paper Trades Portfolio Strip */}
-        {paperTrades.length > 0 && (
-          <div className="mt-4 p-4 rounded-xl bg-[#090e1a] border border-slate-800 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Briefcase className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-bold font-mono text-slate-200 uppercase">
-                  Active Paper Portfolio Simulator ({paperTrades.length} Positions)
-                </span>
-              </div>
-              <button
-                onClick={() => setPaperTrades([])}
-                className="text-[10px] font-mono text-slate-500 hover:text-slate-300 cursor-pointer"
-              >
-                Clear Portfolio
-              </button>
-            </div>
-
-            <div className="overflow-x-auto rounded-lg border border-slate-800">
-              <table className="w-full text-[11px] font-mono whitespace-nowrap">
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-slate-900 text-slate-400 uppercase text-[10px]">
-                    <th className="py-2 px-3 text-left">Stock</th>
-                    <th className="py-2 px-3 text-left">Qty</th>
-                    <th className="py-2 px-3 text-left">Entry Price</th>
-                    <th className="py-2 px-3 text-left">Stop Loss</th>
-                    <th className="py-2 px-3 text-left">Target 1</th>
-                    <th className="py-2 px-3 text-left">Capital Allocated</th>
-                    <th className="py-2 px-3 text-left">Execution Time</th>
-                    <th className="py-2 px-3 text-right">Status</th>
+                  <tr className="bg-slate-900 text-slate-400 border-b border-slate-800 uppercase text-[10px]">
+                    <th className="py-3 px-3">Stock &amp; Strategy</th>
+                    <th className="py-3 px-3">Box Floor / Ref</th>
+                    <th className="py-3 px-3">Locked Entry</th>
+                    <th className="py-3 px-3">Market Price (LTP)</th>
+                    <th className="py-3 px-3">Locked SL</th>
+                    <th className="py-3 px-3">Locked Target</th>
+                    <th className="py-3 px-3">Target Kitna Baki Hai</th>
+                    <th className="py-3 px-3">Live P&amp;L</th>
+                    <th className="py-3 px-3">AI Sentiment Shield</th>
+                    <th className="py-3 px-3 text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/40">
-                  {paperTrades.map((pt) => (
-                    <tr key={pt.id} className="hover:bg-slate-800/30">
-                      <td className="py-2 px-3 text-cyan-300 font-bold">{pt.symbol}</td>
-                      <td className="py-2 px-3 text-slate-100 font-bold">{pt.quantity}</td>
-                      <td className="py-2 px-3 text-slate-200">₹{pt.entry}</td>
-                      <td className="py-2 px-3 text-rose-400">₹{pt.stopLoss}</td>
-                      <td className="py-2 px-3 text-emerald-400">₹{pt.target1}</td>
-                      <td className="py-2 px-3 text-slate-100">₹{pt.capital.toLocaleString("en-IN")}</td>
-                      <td className="py-2 px-3 text-slate-400 text-[10px]">{pt.date}</td>
-                      <td className="py-2 px-3 text-right">
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
-                          ACTIVE PAPER ORDER
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-slate-800 bg-[#0a0f1c]">
+                  {autoTrades.map((tr) => {
+                    const cleanSym = String(tr.cleanSymbol || tr.symbol || "")
+                      .toUpperCase()
+                      .replace(/\.NS$/i, "")
+                      .replace(/\.BO$/i, "");
+                    const aiReport = aiShieldReports[cleanSym];
+                    const isCatalystWarning =
+                      aiReport?.shieldStatus === "CATALYST_ALERT" ||
+                      aiReport?.shieldStatus === "CRITICAL_NEWS_EXIT" ||
+                      aiReport?.shieldStatus === "EXHAUSTION_REVERSAL_EXIT";
+                    const shieldBadgeLabel = aiReport?.badgeText || "🟢 Clean";
+                    const exactLiveLtp = Number((liveQuotesMap[cleanSym] ?? tr.currentMarketPrice ?? tr.entryPrice).toFixed(2));
+                    const exactPnlAmount = Math.round((exactLiveLtp - tr.entryPrice) * tr.quantity);
+                    const exactPnlPercent = Number((((exactLiveLtp - tr.entryPrice) / tr.entryPrice) * 100).toFixed(2));
+                    const isSameDayLocked = tr.lockedDateKey === todayDateKey;
+                    const ptsLeft = Math.max(0, Number((tr.targetPrice - exactLiveLtp).toFixed(2)));
+                    const pctLeft =
+                      exactLiveLtp > 0
+                        ? Math.max(
+                          0,
+                          Number((((tr.targetPrice - exactLiveLtp) / exactLiveLtp) * 100).toFixed(2))
+                        )
+                        : 0;
+
+                    return (
+                      <tr
+                        key={tr.tradeId}
+                        onClick={() =>
+                          setSelectedTradeModal({
+                            ...tr,
+                            currentMarketPrice: exactLiveLtp,
+                            pnlAmount: exactPnlAmount,
+                            pnlPercent: exactPnlPercent,
+                          })
+                        }
+                        className="hover:bg-cyan-500/10 transition cursor-pointer"
+                      >
+                        <td className="py-3.5 px-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="font-bold text-slate-100 text-sm">
+                              {cleanSym}
+                            </span>
+                            <span className="text-[10px] text-slate-400">({tr.quantity} Qty)</span>
+                          </div>
+                          <div className="text-[10px] text-fuchsia-300 mt-0.5">{tr.strategyUsed}</div>
+                          <div className="text-[10px] mt-0.5">
+                            {isSameDayLocked ? (
+                              <span className="text-amber-300 flex items-center gap-1">
+                                <Lock className="w-3 h-3" /> Same-Day Locked
+                              </span>
+                            ) : (
+                              <span className="text-cyan-300 flex items-center gap-1">
+                                <Edit3 className="w-3 h-3" /> Next-Day Adjustable
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-3 font-bold text-orange-300">
+                          ₹{tr.breakoutLevel || tr.entryPrice}
+                        </td>
+                        <td className="py-3.5 px-3 font-bold text-cyan-300">₹{tr.entryPrice}</td>
+                        <td className="py-3.5 px-3 font-bold text-white bg-slate-900/60">
+                          <div className="flex items-center gap-1">
+                            <span>₹{exactLiveLtp}</span>
+                            <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                              LIVE
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-3 font-bold">
+                          <div className={tr.isTslCostLocked ? "text-amber-300 flex items-center gap-1" : "text-rose-400"}>
+                            {tr.isTslCostLocked && <Lock className="w-3 h-3 text-amber-400" />}
+                            <span>₹{tr.stopLossPrice}</span>
+                          </div>
+                          {tr.isTslCostLocked && (
+                            <span className="text-[9px] text-amber-300/90 block">TSL → COST (70%+)</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 font-bold text-emerald-400">₹{tr.targetPrice}</td>
+                        <td className="py-3.5 px-3 font-bold text-amber-300">
+                          ₹{ptsLeft} ({pctLeft}% left)
+                        </td>
+                        <td className="py-3.5 px-3 font-bold">
+                          <span className={exactPnlAmount >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                            {exactPnlAmount >= 0 ? "+" : ""}₹{exactPnlAmount.toLocaleString("en-IN")} ({exactPnlPercent >= 0 ? "+" : ""}{exactPnlPercent}%)
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                                  isCatalystWarning
+                                    ? "bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse"
+                                    : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                                }`}
+                                title={aiReport?.topHeadline || "AI News & Reversal Worker monitoring live headlines & volume exhaustion"}
+                              >
+                                {shieldBadgeLabel}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  runNewsScan(cleanSym);
+                                }}
+                                className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-bold cursor-pointer"
+                                title="Simulate a high-impact negative news catalyst / volume exhaustion reversal to test automated NEWS_TRIGGER_EXIT"
+                              >
+                                🧪 Sim Catalyst
+                              </button>
+                            </div>
+                            <div
+                              className="text-[10px] text-slate-400 max-w-[180px] truncate"
+                              title={aiReport?.topHeadline || "Monitoring live NSE/Yahoo Finance catalyst feed"}
+                            >
+                              {aiReport?.topHeadline || "Monitoring live catalyst feed..."}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1 flex-wrap">
+                            <button
+                              onClick={(e) => handleEmergencySquareOffNow(tr.tradeId, e)}
+                              className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-rose-600 to-orange-600 hover:from-rose-500 hover:to-orange-500 text-white border border-rose-400/50 text-[10px] font-bold flex items-center gap-1 cursor-pointer shadow-md"
+                              title="Instantly lock current live P&L, archive to Backtest History, and free up capital"
+                            >
+                              <Zap className="w-3 h-3 text-amber-200" />
+                              <span>⚡ Emergency Exit / Square-off Now</span>
+                            </button>
+                            <button
+                              onClick={(e) => resolveTradeOutcome(tr.tradeId, "TARGET", e)}
+                              className="px-2 py-1 bg-emerald-500/20 text-emerald-300 text-[10px] rounded cursor-pointer"
+                            >
+                              TP ✅
+                            </button>
+                            <button
+                              onClick={(e) => resolveTradeOutcome(tr.tradeId, "STOPLOSS", e)}
+                              className="px-2 py-1 bg-rose-500/20 text-rose-300 text-[10px] rounded cursor-pointer"
+                            >
+                              SL ❌
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-      </section>
+          )}
+        </div>
+      )}
 
-      {/* ── INTERACTIVE 5-PILLAR DETAILS MODAL ─────────────────────────────── */}
-      {activeModalSignal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-[#0d1322] border border-slate-800 shadow-2xl p-6 space-y-5 text-slate-100">
-            {/* Modal Header */}
+      {/* BACKTEST TAB */}
+      {mainTab === "BACKTEST_HISTORY" && (
+        <div className="p-5 rounded-2xl bg-[#0d1322] border border-emerald-500/30 space-y-4 shadow-2xl">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <History className="w-4 h-4 text-emerald-400" />
+                Closed Trades Backtest Archive &amp; Audit Log ({backtestHistory.length})
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Click any closed trade row (e.g., POLYCAB, PGEL, SUNPHARMA) to inspect the interactive Exit Audit Modal detailing exact exit rationale and scraped news.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            {backtestHistory.map((tr) => {
+              const cleanSym = String(tr.cleanSymbol || tr.symbol || "")
+                .toUpperCase()
+                .replace(/\.NS$/i, "")
+                .replace(/\.BO$/i, "");
+              const isNewsExit = String(tr.status || "").includes("NEWS");
+              const isReversalExit = String(tr.status || "").includes("REVERSAL");
+              const isTarget = String(tr.status || "").includes("TARGET");
+
+              return (
+                <div
+                  key={tr.tradeId}
+                  onClick={() => setSelectedExitAuditTrade(tr as any)}
+                  className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-cyan-500/40 hover:bg-cyan-500/5 transition cursor-pointer flex items-center justify-between flex-wrap gap-3 group"
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase border ${
+                        isNewsExit
+                          ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                          : isReversalExit
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                          : isTarget
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                          : "bg-slate-800 text-slate-300 border-slate-700"
+                      }`}
+                    >
+                      {String(tr.status || "CLOSED").replace(/_/g, " ")}
+                    </span>
+                    <div>
+                      <div className="font-bold text-slate-100 text-sm flex items-center gap-1.5">
+                        <span>{cleanSym}</span>
+                        <span className="text-[10px] text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                          🔍 Audit
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {tr.strategyUsed} · Entry ₹{tr.entryPrice} → Exit ₹{tr.currentMarketPrice || tr.currentSimulatedPrice}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <div
+                        className={`text-sm font-bold ${
+                          tr.pnlAmount >= 0 ? "text-emerald-400" : "text-rose-400"
+                        }`}
+                      >
+                        {tr.pnlAmount >= 0 ? "+" : ""}₹{tr.pnlAmount.toLocaleString("en-IN")}
+                      </div>
+                      <div
+                        className={`text-[10px] font-bold ${
+                          tr.pnlPercent >= 0 ? "text-emerald-400" : "text-rose-400"
+                        }`}
+                      >
+                        {tr.pnlPercent >= 0 ? "+" : ""}
+                        {tr.pnlPercent}%
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedExitAuditTrade(tr as any);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition shadow-sm group-hover:scale-105"
+                    >
+                      <Search className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>🔍 View Exit Audit Log</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 🔍 POPUP MODAL: SCORE, VOLUME, TARGET DISTANCE & NEXT-DAY LEVEL ADJUSTER */}
+      {selectedTradeModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+          onClick={() => setSelectedTradeModal(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-2xl bg-[#0d1322] border border-fuchsia-500/40 shadow-2xl p-6 space-y-5 text-slate-100 font-mono"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between border-b border-slate-800 pb-3">
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xl font-bold font-mono text-cyan-400">
-                    {activeModalSignal.symbol} — {activeModalSignal.setupTitle}
-                  </h3>
-                  <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono border border-emerald-500/30 font-bold">
-                    Score {activeModalSignal.confluenceScore}/100
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 font-mono mt-0.5">
-                  {activeModalSignal.companyName} · {activeModalSignal.sector}
+                <h3 className="text-xl font-bold text-fuchsia-300">
+                  {selectedTradeModal.cleanSymbol || selectedTradeModal.symbol} — {selectedTradeModal.strategyUsed}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  ⭐ <strong className="text-emerald-400">Score: {selectedTradeModal.confluenceScore}/100</strong> · 📊{" "}
+                  <strong className="text-amber-300">Volume: {selectedTradeModal.volumeMultiplier}x Avg</strong> ·
+                  Locked Date: <strong className="text-cyan-300">{selectedTradeModal.lockedDateKey}</strong>
                 </p>
               </div>
-
-              <button
-                onClick={() => setActiveModalSignal(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
-              >
+              <button onClick={() => setSelectedTradeModal(null)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* 5-Pillar Verification Breakdown */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                The 5-Pillars Confluence Audit
-              </h4>
-
-              <div className="grid grid-cols-1 gap-2 text-xs font-mono">
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col gap-1">
-                  <span className="text-cyan-400 font-bold">Pillar 1: Market Regime Alignment</span>
-                  <span className="text-slate-300">
-                    {activeModalSignal.fivePillarChecklist.pillar1MarketRegime.details}
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col gap-1">
-                  <span className="text-emerald-400 font-bold">Pillar 2: Fundamental Screener Status</span>
-                  <span className="text-slate-300">
-                    {activeModalSignal.fivePillarChecklist.pillar2Fundamentals.details}
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col gap-1">
-                  <span className="text-violet-400 font-bold">Pillar 3: Liquidity Sweeps & Key S/R</span>
-                  <span className="text-slate-300">
-                    {activeModalSignal.fivePillarChecklist.pillar3LiquidityLevels.details}
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col gap-1">
-                  <span className="text-amber-400 font-bold">Pillar 4: Price Action & Volume Confirmation</span>
-                  <span className="text-slate-300">
-                    {activeModalSignal.fivePillarChecklist.pillar4PriceActionVolume.details}
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col gap-1">
-                  <span className="text-rose-400 font-bold">Pillar 5: Strict Risk Management & Invalidation</span>
-                  <span className="text-slate-300">
-                    {activeModalSignal.fivePillarChecklist.pillar5RiskManagement.details}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Trade Rationale Points */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">
-                Setup Rationale & Institutional Mechanics
-              </h4>
-              <ul className="space-y-1.5 list-disc list-inside text-xs font-mono text-slate-300">
-                {activeModalSignal.tradeRationale.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Invalidation Trigger & Trailing Plan */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25">
-                <span className="text-[10px] text-rose-400 uppercase font-bold block mb-1">
-                  Strict Invalidation Trigger
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-center text-xs">
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-orange-500/40">
+                <span className="text-[9px] text-orange-300 block">BOX FLOOR / REF</span>
+                <span className="text-sm font-bold text-orange-300">
+                  ₹{selectedTradeModal.breakoutLevel || selectedTradeModal.entryPrice}
                 </span>
-                <span className="text-slate-200">{activeModalSignal.invalidationTrigger}</span>
               </div>
-
-              <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/25">
-                <span className="text-[10px] text-cyan-400 uppercase font-bold block mb-1">
-                  Trailing Stop-Loss Protocol
-                </span>
-                <span className="text-slate-200">{activeModalSignal.trailingStopPlan}</span>
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                <span className="text-[9px] text-slate-400 block">LOCKED ENTRY</span>
+                <span className="text-sm font-bold text-cyan-300">₹{selectedTradeModal.entryPrice}</span>
               </div>
-            </div>
-
-            {/* Fundamentals Scorecard */}
-            <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2">
-              <span className="text-[10px] font-mono uppercase font-bold text-slate-400 block">
-                Fundamental Health Card
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
-                <div>
-                  <span className="text-slate-500 text-[10px] block">ROE %</span>
-                  <span className="text-emerald-400 font-bold">
-                    {activeModalSignal.fundamentals.roePercent}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 text-[10px] block">ROCE %</span>
-                  <span className="text-emerald-400 font-bold">
-                    {activeModalSignal.fundamentals.rocePercent}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 text-[10px] block">3Y Sales CAGR</span>
-                  <span className="text-cyan-400 font-bold">
-                    {activeModalSignal.fundamentals.salesGrowth3Y}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500 text-[10px] block">Debt to Equity</span>
-                  <span className="text-slate-200 font-bold">
-                    {activeModalSignal.fundamentals.debtToEquity}
-                  </span>
-                </div>
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-white/20">
+                <span className="text-[9px] text-slate-300 block">MARKET PRICE (LTP)</span>
+                <span className="text-sm font-bold text-white">₹{selectedTradeModal.currentMarketPrice}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-rose-500/30">
+                <span className="text-[9px] text-rose-400 block">LOCKED SL</span>
+                <span className="text-sm font-bold text-rose-400">₹{selectedTradeModal.stopLossPrice}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-emerald-500/30">
+                <span className="text-[9px] text-emerald-400 block">LOCKED TARGET</span>
+                <span className="text-sm font-bold text-emerald-400">₹{selectedTradeModal.targetPrice}</span>
               </div>
             </div>
 
-            {/* Close / Action Footer */}
-            <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3">
-              <button
-                onClick={() => setActiveModalSignal(null)}
-                className="px-4 py-2 rounded-xl text-xs font-mono text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  loadSignalIntoCalculator(activeModalSignal);
-                  setActiveModalSignal(null);
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 transition flex items-center gap-1.5"
-              >
-                <Calculator className="w-4 h-4" />
-                <span>Calculate My Exact Position Size</span>
-              </button>
+            {(() => {
+              const isSameDay = selectedTradeModal.lockedDateKey === todayDateKey;
+              const canEdit = !isSameDay || unlockOverride;
+
+              return (
+                <div className="p-4 rounded-xl bg-slate-900/90 border border-violet-500/30 space-y-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-violet-300 flex items-center gap-1.5">
+                      {canEdit ? <Edit3 className="w-4 h-4" /> : <Lock className="w-4 h-4 text-amber-300" />}
+                      {isSameDay && !unlockOverride
+                        ? `🔒 Same-Day Price Freeze Active (${todayDateKey}) — Entry, SL & TP Cannot Shift Today`
+                        : `✏️ Adjust Entry / SL / Target (Reference Price ₹${selectedTradeModal.breakoutLevel || selectedTradeModal.entryPrice
+                        } Stays Fixed)`}
+                    </span>
+                    {isSameDay && !unlockOverride && (
+                      <button
+                        onClick={() => setUnlockOverride(true)}
+                        className="text-[10px] px-2 py-1 rounded bg-slate-800 text-slate-300 hover:text-white cursor-pointer"
+                      >
+                        Manual Override
+                      </button>
+                    )}
+                  </div>
+
+                  {canEdit && (
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 pt-1 items-end">
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1">Entry Price (₹)</label>
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={editEntry}
+                          onChange={(e) => setEditEntry(e.target.value)}
+                          className="w-full px-2.5 py-1.5 rounded bg-[#0d1322] border border-slate-700 text-cyan-300 font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1">Stop-Loss (₹)</label>
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={editSL}
+                          onChange={(e) => setEditSL(e.target.value)}
+                          className="w-full px-2.5 py-1.5 rounded bg-[#0d1322] border border-slate-700 text-rose-400 font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-400 block mb-1">Target Price (₹)</label>
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={editTP}
+                          onChange={(e) => setEditTP(e.target.value)}
+                          className="w-full px-2.5 py-1.5 rounded bg-[#0d1322] border border-slate-700 text-emerald-400 font-bold"
+                        />
+                      </div>
+                      <button
+                        onClick={handleSaveAdjustedLevels}
+                        className="px-3 py-1.5 rounded-lg bg-violet-500/30 hover:bg-violet-500/40 text-violet-200 border border-violet-500/50 font-bold cursor-pointer"
+                      >
+                        Save Levels
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {(() => {
+              const ptsLeft = Math.max(
+                0,
+                Number((selectedTradeModal.targetPrice - selectedTradeModal.currentMarketPrice).toFixed(2))
+              );
+              const pctLeft =
+                selectedTradeModal.currentMarketPrice > 0
+                  ? Math.max(
+                    0,
+                    Number(
+                      (
+                        ((selectedTradeModal.targetPrice - selectedTradeModal.currentMarketPrice) /
+                          selectedTradeModal.currentMarketPrice) *
+                        100
+                      ).toFixed(2)
+                    )
+                  )
+                  : 0;
+              const rupeeProfitLeft = Math.round(ptsLeft * selectedTradeModal.quantity);
+
+              return (
+                <div className="p-4 rounded-xl bg-slate-900 border border-cyan-500/30 space-y-2 text-xs">
+                  <div className="flex justify-between font-bold">
+                    <span className="text-cyan-300">🎯 TARGET KITNA BAKI HAI:</span>
+                    <span className="text-amber-300">
+                      ₹{ptsLeft} Points ({pctLeft}% away from Target)
+                    </span>
+                  </div>
+                  <div className="text-emerald-400 font-bold">
+                    Remaining Potential Profit to Target: +₹{rupeeProfitLeft.toLocaleString("en-IN")}
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="p-4 rounded-xl bg-slate-900/80 border border-fuchsia-500/30 space-y-1.5 text-xs">
+              <div className="font-bold text-fuchsia-300 flex items-center gap-1.5">
+                <Flame className="w-4 h-4 text-fuchsia-400" />
+                <span>🟣 Purple Box Range &amp; Doji Audit</span>
+              </div>
+              <p className="text-slate-300">{selectedTradeModal.supportBounceInfo}</p>
+              <p className="text-slate-300">{selectedTradeModal.fiveDayBoxInfo}</p>
+              <p className="text-slate-300">{selectedTradeModal.dojiCandleInfo}</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── HISTORICAL STRATEGY BACKTESTING SIMULATOR MODAL ──────────────── */}
-      <BacktestModal
-        isOpen={backtestModalOpen}
-        onClose={() => setBacktestModalOpen(false)}
-        defaultSymbol={backtestSymbol}
-        defaultStrategy={backtestStrategy}
+      {/* Interactive Trade Exit Audit Modal Popup */}
+      <IMTradeExitAuditModal
+        trade={selectedExitAuditTrade}
+        onClose={() => setSelectedExitAuditTrade(null)}
       />
     </div>
   );

@@ -1,0 +1,140 @@
+{
+  "PGEL_2026-11-09": {
+    "key": "PGEL_2026-11-09",
+    "symbol": "PGEL",
+    "dateKey": "2026-11-09",
+    "lockedAtIso": "2026-11-09T06:36:06.999Z",
+    "entryPrice": 554.2,
+    "stopLossPrice": 536.47,
+    "target1Price": 592.99,
+    "target2Price": 620.7,
+    "referenceLevel": 555.4,
+    "referenceLabel": "VAH_BOX_CEILING",
+    "executionMode": "MODE_B_CEILING_BREAKOUT",
+    "primaryStrategy": "TRENDLINE_5D_RANGE_DOJI",
+    "matchedStrategies": [
+      "TRENDLINE_5D_RANGE_DOJI"
+    ],
+    "boxFloorVAL": 528.5,
+    "boxCeilingVAH": 555.4,
+    "boxMidPOC": 541.95,
+    "boxWidthPct": 5.09,
+    "supportTouches": 3,
+    "resistanceTouches": 2
+  },
+  "TRENT_2026-11-09": {
+    "key": "TRENT_2026-11-09",
+    "symbol": "TRENT",
+    "dateKey": "2026-11-09",
+    "lockedAtIso": "2026-11-09T06:36:07.204Z",
+    "entryPrice": 3119.7,
+    "stopLossPrice": 3019.87,
+    "target1Price": 3338.08,
+    "target2Price": 3494.06,
+    "referenceLevel": 3130,
+    "referenceLabel": "VAH_BOX_CEILING",
+    "executionMode": "MODE_B_CEILING_BREAKOUT",
+    "primaryStrategy": "TRENDLINE_5D_RANGE_DOJI",
+    "matchedStrategies": [
+      "TRENDLINE_5D_RANGE_DOJI"
+    ],
+    "boxFloorVAL": 2990,
+    "boxCeilingVAH": 3130,
+    "boxMidPOC": 3060,
+    "boxWidthPct": 4.68,
+    "supportTouches": 3,
+    "resistanceTouches": 2
+  },
+  "SOLARINDS_2026-11-09": {
+    "key": "SOLARINDS_2026-11-09",
+    "symbol": "SOLARINDS",
+    "dateKey": "2026-11-09",
+    "lockedAtIso": "2026-11-09T06:36:07.302Z",
+    "entryPrice": 18570,
+    "stopLossPrice": 17790.89,
+    "target1Price": 20398,
+    "target2Price": 21417.9,
+    "referenceLevel": 18117,
+    "referenceLabel": "VAL_SUPPORT_FLOOR",
+    "executionMode": "MODE_A_SUPPORT_BUY",
+    "primaryStrategy": "PURPLE_BOX_SUPPORT_BUY",
+    "matchedStrategies": [
+      "PURPLE_BOX_SUPPORT_BUY"
+    ],
+    "boxFloorVAL": 18117,
+    "boxCeilingVAH": 20398,
+    "boxMidPOC": 19257.5,
+    "boxWidthPct": 12.59,
+    "supportTouches": 6,
+    "resistanceTouches": 10
+  },
+  "CDSL_2026-11-09": {
+    "key": "CDSL_2026-11-09",
+    "symbol": "CDSL",
+    "dateKey": "2026-11-09",
+    "lockedAtIso": "2026-11-09T06:43:21.168Z",
+    "entryPrice": 1352.1,
+    "stopLossPrice": 1308.83,
+    "target1Price": 1446.75,
+    "target2Price": 1514.35,
+    "referenceLevel": 1333,
+    "referenceLabel": "VAH_BOX_CEILING",
+    "executionMode": "MODE_B_CEILING_BREAKOUT",
+    "primaryStrategy": "PURPLE_BOX_CEILING_BREAKOUT",
+    "matchedStrategies": [
+      "PURPLE_BOX_CEILING_BREAKOUT"
+    ],
+    "boxFloorVAL": 1173.6,
+    "boxCeilingVAH": 1333,
+    "boxMidPOC": 1253.3,
+    "boxWidthPct": 13.58,
+    "supportTouches": 4,
+    "resistanceTouches": 8
+  },
+  "TESTFREEZE_2026-11-09": {
+    "key": "TESTFREEZE_2026-11-09",
+    "symbol": "TESTFREEZE",
+    "dateKey": "2026-11-09",
+    "lockedAtIso": "2026-11-09T06:53:47.012Z",
+    "entryPrice": 500,
+    "stopLossPrice": 480,
+    "target1Price": 535,
+    "target2Price": 560,
+    "referenceLevel": 498,
+    "referenceLabel": "VAH_BOX_CEILING",
+    "executionMode": "MODE_B_CEILING_BREAKOUT",
+    "primaryStrategy": "PURPLE_BOX_CEILING_BREAKOUT",
+    "matchedStrategies": [
+      "PURPLE_BOX_CEILING_BREAKOUT"
+    ],
+    "boxFloorVAL": 460,
+    "boxCeilingVAH": 498,
+    "boxMidPOC": 479,
+    "boxWidthPct": 8.26,
+    "supportTouches": 4,
+    "resistanceTouches": 3
+  },
+  "COFORGE_2026-11-09": {
+    "key": "COFORGE_2026-11-09",
+    "symbol": "COFORGE",
+    "dateKey": "2026-11-09",
+    "lockedAtIso": "2026-11-09T09:58:20.189Z",
+    "entryPrice": 2047,
+    "stopLossPrice": 2002.95,
+    "target1Price": 2190.29,
+    "target2Price": 2292.64,
+    "referenceLevel": 2127.9,
+    "referenceLabel": "VAH_BOX_CEILING",
+    "executionMode": "MODE_B_CEILING_BREAKOUT",
+    "primaryStrategy": "VCP_POCKET_PIVOT",
+    "matchedStrategies": [
+      "VCP_POCKET_PIVOT"
+    ],
+    "boxFloorVAL": 2019.1,
+    "boxCeilingVAH": 2127.9,
+    "boxMidPOC": 2073.5,
+    "boxWidthPct": 5.39,
+    "supportTouches": 3,
+    "resistanceTouches": 2
+  }
+}

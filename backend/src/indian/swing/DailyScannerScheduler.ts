@@ -1,9 +1,15 @@
 import { marketSessionValidator } from "../market/MarketSessionValidator";
 import { swingTradingEngine } from "./SwingTradingEngine";
 import { SwingSignal } from "./types";
-import { DailyCandle, fetchLiveStockCandles, validateDailyCandles } from "./dailyStrategyScanner";
+import {
+  DailyCandle,
+  fetchLiveStockCandles,
+  validateDailyCandles,
+  fetchAllNseEquitySymbols,
+  scanAllNseStocks,
+} from "./dailyStrategyScanner";
 import { dailyScanPersistenceService } from "../../db/DailyScanPersistenceService";
-import { nseUniverseService, UniversePreset } from "../market/NSEUniverseService";
+import { UniversePreset } from "../market/NSEUniverseService";
 
 export interface ScanRunSummary {
   runId: string;
@@ -41,7 +47,7 @@ export interface TriggerScanOptions {
   timestampOverride?: Date | string | number;
   symbols?: string[];
   universePreset?: UniversePreset;
-  maxSymbols?: number;
+  maxSymbols?: number; // 0 or undefined = Scan ALL ~2,000+ NSE stocks
   offset?: number;
   candleDataBySymbol?: Record<string, DailyCandle[]>;
 }
@@ -53,15 +59,11 @@ export class DailyScannerScheduler {
   private scanHistory: Map<string, ScanRunSummary> = new Map();
   private latestRun: ScanRunSummary | null = null;
 
-  // Schedule configuration: 15:45 IST on NSE trading days
   public readonly TARGET_HOUR_IST: number = 15;
   public readonly TARGET_MINUTE_IST: number = 45;
 
-  constructor() {}
+  constructor() { }
 
-  /**
-   * Evaluates whether the given moment is an eligible NSE trading day and post-market time.
-   */
   public evaluateSchedule(targetDate?: Date | string | number): ScheduleCheckResult {
     const comp = marketSessionValidator.getIstComponents(targetDate);
     const tradingDate = comp.dateString;
@@ -69,7 +71,6 @@ export class DailyScannerScheduler {
       .toString()
       .padStart(2, "0")}:${comp.seconds.toString().padStart(2, "0")}`;
 
-    // 1. Weekend check
     if (comp.dayOfWeek === 0 || comp.dayOfWeek === 6) {
       return {
         isTradingDay: false,
@@ -81,7 +82,6 @@ export class DailyScannerScheduler {
       };
     }
 
-    // 2. NSE Holiday check
     const sessionStatus = marketSessionValidator.getMarketSessionStatus(targetDate);
     if (sessionStatus === "HOLIDAY") {
       return {
@@ -94,7 +94,6 @@ export class DailyScannerScheduler {
       };
     }
 
-    // 3. Time check (Market closes at 15:30 IST; target schedule is 15:45 IST)
     const minutesSinceMidnight = comp.hours * 60 + comp.minutes;
     const marketCloseMinutes = 15 * 60 + 30; // 15:30 IST
     const targetScheduleMinutes = this.TARGET_HOUR_IST * 60 + this.TARGET_MINUTE_IST; // 15:45 IST
@@ -111,9 +110,6 @@ export class DailyScannerScheduler {
     };
   }
 
-  /**
-   * Starts the internal background timer checking every 30 seconds for the 15:45 IST target.
-   */
   public start(pollIntervalMs: number = 30000): void {
     if (this.timer) return;
 
@@ -130,9 +126,6 @@ export class DailyScannerScheduler {
     );
   }
 
-  /**
-   * Stops the background timer.
-   */
   public stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
@@ -141,28 +134,17 @@ export class DailyScannerScheduler {
     }
   }
 
-  /**
-   * Internal trigger fired on timer ticks. Checks schedule, idempotency, and concurrency.
-   */
   public async checkAndRunScheduledScan(nowDate?: Date): Promise<ScanRunSummary | null> {
     const schedule = this.evaluateSchedule(nowDate);
 
-    // Skip non-trading days
-    if (!schedule.isTradingDay) {
+    if (!schedule.isTradingDay || !schedule.isTargetTime) {
       return null;
     }
 
-    // Skip if before target 15:45 IST time
-    if (!schedule.isTargetTime) {
-      return null;
-    }
-
-    // Skip if already executed for today (check in-memory cache)
     if (this.lastCompletedDate === schedule.tradingDate) {
       return null;
     }
 
-    // Database-backed idempotency check across server restarts
     try {
       const existingDbRun = await dailyScanPersistenceService.findCompletedScheduledRunByDate(schedule.tradingDate);
       if (existingDbRun) {
@@ -170,15 +152,13 @@ export class DailyScannerScheduler {
         return null;
       }
     } catch (dbErr) {
-      console.warn("[DailyScannerScheduler] Could not query DB for scheduled run date, relying on memory:", dbErr);
+      console.warn("[DailyScannerScheduler] Could not query DB for scheduled run date:", dbErr);
     }
 
-    // Skip if another scan is actively running
     if (this.isScanning) {
       return null;
     }
 
-    // Trigger genuine scheduled run
     console.log(
       `[DailyScannerScheduler] Triggering scheduled post-market scan for date ${schedule.tradingDate} at ${schedule.currentIstTime} IST`
     );
@@ -188,37 +168,22 @@ export class DailyScannerScheduler {
     });
   }
 
-  /**
-   * Primary scan execution pipeline.
-   *
-   * Features:
-   * - Mutex-locked (prevents overlapping concurrent runs).
-   * - Durable idempotency by trading date backed by Supabase DB.
-   * - Confirms completed daily candles (market closed).
-   * - Validates market data before strategy evaluation.
-   * - Batch fetching to respect provider rate limits safely.
-   * - Persists runs and genuine opportunities to Supabase.
-   * - Comprehensive error, duration, and symbol outcome logging.
-   * - Safety invariant: live order placement is strictly disabled.
-   */
   public async executeDailyScan(options: TriggerScanOptions = {}): Promise<ScanRunSummary> {
     const triggerType = options.triggerType || "MANUAL";
     const targetDateObj = options.timestampOverride
       ? new Date(options.timestampOverride)
       : options.dateOverride
-      ? new Date(options.dateOverride + "T16:00:00+05:30")
-      : new Date();
+        ? new Date(options.dateOverride + "T16:00:00+05:30")
+        : new Date();
     const schedule = this.evaluateSchedule(targetDateObj);
     const tradingDate = options.dateOverride || schedule.tradingDate;
 
-    // 1. Mutex Check: Prevent overlapping concurrent scans
     if (this.isScanning) {
       const err = `Concurrent scan rejected: another scan is already in progress.`;
       console.warn(`[DailyScannerScheduler] ${err}`);
       throw new Error(err);
     }
 
-    // 2. Schedule & Completed Candle Verification (unless forced or manual test)
     if (!options.force && triggerType !== "MANUAL") {
       if (!schedule.isTradingDay) {
         throw new Error(
@@ -227,26 +192,24 @@ export class DailyScannerScheduler {
       }
       if (!schedule.isAfterMarketClose) {
         throw new Error(
-          `Cannot execute scan: completed daily candles are not yet finalized. Market closes at 15:30 IST. Current time is ${schedule.currentIstTime} IST. Pass force=true to override.`
+          `Cannot execute scan: completed daily candles are not yet finalized. Current time is ${schedule.currentIstTime} IST. Pass force=true to override.`
         );
       }
       if (this.lastCompletedDate === tradingDate) {
         throw new Error(
-          `Duplicate scan rejected: daily scan for date ${tradingDate} has already completed. Pass force=true to re-scan.`
+          `Duplicate scan rejected: daily scan for date ${tradingDate} has already completed.`
         );
       }
 
-      // 2b. Database-backed duplicate check across process restarts
       const existingDbRun = await dailyScanPersistenceService.findCompletedScheduledRunByDate(tradingDate);
       if (existingDbRun) {
         this.lastCompletedDate = tradingDate;
         throw new Error(
-          `Duplicate scan rejected: daily scan for date ${tradingDate} has already completed in database (Run ID: ${existingDbRun.id}). Pass force=true to re-scan.`
+          `Duplicate scan rejected: daily scan for date ${tradingDate} has already completed in database.`
         );
       }
     }
 
-    // Initialize Run Record
     const runId = `SCAN-${tradingDate}-${Date.now()}`;
     const startTimeIso = new Date().toISOString();
     const startTimeMs = Date.now();
@@ -270,56 +233,42 @@ export class DailyScannerScheduler {
     this.latestRun = summary;
 
     console.log(
-      `[DailyScannerScheduler] >>> STARTING SCAN ${runId} (Type: ${triggerType}, Date: ${tradingDate})`
+      `[DailyScannerScheduler] >>> STARTING FULL NSE SCAN ${runId} (Type: ${triggerType}, Date: ${tradingDate})`
     );
 
     try {
-      // 3. Safety Invariant Check: Confirm Live Order Routing is Disabled
-      // This is a stock scanner and paper validation system.
-      // Under no conditions should broker live execution occur.
+      const universePreset = options.universePreset || "ALL_NSE_CASH";
 
-      // 4. Determine Symbols Universe to Scan Dynamically
-      const universePreset: UniversePreset = options.universePreset || "NIFTY_500";
-      const totalUniverseMetadata = nseUniverseService.getUniverseMetadata();
-      const eligibleSecurities = nseUniverseService.getEligibleUniverse(universePreset, {
-        symbols: options.symbols,
-        maxSymbols: options.maxSymbols,
-        offset: options.offset,
-      });
+      // Fetch ALL live NSE Equity symbols (~2,000+ stocks)
+      const allNseList = await fetchAllNseEquitySymbols();
+      let targetSymbols = allNseList.map((item) => item.symbol);
 
-      let symbolsToScan: string[] = [];
-      if (options.candleDataBySymbol) {
-        symbolsToScan = Object.keys(options.candleDataBySymbol);
-      } else {
-        symbolsToScan = eligibleSecurities.map((s) => s.symbol);
+      if (options.symbols && options.symbols.length > 0) {
+        targetSymbols = options.symbols;
+      } else if (options.maxSymbols && options.maxSymbols > 0) {
+        const offset = options.offset ?? 0;
+        targetSymbols = targetSymbols.slice(offset, offset + options.maxSymbols);
       }
 
-      const totalUniverseCount = universePreset === "ALL_NSE_CASH"
-        ? totalUniverseMetadata.eligibleCashEquitiesCount
-        : totalUniverseMetadata.nifty500Count;
-
       summary.universePreset = universePreset;
-      summary.universeSize = totalUniverseCount;
-      summary.scannedSymbols = symbolsToScan;
-      summary.scannedSymbolsCount = symbolsToScan.length;
+      summary.universeSize = allNseList.length;
+      summary.scannedSymbols = targetSymbols;
+      summary.scannedSymbolsCount = targetSymbols.length;
 
-      // Create durable DB scan-run record with status 'running' before scanning starts
       const scanType = triggerType === "MANUAL" ? "manual" : "scheduled";
       await dailyScanPersistenceService.createScanRun({
         id: runId,
         scanDate: tradingDate,
         scanType,
-        universeSize: totalUniverseCount,
+        universeSize: allNseList.length,
         marketDataTimestamp: startTimeIso,
       });
 
-      // 5. Evaluate Stock Opportunities (Supporting supplied candles or dynamic fetch)
       const matchedSignals: SwingSignal[] = [];
 
       if (options.candleDataBySymbol) {
-        // Fast evaluation using supplied candle records
         for (const [sym, candles] of Object.entries(options.candleDataBySymbol)) {
-          const resolvedSym = nseUniverseService.resolveSymbol(sym);
+          const resolvedSym = sym.trim().toUpperCase().replace(/\.NS$/, "");
           try {
             const sig = swingTradingEngine.evaluateStockCandles(resolvedSym, candles);
             if (sig) {
@@ -329,39 +278,28 @@ export class DailyScannerScheduler {
               const validation = validateDailyCandles(candles);
               if (!validation.valid) {
                 summary.failedSymbolsCount++;
-                summary.failedSymbols.push({
-                  symbol: resolvedSym,
-                  error: validation.reason || "Invalid candle data",
-                });
+                summary.failedSymbols.push({ symbol: resolvedSym, error: validation.reason || "Invalid candle data" });
               } else {
                 summary.successfulSymbolsCount++;
               }
             }
           } catch (itemErr: any) {
             summary.failedSymbolsCount++;
-            summary.failedSymbols.push({
-              symbol: resolvedSym,
-              error: itemErr.message || String(itemErr),
-            });
+            summary.failedSymbols.push({ symbol: resolvedSym, error: itemErr.message || String(itemErr) });
           }
         }
       } else {
-        // Safe batch fetching to respect provider rate limits (e.g. 4 concurrent requests at a time)
-        const BATCH_SIZE = 4;
-        for (let i = 0; i < symbolsToScan.length; i += BATCH_SIZE) {
-          const batch = symbolsToScan.slice(i, i + BATCH_SIZE);
+        // High-speed concurrent batch fetching for ALL ~2,000+ NSE stocks
+        const BATCH_SIZE = 16; // 16 parallel workers for fast scanning
+        for (let i = 0; i < targetSymbols.length; i += BATCH_SIZE) {
+          const batch = targetSymbols.slice(i, i + BATCH_SIZE);
 
           const batchPromises = batch.map(async (rawSym) => {
-            const sym = nseUniverseService.resolveSymbol(rawSym);
+            const sym = rawSym.trim().toUpperCase().replace(/\.NS$/, "");
             try {
               const candleData = await fetchLiveStockCandles(sym);
               if (!candleData || !candleData.candles) {
-                return {
-                  symbol: sym,
-                  success: false,
-                  error: "No candle data returned from market data provider",
-                  signal: null,
-                };
+                return { symbol: sym, success: false, error: "No candle data returned", signal: null };
               }
               const sig = swingTradingEngine.evaluateStockCandles(
                 sym,
@@ -371,12 +309,7 @@ export class DailyScannerScheduler {
               );
               return { symbol: sym, success: true, signal: sig };
             } catch (fetchErr: any) {
-              return {
-                symbol: sym,
-                success: false,
-                error: fetchErr.message || "Failed to fetch/evaluate candle data",
-                signal: null,
-              };
+              return { symbol: sym, success: false, error: fetchErr.message || "Failed to fetch", signal: null };
             }
           });
 
@@ -391,17 +324,13 @@ export class DailyScannerScheduler {
                 }
               } else {
                 summary.failedSymbolsCount++;
-                summary.failedSymbols.push({
-                  symbol: item.symbol,
-                  error: item.error || "Unknown error",
-                });
+                summary.failedSymbols.push({ symbol: item.symbol, error: item.error || "Unknown error" });
               }
             }
           }
 
-          // Small delay between batches to respect rate limits
-          if (i + BATCH_SIZE < symbolsToScan.length) {
-            await new Promise((r) => setTimeout(r, 150));
+          if (i + BATCH_SIZE < targetSymbols.length) {
+            await new Promise((r) => setTimeout(r, 100));
           }
         }
       }
@@ -420,10 +349,8 @@ export class DailyScannerScheduler {
       summary.opportunities = matchedSignals;
       summary.opportunitiesFoundCount = matchedSignals.length;
 
-      // Persist genuine opportunities to database
       await dailyScanPersistenceService.saveOpportunities(runId, tradingDate, matchedSignals);
 
-      // Finalize database scan-run record
       await dailyScanPersistenceService.completeScanRun(runId, {
         durationMs,
         scannedCount: summary.scannedSymbolsCount,
@@ -434,13 +361,12 @@ export class DailyScannerScheduler {
         marketDataTimestamp: startTimeIso,
       });
 
-      // Update state
       this.lastCompletedDate = tradingDate;
       this.scanHistory.set(tradingDate, summary);
       this.latestRun = summary;
 
       console.log(
-        `[DailyScannerScheduler] <<< COMPLETED SCAN ${runId} in ${durationMs}ms: Scanned ${summary.scannedSymbolsCount}, Successful ${summary.successfulSymbolsCount}, Failed ${summary.failedSymbolsCount}, Opportunities ${summary.opportunitiesFoundCount}`
+        `[DailyScannerScheduler] <<< COMPLETED FULL NSE SCAN ${runId} in ${durationMs}ms: Scanned ${summary.scannedSymbolsCount}, Successful ${summary.successfulSymbolsCount}, Opportunities ${summary.opportunitiesFoundCount}`
       );
 
       return summary;
@@ -451,13 +377,8 @@ export class DailyScannerScheduler {
       summary.errorMessage = scanErr.message || String(scanErr);
       this.latestRun = summary;
 
-      // Record failure in database
       try {
-        await dailyScanPersistenceService.failScanRun(
-          runId,
-          scanErr.message || String(scanErr),
-          Date.now() - startTimeMs
-        );
+        await dailyScanPersistenceService.failScanRun(runId, scanErr.message || String(scanErr), Date.now() - startTimeMs);
       } catch (dbFailErr) {
         console.error(`[DailyScannerScheduler] Failed to update DB failure state:`, dbFailErr);
       }
@@ -469,9 +390,6 @@ export class DailyScannerScheduler {
     }
   }
 
-  /**
-   * Returns current operational status of the scheduler.
-   */
   public getStatus() {
     const schedule = this.evaluateSchedule();
     return {

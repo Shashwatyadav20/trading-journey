@@ -1,32 +1,43 @@
 import { NextResponse, NextRequest } from "next/server";
+import { calculateDynamicPositionSize } from "@/lib/indian/riskEngine";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const accountCapital = Math.max(1000, Number(body.accountCapital) || 500000);
+    const accountCapital = Math.max(1000, Number(body.accountCapital) || 2500000);
     const riskPercent = Math.max(0.1, Number(body.riskPercent) || 1.0);
     const entryPrice = Math.max(0.05, Number(body.entryPrice) || 100);
     const stopLossPrice = Math.max(0.01, Number(body.stopLossPrice) || 90);
     const targetPrice = body.targetPrice
       ? Number(body.targetPrice)
-      : entryPrice + (entryPrice - stopLossPrice) * 2;
+      : entryPrice + (entryPrice - stopLossPrice) * 2.5;
+    const atr14 = body.atr14 ? Number(body.atr14) : undefined;
+
+    const dynamicSizing = calculateDynamicPositionSize({
+      accountCapital,
+      riskPercentage: riskPercent,
+      entryPrice,
+      stopLossPrice,
+      targetPrice,
+      atr14,
+      maxPortfolioAllocationPct: Number(body.maxAllocationPct) || 20,
+    });
 
     const riskPerShare = Math.abs(entryPrice - stopLossPrice);
     const potentialGainPerShare = Math.abs(targetPrice - entryPrice);
-
     const maxRiskAmount = Math.round(accountCapital * (riskPercent / 100) * 100) / 100;
-    const recommendedQuantity = riskPerShare > 0 ? Math.floor(maxRiskAmount / riskPerShare) : 0;
-    const totalCapitalRequired = Math.round(recommendedQuantity * entryPrice * 100) / 100;
-    const capitalExposurePercent =
-      accountCapital > 0 ? Math.round((totalCapitalRequired / accountCapital) * 10000) / 100 : 0;
-
-    const potentialRewardAmount = Math.round(recommendedQuantity * potentialGainPerShare * 100) / 100;
-    const rewardRiskRatio =
-      riskPerShare > 0 ? Math.round((potentialGainPerShare / riskPerShare) * 100) / 100 : 0;
+    const recommendedQuantity = dynamicSizing.recommendedQuantity;
+    const totalCapitalRequired = dynamicSizing.allocatedCapital;
+    const capitalExposurePercent = dynamicSizing.portfolioExposurePercent;
+    const potentialRewardAmount = dynamicSizing.maxRewardPotential;
+    const rewardRiskRatio = dynamicSizing.rewardRiskRatio;
 
     const warnings: string[] = [];
     if (rewardRiskRatio < 2.0) {
-      warnings.push(`Trade rejected by Rule 5: R:R is ${rewardRiskRatio}:1. Minimum required is 1:2.0.`);
+      warnings.push(`Trade caution: R:R is ${rewardRiskRatio}:1. Institutional standard targets >= 1:2.0.`);
+    }
+    if (dynamicSizing.cappedByAllocationLimit) {
+      warnings.push(`Position size capped by 20% portfolio concentration risk threshold.`);
     }
 
     return NextResponse.json({
@@ -41,9 +52,11 @@ export async function POST(req: NextRequest) {
         rewardRiskRatio,
         isRiskValid: rewardRiskRatio >= 2.0,
         validationWarnings: warnings,
+        // Institutional ATR volatility parity breakdown
+        atrVolatilitySizing: dynamicSizing,
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 400 });
+    return NextResponse.json({ success: false, error: err?.message }, { status: 400 });
   }
 }

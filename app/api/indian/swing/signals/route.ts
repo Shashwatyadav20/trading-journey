@@ -26,7 +26,6 @@ export async function GET() {
         const closes = niftyCandlesData.candles.map((c) => c.close);
         const len = closes.length;
         niftySpot = Number((meta.regularMarketPrice || closes[len - 1]).toFixed(2));
-        // prevClose from actual previous candle (not chartPreviousClose)
         const niftyPrevClose = closes[len - 2] ?? closes[len - 1];
         niftyChangePercent = niftyPrevClose > 0
           ? Number((((niftySpot - niftyPrevClose) / niftyPrevClose) * 100).toFixed(2))
@@ -54,7 +53,6 @@ export async function GET() {
       ema200: niftyEma200,
       bias: niftySpot === 0 ? "UNAVAILABLE" : niftySpot >= niftyEma20 ? "BULLISH_TREND" : "RANGE_BOUND",
       clearance: niftySpot === 0 ? "UNAVAILABLE" : niftySpot >= niftyEma20 ? "HIGH_CONVICTION" : "SELECTIVE_OPPORTUNITIES",
-      // Breadth requires a separate data source not available from Yahoo Finance
       breadthPercentAbove50EMA: null as number | null,
       advancingStocksCount: null as number | null,
       decliningStocksCount: null as number | null,
@@ -94,17 +92,17 @@ export async function GET() {
             signals: backendData.opportunities,
             quotes: quoteMap,
             scannedCount: backendData.run?.scanned_count || backendData.opportunities.length,
-            universeSize: backendData.run?.universe_size || 500,
+            universeSize: backendData.run?.universe_size || 2000,
             timestamp: backendData.run?.completed_at || new Date().toISOString(),
           });
         }
       }
     } catch {
-      // Backend not available; evaluate dynamic NSE universe candidates below
+      // Backend not available; evaluate full dynamic NSE universe below
     }
 
-    // 3. Fallback: Evaluate dynamic NSE universe symbols (no hardcoded list)
-    const dynamicUniverse = nseUniverseService.getEligibleUniverse("NIFTY_50", { maxSymbols: 15 });
+    // 3. Fallback: Evaluate FULL dynamic NSE universe (No 15 stock limit)
+    const dynamicUniverse = nseUniverseService.getEligibleUniverse("NIFTY_500", { maxSymbols: 2500 });
     const symbolsToScan = dynamicUniverse.map((s) => s.symbol);
 
     const results = await Promise.allSettled(
@@ -137,14 +135,13 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       isRealData: true,
-      dataSource: "DYNAMIC_NSE_UNIVERSE_SCANNER",
+      dataSource: "FULL_NSE_UNIVERSE_SCANNER",
       regime,
       signals,
       quotes: quoteMap,
       scannedCount: symbolsToScan.length,
-      universeSize: nseUniverseService.getUniverseMetadata().nifty500Count,
+      universeSize: symbolsToScan.length,
       timestamp: new Date().toISOString(),
-      disclaimer: "Breadth data unavailable (requires separate market breadth source). Regime based on NIFTY price vs EMA only.",
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
