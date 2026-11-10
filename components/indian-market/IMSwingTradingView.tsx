@@ -23,6 +23,13 @@ import { evaluateActiveTradeSmartShield } from "../../lib/indian/intradayEngine"
 import { useAiNewsReversalWorker } from "../../hooks/useAiNewsReversalWorker";
 import IMTradeExitAuditModal, { ClosedTradeExitAuditData } from "./IMTradeExitAuditModal";
 import { DEFAULT_CLOSED_TRADE_AUDIT_SEEDS } from "../../lib/indian/backtestSeeds";
+import IMLive4HOrderBlockRetestTicker from "./IMLive4HOrderBlockRetestTicker";
+import {
+  NSERetestAlert,
+  DEFAULT_4H_RETEST_ALERTS,
+  DEFAULT_NSE_SMC_SYMBOLS,
+  evaluateSingleStock4HRetest,
+} from "../../lib/indian/institutionalSwingEngine";
 
 const STORAGE_KEY_ACTIVE_TRADES = "nse_swing_active_trades_v15";
 const STORAGE_KEY_BACKTEST_HISTORY = "nse_swing_backtest_history_v15";
@@ -160,6 +167,14 @@ interface ActivePortfolioTrade {
   liveSentimentBadge?: string;
   lastLtpSyncAt?: string;
   isLiveTick?: boolean;
+  mtfSnapshot?: {
+    tf4hConfirmed?: boolean;
+    tf15mVwap?: number;
+    priceVsVwapPct?: number;
+    grade?: string;
+    orderBlockQuality?: string;
+    confidenceTag?: string;
+  };
 }
 
 export default function IMSwingTradingView() {
@@ -177,6 +192,7 @@ export default function IMSwingTradingView() {
   const [selectedTradeModal, setSelectedTradeModal] = useState<ActivePortfolioTrade | null>(null);
   const [liveQuotesMap, setLiveQuotesMap] = useState<Record<string, number>>({});
   const [lastLtpSyncTime, setLastLtpSyncTime] = useState<string | null>(null);
+  const [retestAlerts, setRetestAlerts] = useState<NSERetestAlert[]>(DEFAULT_4H_RETEST_ALERTS);
 
   const autoTradesRef = useRef<ActivePortfolioTrade[]>([]);
   useEffect(() => {
@@ -608,6 +624,78 @@ export default function IMSwingTradingView() {
     setMainTab("PORTFOLIO");
   };
 
+  const handleDeploy4HRetest = (alert: NSERetestAlert) => {
+    const cleanSym = alert.cleanSymbol.toUpperCase();
+    const alreadyActive = autoTrades.some(
+      (t) =>
+        (!t.status || t.status === "ACTIVE") &&
+        String(t.cleanSymbol || t.symbol || "")
+          .replace(/\.NS$/i, "")
+          .replace(/\.BO$/i, "")
+          .toUpperCase() === cleanSym
+    );
+    if (alreadyActive) {
+      setPortfolioNotice(`ℹ️ ${cleanSym} is already running in Active Trades!`);
+      setMainTab("PORTFOLIO");
+      return;
+    }
+
+    const exactLiveLtp = Number((liveQuotesMap[cleanSym] ?? alert.livePrice).toFixed(2));
+    const qty = Math.max(1, Math.floor(300000 / exactLiveLtp));
+    const syncStamp = new Date().toLocaleTimeString("en-IN", { hour12: false });
+
+    const newTrade: ActivePortfolioTrade = {
+      tradeId: `TRADE-4H-${cleanSym}-${Date.now()}`,
+      symbol: `${cleanSym}.NS`,
+      cleanSymbol: cleanSym,
+      companyName: alert.companyName,
+      strategyUsed: `4H OB Retest · ${alert.quality} ${alert.confidenceTag}`,
+      lockedDateKey: getTodayDateKey(),
+      confluenceScore: 92,
+      volumeMultiplier: alert.volumeMultiplier,
+      supportBounceInfo: `4H Order Block Retest active at ₹${alert.obMitigationRange.topPrice}`,
+      fiveDayBoxInfo: `4H Fixed Range: ₹${alert.obMitigationRange.bottomPrice} – ₹${alert.obMitigationRange.topPrice}`,
+      dojiCandleInfo: "SMC PRO+ 4H Invalidation Protected",
+      rationale: alert.rationale[0] || `4H Order Block mitigation at ₹${exactLiveLtp}`,
+      breakoutLevel: alert.obMitigationRange.topPrice,
+      entryPrice: exactLiveLtp,
+      stopLossPrice: alert.stopLossPrice,
+      targetPrice: alert.targetPrice,
+      rewardRiskRatio: alert.rewardRiskRatio,
+      allocatedCapital: Math.round(qty * exactLiveLtp),
+      quantity: qty,
+      executionTime: new Date().toLocaleString("en-IN"),
+      status: "ACTIVE",
+      currentMarketPrice: exactLiveLtp,
+      currentSimulatedPrice: exactLiveLtp,
+      pnlAmount: 0,
+      pnlPercent: 0,
+      lastLtpSyncAt: syncStamp,
+      isLiveTick: true,
+      mtfSnapshot: {
+        tf4hConfirmed: true,
+        tf15mVwap: exactLiveLtp,
+        priceVsVwapPct: 0.8,
+        grade: "SMC_PRO_4H_CONFIRMED",
+        orderBlockQuality: alert.quality,
+        confidenceTag: alert.confidenceTag,
+      },
+    };
+
+    const updated = [newTrade, ...autoTrades];
+    autoTradesRef.current = updated;
+    setAutoTrades(updated);
+    localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(updated));
+
+    // Remove deployed alert from active feed
+    setRetestAlerts((prev) => prev.filter((a) => a.cleanSymbol !== cleanSym));
+
+    setPortfolioNotice(
+      `⚡ Deployed 4H OB Retest in ${cleanSym} (${qty} Shares) at exact Live LTP ₹${exactLiveLtp} (Initial P&L: ₹0 / 0%). Target: ₹${alert.targetPrice} (1:${alert.rewardRiskRatio} RR)!`
+    );
+    setMainTab("PORTFOLIO");
+  };
+
   const fetchLiveApiData = async (forceRefresh = false) => {
     setIsLoading(true);
     try {
@@ -692,6 +780,32 @@ export default function IMSwingTradingView() {
         });
         setLiveQuotesMap((prev) => ({ ...prev, ...plainObj }));
         setLastLtpSyncTime(new Date().toLocaleTimeString("en-IN", { hour12: false }));
+
+        // Re-evaluate 4H Order Block Retests across monitored symbols
+        const evaluatedAlerts: NSERetestAlert[] = [];
+        const activeSymSet = new Set(
+          autoTradesRef.current
+            .filter((t) => !t.status || t.status === "ACTIVE")
+            .map((t) => String(t.cleanSymbol || t.symbol || "").toUpperCase().replace(/\.NS$/i, "").replace(/\.BO$/i, ""))
+        );
+
+        for (const item of DEFAULT_NSE_SMC_SYMBOLS) {
+          if (activeSymSet.has(item.symbol)) continue;
+          const currentPrice = plainObj[item.symbol] ?? liveQuotesMap[item.symbol] ?? item.fallbackLtp;
+          const alert = evaluateSingleStock4HRetest({
+            symbol: item.symbol,
+            companyName: item.companyName,
+            sector: item.sector,
+            livePrice: currentPrice,
+          });
+          if (alert) {
+            evaluatedAlerts.push(alert);
+          }
+        }
+
+        if (evaluatedAlerts.length > 0) {
+          setRetestAlerts(evaluatedAlerts);
+        }
       }
 
       // Immediately synchronize all active trades with exact live LTP
@@ -949,6 +1063,13 @@ export default function IMSwingTradingView() {
           </button>
         </div>
       </div>
+
+      {/* 🎯 Live 4H Order Block Retest Feed */}
+      <IMLive4HOrderBlockRetestTicker
+        alerts={retestAlerts}
+        onDeploy={handleDeploy4HRetest}
+        isScanning={isLoading}
+      />
 
       {/* Main Navigation Tabs */}
       <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3 flex-wrap">

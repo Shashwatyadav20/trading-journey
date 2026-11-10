@@ -41,6 +41,13 @@ import { evaluateActiveTradeSmartShield } from "../../../lib/indian/intradayEngi
 import { useAiNewsReversalWorker } from "../../../hooks/useAiNewsReversalWorker";
 import IMTradeExitAuditModal, { ClosedTradeExitAuditData } from "../../../components/indian-market/IMTradeExitAuditModal";
 import { DEFAULT_CLOSED_TRADE_AUDIT_SEEDS } from "../../../lib/indian/backtestSeeds";
+import IMLive4HOrderBlockRetestTicker from "../../../components/indian-market/IMLive4HOrderBlockRetestTicker";
+import {
+    NSERetestAlert,
+    DEFAULT_4H_RETEST_ALERTS,
+    DEFAULT_NSE_SMC_SYMBOLS,
+    evaluateSingleStock4HRetest,
+} from "../../../lib/indian/institutionalSwingEngine";
 
 const STORAGE_KEY_ACTIVE_TRADES = "nse_swing_active_trades_v15";
 const STORAGE_KEY_BACKTEST_HISTORY = "nse_swing_backtest_history_v15";
@@ -332,10 +339,76 @@ export default function IMSwingTradingView() {
     const [livePriceMap, setLivePriceMap] = useState<Record<string, number>>({});
     const [lastLtpSyncTime, setLastLtpSyncTime] = useState<string | null>(null);
     const [isForceSyncingLtp, setIsForceSyncingLtp] = useState<boolean>(false);
+    const [retestAlerts, setRetestAlerts] = useState<NSERetestAlert[]>(DEFAULT_4H_RETEST_ALERTS);
     const autoTradesRef = useRef<ActivePortfolioTrade[]>([]);
     useEffect(() => {
         autoTradesRef.current = autoTrades;
     }, [autoTrades]);
+
+    const handleDeploy4HRetest = (alert: NSERetestAlert) => {
+        const cleanSym = alert.cleanSymbol.toUpperCase();
+        const alreadyActive = autoTrades.some(
+            (t) =>
+                (t.status === "ACTIVE" || !t.status) &&
+                String(t.symbol || "")
+                    .replace(/\.NS$/i, "")
+                    .replace(/\.BO$/i, "")
+                    .toUpperCase() === cleanSym
+        );
+        if (alreadyActive) {
+            setPortfolioNotice(`ℹ️ ${cleanSym} is already running in Active Trades!`);
+            setMainTab("PORTFOLIO");
+            return;
+        }
+
+        const exactLiveLtp = Number((livePriceMap[cleanSym] ?? alert.livePrice).toFixed(2));
+        const qty = Math.max(1, Math.floor(300000 / exactLiveLtp));
+        const syncStamp = new Date().toLocaleTimeString("en-IN", { hour12: false });
+
+        const newTrade: ActivePortfolioTrade = {
+            tradeId: `TRADE-4H-${cleanSym}-${Date.now()}`,
+            symbol: cleanSym,
+            companyName: alert.companyName,
+            strategyUsed: `4H OB Retest · ${alert.quality} ${alert.confidenceTag}`,
+            entryPrice: exactLiveLtp,
+            stopLossPrice: alert.stopLossPrice,
+            initialStopLoss: alert.stopLossPrice,
+            targetPrice: alert.targetPrice,
+            allocatedCapital: Math.round(qty * exactLiveLtp),
+            quantity: qty,
+            executionTime: new Date().toLocaleString("en-IN"),
+            status: "ACTIVE",
+            currentMarketPrice: exactLiveLtp,
+            currentSimulatedPrice: exactLiveLtp,
+            peakSimulatedPrice: exactLiveLtp,
+            pnlAmount: 0,
+            pnlPercent: 0,
+            lockedDateKey: getClientISTDateKey(),
+            lastLtpSyncAt: syncStamp,
+            isLiveTick: true,
+            mtfSnapshot: {
+                tf4hConfirmed: true,
+                tf15mVwap: exactLiveLtp,
+                priceVsVwapPct: 0.8,
+                grade: "SMC_PRO_4H_CONFIRMED",
+                orderBlockQuality: alert.quality,
+                confidenceTag: alert.confidenceTag,
+            },
+        };
+
+        const updated = [newTrade, ...autoTrades];
+        autoTradesRef.current = updated;
+        setAutoTrades(updated);
+        localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(updated));
+
+        // Remove deployed alert from active feed
+        setRetestAlerts((prev) => prev.filter((a) => a.cleanSymbol !== cleanSym));
+
+        setPortfolioNotice(
+            `⚡ Deployed 4H OB Retest in ${cleanSym} (${qty} Shares) at exact Live LTP ₹${exactLiveLtp} (Initial P&L: ₹0 / 0%). Target: ₹${alert.targetPrice} (1:${alert.rewardRiskRatio} RR)!`
+        );
+        setMainTab("PORTFOLIO");
+    };
 
     // Filters
     const [capFilter, setCapFilter] = useState<"ALL" | "TOP_10_MULTICAP" | "LARGE_CAP" | "MID_CAP" | "SMALL_CAP">("TOP_10_MULTICAP");
@@ -1029,6 +1102,24 @@ export default function IMSwingTradingView() {
                 setLivePriceMap((prev) => ({ ...prev, ...plainMap }));
                 setLastLtpSyncTime(new Date().toLocaleTimeString("en-IN", { hour12: false }));
                 applyLivePriceTick(incomingPrices);
+
+                // Update 4H OB Retest scanner with latest LTP
+                const evaluatedAlerts: NSERetestAlert[] = [];
+                for (const symbolConfig of DEFAULT_NSE_SMC_SYMBOLS) {
+                    const price = incomingPrices.get(symbolConfig.symbol) ?? symbolConfig.fallbackLtp;
+                    const alert = evaluateSingleStock4HRetest({
+                        symbol: symbolConfig.symbol,
+                        companyName: symbolConfig.companyName,
+                        sector: symbolConfig.sector,
+                        livePrice: price,
+                    });
+                    if (alert) {
+                        evaluatedAlerts.push(alert);
+                    }
+                }
+                if (evaluatedAlerts.length > 0) {
+                    setRetestAlerts(evaluatedAlerts);
+                }
             }
         } finally {
             setIsLoading(false);
@@ -1589,6 +1680,13 @@ export default function IMSwingTradingView() {
                     </button>
                 </div>
             </div>
+
+            {/* Live 4H Order Block Retest Scanner Feed */}
+            <IMLive4HOrderBlockRetestTicker
+                alerts={retestAlerts}
+                onDeploy={handleDeploy4HRetest}
+                isScanning={isLoading || isScanningFull}
+            />
 
             {/* Main App Navigation Tabs */}
             <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3 flex-wrap">

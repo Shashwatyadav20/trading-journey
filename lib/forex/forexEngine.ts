@@ -26,23 +26,23 @@ export const GLOBAL_ACTIVE_STORAGE_KEY = "nse_global_active_trades_v1";
 export const GLOBAL_HISTORY_STORAGE_KEY = "nse_global_history_trades_v1";
 
 // Re-export SMC Dual-HTF engine primitives and types
-export type * from "./smcDualHtfEngine.ts";
+export type * from "./smcDualHtfEngine";
 export {
   detectSMCOrderBlocks,
   evaluateSMCOrderBlockRetests,
   aggregateCandlesTo4H,
-} from "./smcDualHtfEngine.ts";
+} from "./smcDualHtfEngine";
 import {
   detectSMCOrderBlocks,
   evaluateSMCOrderBlockRetests,
   aggregateCandlesTo4H,
-} from "./smcDualHtfEngine.ts";
+} from "./smcDualHtfEngine";
 import type {
   SMCCandle,
   SMCOrderBlock,
   SMCTimeframe,
   SMCQualityTier,
-} from "./smcDualHtfEngine.ts";
+} from "./smcDualHtfEngine";
 
 export type GlobalAssetSymbol = "XAUUSD" | "BTCUSD" | "ETHUSD";
 export type GlobalCategory = "METALS" | "CRYPTO";
