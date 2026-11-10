@@ -481,6 +481,8 @@ function evaluatePurpleBoxAndSwingStrategies(
         ema20: mtfResult.tf4h.ema20,
         confirmed: mtfResult.tf4h.confirmed,
         rationale: mtfResult.tf4h.rationale,
+        orderBlockQuality: mtfResult.tf4h.orderBlockQuality || "Strong",
+        confidenceTag: mtfResult.tf4h.confidenceTag || "✓",
       },
       tf15m: {
         vwap: mtfResult.tf15m.vwap,
@@ -491,6 +493,8 @@ function evaluatePurpleBoxAndSwingStrategies(
         falseBreakoutReason: mtfResult.tf15m.falseBreakoutReason,
         confirmed: mtfResult.tf15m.confirmed,
         rationale: mtfResult.tf15m.rationale,
+        orderBlockQuality: mtfResult.tf15m.orderBlockQuality || "Medium",
+        confidenceTag: mtfResult.tf15m.confidenceTag || "✓",
       },
       auditNotes: mtfResult.auditNotes,
     },

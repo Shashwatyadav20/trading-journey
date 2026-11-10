@@ -222,6 +222,9 @@ export default function GlobalQuantDeskView() {
       status: "ACTIVE",
       macroShieldStatus: opp.macroShield.status,
       macroShieldHeadline: opp.macroShield.notes,
+      orderBlockQuality: opp.smcQuality || opp.orderBlock?.quality || "Strong",
+      emaAlignmentTag: opp.emaAlignmentTag || opp.orderBlock?.confidenceTag || "✓",
+      htfTimeframe: opp.htfTimeframe || opp.orderBlock?.timeframe || "15M",
       entryTimestamp: new Date().toISOString(),
       executionTimeIst: new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata" }) + " IST",
     };
@@ -585,12 +588,33 @@ export default function GlobalQuantDeskView() {
                               {trade.assetName}
                             </span>
                           </div>
-                          <div className="text-xs text-slate-400 font-mono mt-0.5 flex items-center gap-2">
-                            <span className="text-cyan-400">{trade.strategyBadge}</span>
-                            <span>·</span>
-                            <span>Executed: {trade.executionTimeIst}</span>
-                            <span>·</span>
-                            <span>Units: {trade.units}</span>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs font-mono">
+                            <span className="text-cyan-400 font-semibold">{trade.strategyBadge}</span>
+                            {trade.htfTimeframe && (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[10px] font-bold">
+                                {trade.htfTimeframe} OB
+                              </span>
+                            )}
+                            {trade.orderBlockQuality && (
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  trade.orderBlockQuality === "Strong"
+                                    ? "bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                                    : "bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                                }`}
+                              >
+                                {trade.orderBlockQuality}
+                              </span>
+                            )}
+                            {trade.emaAlignmentTag && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">
+                                {trade.emaAlignmentTag} EMA
+                              </span>
+                            )}
+                            <span className="text-slate-500">·</span>
+                            <span className="text-slate-400">Executed: {trade.executionTimeIst}</span>
+                            <span className="text-slate-500">·</span>
+                            <span className="text-slate-400">Units: {trade.units}</span>
                           </div>
                         </div>
                       </div>
@@ -829,8 +853,34 @@ export default function GlobalQuantDeskView() {
                                 Confluence: {opp.confluenceScore}/100
                               </span>
                             </div>
-                            <div className="text-xs text-cyan-400 font-mono mt-0.5">
-                              {opp.strategyBadge}
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs font-mono">
+                              <span className="text-cyan-400 font-semibold">{opp.strategyBadge}</span>
+                              {opp.htfTimeframe && (
+                                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[10px] font-bold">
+                                  {opp.htfTimeframe} OB
+                                </span>
+                              )}
+                              {opp.smcQuality && (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    opp.smcQuality === "Strong"
+                                      ? "bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                                      : "bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                                  }`}
+                                >
+                                  {opp.smcQuality}
+                                </span>
+                              )}
+                              {opp.emaAlignmentTag && (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">
+                                  {opp.emaAlignmentTag} EMA
+                                </span>
+                              )}
+                              {opp.orderBlock && (
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  (${opp.orderBlock.low.toFixed(1)}–${opp.orderBlock.high.toFixed(1)})
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>

@@ -25,6 +25,25 @@
 export const GLOBAL_ACTIVE_STORAGE_KEY = "nse_global_active_trades_v1";
 export const GLOBAL_HISTORY_STORAGE_KEY = "nse_global_history_trades_v1";
 
+// Re-export SMC Dual-HTF engine primitives and types
+export type * from "./smcDualHtfEngine.ts";
+export {
+  detectSMCOrderBlocks,
+  evaluateSMCOrderBlockRetests,
+  aggregateCandlesTo4H,
+} from "./smcDualHtfEngine.ts";
+import {
+  detectSMCOrderBlocks,
+  evaluateSMCOrderBlockRetests,
+  aggregateCandlesTo4H,
+} from "./smcDualHtfEngine.ts";
+import type {
+  SMCCandle,
+  SMCOrderBlock,
+  SMCTimeframe,
+  SMCQualityTier,
+} from "./smcDualHtfEngine.ts";
+
 export type GlobalAssetSymbol = "XAUUSD" | "BTCUSD" | "ETHUSD";
 export type GlobalCategory = "METALS" | "CRYPTO";
 export type GlobalTradeDirection = "LONG" | "SHORT";
@@ -70,7 +89,11 @@ export interface OrderBlockMetadata {
   low: number;
   mitigationPrice: number;
   isMitigated: boolean;
-  timeframe: "15M" | "1H";
+  timeframe: "15M" | "4H" | "1H";
+  quality?: "Strong" | "Medium";
+  confidenceTag?: string; // "✓"
+  ema20?: number;
+  emaAligned?: boolean;
 }
 
 export interface GlobalOpportunity {
@@ -92,6 +115,9 @@ export interface GlobalOpportunity {
   asianSessionHigh: number;
   asianSessionLow: number;
   orderBlock?: OrderBlockMetadata;
+  smcQuality?: "Strong" | "Medium";
+  emaAlignmentTag?: string; // "✓"
+  htfTimeframe?: "15M" | "4H";
   volumeMultiplier: number;
   confluenceScore: number; // 0 - 100
   rationale: string[];
@@ -128,6 +154,9 @@ export interface ActiveGlobalTrade {
   status: "ACTIVE" | "TARGET_HIT" | "STOP_LOSS_HIT" | "CLOSED";
   macroShieldStatus: "CLEAN" | "CATALYST_ALERT";
   macroShieldHeadline?: string;
+  orderBlockQuality?: "Strong" | "Medium";
+  emaAlignmentTag?: string; // "✓"
+  htfTimeframe?: "15M" | "4H" | "1H";
   entryTimestamp: string;
   executionTimeIst: string;
   exitTimeIst?: string;
@@ -868,6 +897,9 @@ export const DEFAULT_GLOBAL_ACTIVE_TRADES: ActiveGlobalTrade[] = [
     status: "ACTIVE",
     macroShieldStatus: "CLEAN",
     macroShieldHeadline: "🔒 TSL-to-Cost Locked (Risk Zeroed)",
+    orderBlockQuality: "Strong",
+    emaAlignmentTag: "✓",
+    htfTimeframe: "15M",
     entryTimestamp: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
     executionTimeIst: "14:15 IST",
   },
@@ -895,6 +927,9 @@ export const DEFAULT_GLOBAL_ACTIVE_TRADES: ActiveGlobalTrade[] = [
     status: "ACTIVE",
     macroShieldStatus: "CLEAN",
     macroShieldHeadline: "🟢 Healthy 2.6x Volume Expansion",
+    orderBlockQuality: "Strong",
+    emaAlignmentTag: "✓",
+    htfTimeframe: "4H",
     entryTimestamp: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
     executionTimeIst: "16:40 IST",
   },
@@ -924,6 +959,9 @@ export const DEFAULT_GLOBAL_HISTORY_TRADES: ActiveGlobalTrade[] = [
     isTslCostLocked: true,
     status: "TARGET_HIT",
     macroShieldStatus: "CLEAN",
+    orderBlockQuality: "Strong",
+    emaAlignmentTag: "✓",
+    htfTimeframe: "15M",
     entryTimestamp: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
     executionTimeIst: "12:10 IST",
     exitTimeIst: "15:45 IST",
@@ -954,6 +992,9 @@ export const DEFAULT_GLOBAL_HISTORY_TRADES: ActiveGlobalTrade[] = [
     isTslCostLocked: true,
     status: "CLOSED",
     macroShieldStatus: "CATALYST_ALERT",
+    orderBlockQuality: "Medium",
+    emaAlignmentTag: "✓",
+    htfTimeframe: "15M",
     entryTimestamp: new Date(Date.now() - 18 * 3600 * 1000).toISOString(),
     executionTimeIst: "10:30 IST",
     exitTimeIst: "14:20 IST",

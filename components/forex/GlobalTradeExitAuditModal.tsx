@@ -233,6 +233,30 @@ export default function GlobalTradeExitAuditModal({
                     )}
                   </div>
                 </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 space-y-1 sm:col-span-2">
+                  <span className="text-[11px] font-mono text-slate-400">SMC PRO+ Dual-HTF Order Block Audit:</span>
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+                    <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 font-bold">
+                      {trade.htfTimeframe || "15M"} Fixed OB
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded font-bold ${
+                        (trade.orderBlockQuality || "Strong") === "Strong"
+                          ? "bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                          : "bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                      }`}
+                    >
+                      {trade.orderBlockQuality || "Strong"} Quality
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                      {trade.emaAlignmentTag || "✓"} EMA20 Trend Aligned
+                    </span>
+                    <span className="text-slate-400">
+                      Displacement {">"} 1.5x ATR(14) · Volume {">"} 1.4x 20-SMA
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           )}

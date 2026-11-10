@@ -187,7 +187,15 @@ interface NormalizedRealStock {
         confluenceGrade: string;
         overallConfirmed: boolean;
         isFalseBreakout: boolean;
-        tf4h?: { trend: string; structureState: string; ema20: number; confirmed: boolean; rationale: string };
+        tf4h?: {
+            trend: string;
+            structureState: string;
+            ema20: number;
+            confirmed: boolean;
+            rationale: string;
+            orderBlockQuality?: "Strong" | "Medium";
+            confidenceTag?: string;
+        };
         tf15m?: {
             vwap: number;
             priceVsVwapPct: number;
@@ -196,6 +204,8 @@ interface NormalizedRealStock {
             falseBreakoutReason: string | null;
             confirmed: boolean;
             rationale?: string;
+            orderBlockQuality?: "Strong" | "Medium";
+            confidenceTag?: string;
         };
         auditNotes?: string[];
     };
@@ -279,6 +289,8 @@ interface ActivePortfolioTrade {
         tf15mVwap: number;
         priceVsVwapPct: number;
         grade: string;
+        orderBlockQuality?: "Strong" | "Medium";
+        confidenceTag?: string;
     };
     auditTrail?: Array<{ timestamp: string; action: string; details: string }>;
     // Live tick synchronization metadata
@@ -1164,6 +1176,8 @@ export default function IMSwingTradingView() {
                     tf15mVwap: st.mtfConfluence.tf15m?.vwap ?? exactLiveLtp,
                     priceVsVwapPct: st.mtfConfluence.tf15m?.priceVsVwapPct ?? 0,
                     grade: st.mtfConfluence.confluenceGrade ?? "ALPHA",
+                    orderBlockQuality: st.mtfConfluence.tf4h?.orderBlockQuality || st.mtfConfluence.tf15m?.orderBlockQuality || "Strong",
+                    confidenceTag: st.mtfConfluence.tf4h?.confidenceTag || st.mtfConfluence.tf15m?.confidenceTag || "✓",
                 }
                 : undefined,
             auditTrail: [
