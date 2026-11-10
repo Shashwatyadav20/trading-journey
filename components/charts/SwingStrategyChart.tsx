@@ -9,6 +9,7 @@ import {
   Time,
 } from "lightweight-charts";
 import { TradingViewChart } from "./TradingViewChart";
+import { type SMCOrderBlockBox } from "../../lib/forex/smcDualHtfEngine";
 import {
   Activity,
   Layers,
@@ -47,6 +48,7 @@ export interface SwingStrategyChartProps {
     close: number;
     volume: number;
   }[];
+  orderBlockBoxes?: SMCOrderBlockBox[];
   onLoadIntoCalculator?: () => void;
 }
 
@@ -67,6 +69,7 @@ function SwingStrategyChartComponent({
   ema20,
   ema50,
   candles,
+  orderBlockBoxes,
   onLoadIntoCalculator,
 }: SwingStrategyChartProps) {
   const [chartMode, setChartMode] = useState<"TRADING_VIEW" | "PILLAR_OVERLAY">("TRADING_VIEW");
@@ -222,6 +225,39 @@ function SwingStrategyChartComponent({
         });
       }
 
+      // SMC Order Block boxes (with infinite right extension)
+      if (orderBlockBoxes && orderBlockBoxes.length > 0) {
+        orderBlockBoxes.forEach((box) => {
+          if (box.isInvalidated) return;
+          const isBull = box.direction === "BULLISH";
+          const color = isBull ? "#10b981" : "#f43f5e";
+          candlestickSeries.createPriceLine({
+            price: box.topPrice,
+            color,
+            lineWidth: box.borderWidth as any,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: `${box.timeframe} ${isBull ? "Demand OB" : "Supply OB"} [₹${box.bottomPrice}-₹${box.topPrice}]`,
+          });
+          candlestickSeries.createPriceLine({
+            price: box.bottomPrice,
+            color,
+            lineWidth: box.borderWidth as any,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: `${box.timeframe} OB Floor`,
+          });
+          candlestickSeries.createPriceLine({
+            price: box.midpoint,
+            color: isBull ? "#34d399" : "#fb7185",
+            lineWidth: 1,
+            lineStyle: 3,
+            axisLabelVisible: false,
+            title: "50% EQ",
+          });
+        });
+      }
+
       chart.timeScale().fitContent();
     }
 
@@ -244,7 +280,7 @@ function SwingStrategyChartComponent({
         chartInstanceRef.current = null;
       }
     };
-  }, [chartMode, localCandles, entryPrice, stopLossPrice, target1Price, target2Price, ema20, ema50]);
+  }, [chartMode, localCandles, entryPrice, stopLossPrice, target1Price, target2Price, ema20, ema50, orderBlockBoxes]);
 
   const calculatedRisk = riskPerShare || Math.abs(entryPrice - stopLossPrice);
 

@@ -136,6 +136,9 @@ export default function IMLive4HOrderBlockRetestTicker({
                   <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[10px] font-bold">
                     4H Fixed OB
                   </span>
+                  <span className="px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[10px] font-bold">
+                    TV Box: {alert.box?.isInfiniteExtension ? "Dynamic Right ➜" : "Locked"}
+                  </span>
                   <span
                     className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                       alert.quality === "Strong"

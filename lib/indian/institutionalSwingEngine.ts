@@ -25,10 +25,21 @@ import {
   aggregateCandlesTo4H,
   isOrderBlockPriceSane,
   MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT,
+  f_createOB,
+  f_manageOB,
+  DEFAULT_OB_EXTEND_BARS,
   type SMCCandle,
   type SMCOrderBlock,
+  type SMCOrderBlockBox,
   type SMCQualityTier,
 } from "../forex/smcDualHtfEngine";
+
+export {
+  f_createOB,
+  f_manageOB,
+  DEFAULT_OB_EXTEND_BARS,
+  type SMCOrderBlockBox,
+};
 
 export type NSERetestStatus = "OB_RETEST_ACTIVE" | "UNMITIGATED" | "MITIGATED" | "INVALIDATED";
 export type NSEOBDirection = "BULLISH" | "BEARISH";
@@ -63,6 +74,7 @@ export interface NSERetestAlert {
   volumeMultiplier: number;
   retestDetectedAt: string;
   rationale: string[];
+  box?: SMCOrderBlockBox;
 }
 
 export interface StockQuoteInput {
@@ -297,6 +309,7 @@ export function evaluateSingleStock4HRetest(input: {
           displacementBody: validOB.displacementBody,
           volumeMultiplier: validOB.volumeMultiplier,
           retestDetectedAt: new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata" }) + " IST",
+          box: validOB.box,
           rationale: [
             `4H ${isBullish ? "Bullish Demand" : "Bearish Supply"} Order Block mitigation active at ₹${validOB.topPrice.toFixed(2)}`,
             `Displacement: ${validOB.displacementBody.toFixed(2)} pts (> 1.5x ATR) with ${validOB.volumeMultiplier}x volume surge`,
@@ -344,6 +357,31 @@ export function evaluateSingleStock4HRetest(input: {
           (((baseline.obTop - baseline.obBottom) / baseline.obBottom) * 100).toFixed(2)
         );
 
+        const syntheticOB: SMCOrderBlock = {
+          id: `OB-${cleanSymbol}-4H-BASELINE`,
+          symbol: cleanSymbol,
+          timeframe: "4H",
+          direction: baseline.direction,
+          candleIndex: 0,
+          candleTimestamp: Date.now() - 4 * 3600 * 1000,
+          topPrice: baseline.obTop,
+          bottomPrice: baseline.obBottom,
+          midpoint: Number(((baseline.obTop + baseline.obBottom) / 2).toFixed(2)),
+          displacementBody: Number((obRange * 1.6).toFixed(2)),
+          displacementVolume: 50000,
+          atr14: obRange,
+          volumeMultiplier: 2.15,
+          quality: baseline.quality,
+          ema20: Number((baseline.obBottom * 0.99).toFixed(2)),
+          emaAligned: true,
+          confidenceTag: "✓",
+          invalidationType: "Close",
+          isMitigated: false,
+          isInvalidated: false,
+          hasTriggeredEntry: false,
+        };
+        const baselineBox = f_createOB(syntheticOB, 1, DEFAULT_OB_EXTEND_BARS);
+
         return {
           id: `RETEST-4H-${cleanSymbol}-${Date.now()}`,
           symbol: cleanSymbol,
@@ -373,6 +411,7 @@ export function evaluateSingleStock4HRetest(input: {
           displacementBody: Number((obRange * 1.6).toFixed(2)),
           volumeMultiplier: 2.15,
           retestDetectedAt: new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata" }) + " IST",
+          box: baselineBox,
           rationale: [
             `4H Fixed Order Block mitigation active inside ₹${baseline.obBottom.toFixed(2)} – ₹${baseline.obTop.toFixed(2)} zone`,
             `Strong Institutional Displacement with 2.15x Volume confirmation`,
@@ -449,6 +488,29 @@ export const DEFAULT_4H_RETEST_ALERTS: NSERetestAlert[] = [
       "Quality: Strong Tier · 20 EMA Trend Alignment: ✓",
       "Strict 1:2.6 Risk-to-Reward targeting daily liquidity pool",
     ],
+    box: f_createOB({
+      id: "OB-RELIANCE-4H-SEED",
+      symbol: "RELIANCE",
+      timeframe: "4H",
+      direction: "BULLISH",
+      candleIndex: 20,
+      candleTimestamp: Date.now() - 4 * 3600 * 1000,
+      topPrice: 1298.0,
+      bottomPrice: 1285.0,
+      midpoint: 1291.5,
+      displacementBody: 24.5,
+      displacementVolume: 55000,
+      atr14: 13.0,
+      volumeMultiplier: 2.35,
+      quality: "Strong",
+      ema20: 1282.0,
+      emaAligned: true,
+      confidenceTag: "✓",
+      invalidationType: "Close",
+      isMitigated: false,
+      isInvalidated: false,
+      hasTriggeredEntry: false,
+    }, 21, DEFAULT_OB_EXTEND_BARS),
   },
   {
     id: "RETEST-4H-SOLARINDS-SEED",
@@ -485,6 +547,29 @@ export const DEFAULT_4H_RETEST_ALERTS: NSERetestAlert[] = [
       "Quality: Strong Tier · 20 EMA Trend Alignment: ✓",
       "Targeting +3.47% swing expansion with 1:2.6 RR",
     ],
+    box: f_createOB({
+      id: "OB-SOLARINDS-4H-SEED",
+      symbol: "SOLARINDS",
+      timeframe: "4H",
+      direction: "BULLISH",
+      candleIndex: 20,
+      candleTimestamp: Date.now() - 4 * 3600 * 1000,
+      topPrice: 10520.0,
+      bottomPrice: 10380.0,
+      midpoint: 10450.0,
+      displacementBody: 280.0,
+      displacementVolume: 42000,
+      atr14: 140.0,
+      volumeMultiplier: 2.45,
+      quality: "Strong",
+      ema20: 10350.0,
+      emaAligned: true,
+      confidenceTag: "✓",
+      invalidationType: "Close",
+      isMitigated: false,
+      isInvalidated: false,
+      hasTriggeredEntry: false,
+    }, 21, DEFAULT_OB_EXTEND_BARS),
   },
   {
     id: "RETEST-4H-BAJFINANCE-SEED",
@@ -521,6 +606,29 @@ export const DEFAULT_4H_RETEST_ALERTS: NSERetestAlert[] = [
       "Quality: Strong Tier · 20 EMA Trend Alignment: ✓",
       "Strict 1:2.6 Risk-to-Reward targeting daily demand pool",
     ],
+    box: f_createOB({
+      id: "OB-BAJFINANCE-4H-SEED",
+      symbol: "BAJFINANCE",
+      timeframe: "4H",
+      direction: "BEARISH",
+      candleIndex: 20,
+      candleTimestamp: Date.now() - 4 * 3600 * 1000,
+      topPrice: 1078.0,
+      bottomPrice: 1060.0,
+      midpoint: 1069.0,
+      displacementBody: 22.0,
+      displacementVolume: 78000,
+      atr14: 18.0,
+      volumeMultiplier: 2.15,
+      quality: "Strong",
+      ema20: 1076.0,
+      emaAligned: true,
+      confidenceTag: "✓",
+      invalidationType: "Close",
+      isMitigated: false,
+      isInvalidated: false,
+      hasTriggeredEntry: false,
+    }, 21, DEFAULT_OB_EXTEND_BARS),
   },
 ];
 

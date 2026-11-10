@@ -63,6 +63,42 @@ export interface SMCOrderBlock {
   hasTriggeredEntry: boolean; // Single entry per OB protection
   mitigationTimestamp?: number;
   retestPrice?: number;
+  box?: SMCOrderBlockBox;
+}
+
+export interface SMCOrderBlockBox {
+  id: string;
+  orderBlockId: string;
+  symbol: string;
+  timeframe: SMCTimeframe;
+  direction: SMCOBDirection;
+  quality: SMCQualityTier;
+  confidenceTag: string;
+  // Box boundary coordinates (Price & Time / Bar)
+  topPrice: number;
+  bottomPrice: number;
+  midpoint: number;
+  height: number;
+  leftBarIndex: number;
+  leftTimestamp: number;
+  rightBarIndex: number;
+  rightTimestamp: number;
+  originalRightBar: number;
+  obExtend: number;
+  isInfiniteExtension: boolean;
+  // Status
+  status: "ACTIVE" | "MITIGATED" | "INVALIDATED";
+  isMitigated: boolean;
+  isInvalidated: boolean;
+  breakBarIndex?: number;
+  breakTimestamp?: number;
+  mitigationBarIndex?: number;
+  mitigationTimestamp?: number;
+  // Visual styling matching TradingView SMC PRO+
+  fillColor: string;
+  borderColor: string;
+  borderWidth: number;
+  label: string;
 }
 
 export interface SMCRetestSetup {
@@ -136,6 +172,162 @@ export function isOrderBlockPriceSane(
   const maxAllowed = livePrice * (1 + maxDeviationPct * 1.25);
 
   return ob.bottomPrice >= minAllowed && ob.topPrice <= maxAllowed;
+}
+
+// ─── TradingView SMC PRO+ Box Engine (f_createOB & f_manageOB) ────────────────
+
+export const DEFAULT_OB_EXTEND_BARS = 30;
+
+/**
+ * Creates an institutional Order Block box model matching TradingView's box.new engine.
+ *
+ * @param ob Detected SMCOrderBlock from displacement analysis
+ * @param currentBarIndex The current candle index where displacement confirmed
+ * @param obExtend Number of bars to initially extend right (default: 30)
+ * @param defaultStepMs Candle duration in milliseconds (default: auto from timeframe)
+ */
+export function f_createOB(
+  ob: SMCOrderBlock,
+  currentBarIndex: number,
+  obExtend: number = DEFAULT_OB_EXTEND_BARS,
+  defaultStepMs?: number
+): SMCOrderBlockBox {
+  const isBullish = ob.direction === "BULLISH";
+  const stepMs = defaultStepMs ?? (ob.timeframe === "4H" ? 4 * 60 * 60 * 1000 : 15 * 60 * 1000);
+
+  const leftBarIndex = ob.candleIndex;
+  const originalRightBar = currentBarIndex;
+
+  // Extend right dynamically across chart viewport (guarantees box stays visible)
+  const rightBarIndex = Math.max(currentBarIndex + 100, originalRightBar + obExtend);
+  const rightTimestamp = ob.candleTimestamp + (rightBarIndex - leftBarIndex) * stepMs;
+  const height = Number((ob.topPrice - ob.bottomPrice).toFixed(2));
+
+  const isStrong = ob.quality === "Strong";
+  const fillColor = isBullish
+    ? isStrong ? "rgba(16, 185, 129, 0.18)" : "rgba(16, 185, 129, 0.10)"
+    : isStrong ? "rgba(244, 63, 94, 0.18)" : "rgba(244, 63, 94, 0.10)";
+  const borderColor = isBullish ? "#10b981" : "#f43f5e";
+
+  return {
+    id: `BOX-${ob.id}`,
+    orderBlockId: ob.id,
+    symbol: ob.symbol,
+    timeframe: ob.timeframe,
+    direction: ob.direction,
+    quality: ob.quality,
+    confidenceTag: ob.confidenceTag,
+    topPrice: ob.topPrice,
+    bottomPrice: ob.bottomPrice,
+    midpoint: ob.midpoint,
+    height,
+    leftBarIndex,
+    leftTimestamp: ob.candleTimestamp,
+    rightBarIndex,
+    rightTimestamp,
+    originalRightBar,
+    obExtend,
+    isInfiniteExtension: true,
+    status: ob.isInvalidated ? "INVALIDATED" : ob.isMitigated ? "MITIGATED" : "ACTIVE",
+    isMitigated: ob.isMitigated,
+    isInvalidated: ob.isInvalidated,
+    fillColor,
+    borderColor,
+    borderWidth: isStrong ? 2 : 1,
+    label: `${ob.timeframe} ${ob.direction === "BULLISH" ? "Demand OB" : "Supply OB"} (${ob.quality}) ${ob.confidenceTag}`,
+  };
+}
+
+/**
+ * Manages active Order Block box extensions and lifecycles on every new bar or price tick,
+ * matching TradingView's SMC PRO+ box.set_right and invalidation engine:
+ *
+ * 1. Active / Unbroken OBs: Continuously stretch their right edge to:
+ *    `Math.max(currentBarIndex + 100, box.originalRightBar + box.obExtend)`
+ *    so they never disappear prematurely and remain visible across the viewport.
+ * 2. Broken / Invalidated OBs: Lock the right boundary to the breaking candle index/timestamp.
+ * 3. Mitigated OBs: Track mitigation touch and maintain visibility until invalidated.
+ */
+export function f_manageOB(
+  box: SMCOrderBlockBox,
+  currentBarIndex: number,
+  currentCandle: SMCCandle,
+  invalidationType: SMCInvalidationType = "Close",
+  defaultStepMs?: number
+): SMCOrderBlockBox {
+  const stepMs = defaultStepMs ?? (box.timeframe === "4H" ? 4 * 60 * 60 * 1000 : 15 * 60 * 1000);
+  const isBullish = box.direction === "BULLISH";
+
+  // Check Invalidation
+  let isNowBroken = false;
+  if (isBullish) {
+    if (invalidationType === "Close" && currentCandle.close < box.bottomPrice) {
+      isNowBroken = true;
+    } else if (invalidationType === "Wick" && currentCandle.low < box.bottomPrice) {
+      isNowBroken = true;
+    }
+  } else {
+    if (invalidationType === "Close" && currentCandle.close > box.topPrice) {
+      isNowBroken = true;
+    } else if (invalidationType === "Wick" && currentCandle.high > box.topPrice) {
+      isNowBroken = true;
+    }
+  }
+
+  if (isNowBroken && !box.isInvalidated) {
+    // Lock right edge at the breaking candle
+    return {
+      ...box,
+      status: "INVALIDATED",
+      isInvalidated: true,
+      breakBarIndex: currentBarIndex,
+      breakTimestamp: currentCandle.timestamp,
+      rightBarIndex: currentBarIndex,
+      rightTimestamp: currentCandle.timestamp,
+      isInfiniteExtension: false,
+    };
+  }
+
+  // Check Mitigation (price touches OB zone without invalidating)
+  let isNowMitigated = box.isMitigated;
+  let mitigationBarIndex = box.mitigationBarIndex;
+  let mitigationTimestamp = box.mitigationTimestamp;
+
+  if (!box.isInvalidated) {
+    if (isBullish && currentCandle.low <= box.topPrice && currentCandle.low >= box.bottomPrice) {
+      isNowMitigated = true;
+      if (!mitigationBarIndex) {
+        mitigationBarIndex = currentBarIndex;
+        mitigationTimestamp = currentCandle.timestamp;
+      }
+    } else if (!isBullish && currentCandle.high >= box.bottomPrice && currentCandle.high <= box.topPrice) {
+      isNowMitigated = true;
+      if (!mitigationBarIndex) {
+        mitigationBarIndex = currentBarIndex;
+        mitigationTimestamp = currentCandle.timestamp;
+      }
+    }
+  }
+
+  // If already invalidated earlier, keep locked at the break point
+  if (box.isInvalidated) {
+    return box;
+  }
+
+  // Active or Mitigated: Dynamically stretch right boundary across chart viewport into future!
+  const dynamicRightBar = Math.max(currentBarIndex + 100, box.originalRightBar + box.obExtend);
+  const dynamicRightTimestamp = box.leftTimestamp + (dynamicRightBar - box.leftBarIndex) * stepMs;
+
+  return {
+    ...box,
+    status: isNowMitigated ? "MITIGATED" : "ACTIVE",
+    isMitigated: isNowMitigated,
+    mitigationBarIndex,
+    mitigationTimestamp,
+    rightBarIndex: dynamicRightBar,
+    rightTimestamp: dynamicRightTimestamp,
+    isInfiniteExtension: true,
+  };
 }
 
 // ─── Mathematical Indicators ──────────────────────────────────────────────────
@@ -411,45 +603,35 @@ export function detectSMCOrderBlocks(
     }
   }
 
-  // 3. Process Subsequent Invalidation & Mitigation for each OB
+  // 3. Process Subsequent Invalidation, Mitigation, and Dynamic Box Extension for each OB
   for (const ob of orderBlocks) {
+    // Initialize TradingView-style box with extended right edge
+    ob.box = f_createOB(ob, ob.candleIndex + 1, DEFAULT_OB_EXTEND_BARS);
+
     const startIndex = ob.candleIndex + 2; // candles following the displacement
     for (let k = startIndex; k < candles.length; k++) {
       const bar = candles[k];
+      ob.box = f_manageOB(ob.box, k, bar, ob.invalidationType);
 
-      if (ob.direction === "BULLISH") {
-        // Invalidation check
-        if (ob.invalidationType === "Close" && bar.close < ob.bottomPrice) {
-          ob.isInvalidated = true;
-          break;
-        } else if (ob.invalidationType === "Wick" && bar.low < ob.bottomPrice) {
-          ob.isInvalidated = true;
-          break;
-        }
-
-        // Mitigation check (touches topPrice or midpoint without invalidating)
-        if (bar.low <= ob.topPrice && bar.low >= ob.bottomPrice) {
-          ob.isMitigated = true;
-          ob.mitigationTimestamp = bar.timestamp;
-          ob.retestPrice = bar.low;
-        }
-      } else {
-        // Bearish Invalidation check
-        if (ob.invalidationType === "Close" && bar.close > ob.topPrice) {
-          ob.isInvalidated = true;
-          break;
-        } else if (ob.invalidationType === "Wick" && bar.high > ob.topPrice) {
-          ob.isInvalidated = true;
-          break;
-        }
-
-        // Mitigation check (touches bottomPrice or midpoint without invalidating)
-        if (bar.high >= ob.bottomPrice && bar.high <= ob.topPrice) {
-          ob.isMitigated = true;
-          ob.mitigationTimestamp = bar.timestamp;
-          ob.retestPrice = bar.high;
-        }
+      if (ob.box.isInvalidated) {
+        ob.isInvalidated = true;
+        break;
       }
+      if (ob.box.isMitigated) {
+        ob.isMitigated = true;
+        ob.mitigationTimestamp = ob.box.mitigationTimestamp;
+        ob.retestPrice = ob.direction === "BULLISH" ? bar.low : bar.high;
+      }
+    }
+
+    // Dynamic right-edge stretch up to current live bar index (+100 bars forward into future)
+    if (!ob.isInvalidated && ob.box && candles.length > 0) {
+      ob.box = f_manageOB(
+        ob.box,
+        candles.length - 1,
+        candles[candles.length - 1],
+        ob.invalidationType
+      );
     }
   }
 

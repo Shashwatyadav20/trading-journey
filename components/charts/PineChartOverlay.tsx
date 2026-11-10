@@ -23,10 +23,12 @@
 import { useEffect, useRef } from "react";
 import { ISeriesApi, LineStyle } from "lightweight-charts";
 import { PineActiveLevel } from "../../types/pine";
+import { SMCOrderBlockBox } from "../../lib/forex/smcDualHtfEngine";
 
 interface PineChartOverlayProps {
   series: ISeriesApi<"Candlestick"> | null;
   levels: PineActiveLevel[];
+  boxes?: SMCOrderBlockBox[];
 }
 
 function mapLineStyle(style: "solid" | "dashed" | "dotted"): LineStyle {
@@ -38,17 +40,24 @@ function mapLineStyle(style: "solid" | "dashed" | "dotted"): LineStyle {
   }
 }
 
-export function PineChartOverlay({ series, levels }: PineChartOverlayProps) {
+export function PineChartOverlay({ series, levels, boxes = [] }: PineChartOverlayProps) {
   // Map from Pine level ID → IPriceLine reference
   const pineLinesRef = useRef<Map<string, any>>(new Map());
 
   useEffect(() => {
     if (!series) return;
 
-    // Collect all level IDs from active levels
+    // Collect all level IDs from active levels & active order block boxes
     const activeIds = new Set<string>();
 
     levels.forEach((l) => activeIds.add(l.id));
+
+    boxes.forEach((b) => {
+      if (!b.isInvalidated) {
+        activeIds.add(`${b.id}-TOP`);
+        activeIds.add(`${b.id}-BOT`);
+      }
+    });
 
     // 1. Remove stale/consumed lines
     for (const [id, priceLine] of pineLinesRef.current.entries()) {
@@ -82,7 +91,45 @@ export function PineChartOverlay({ series, levels }: PineChartOverlayProps) {
         // Ignore creation errors
       }
     }
-  }, [series, levels]);
+
+    // 3. Add SMC Order Block boundary lines (with infinite right extension)
+    for (const box of boxes) {
+      if (box.isInvalidated) continue;
+
+      const topKey = `${box.id}-TOP`;
+      const botKey = `${box.id}-BOT`;
+      const isBull = box.direction === "BULLISH";
+      const color = isBull ? "#10b981" : "#f43f5e";
+
+      if (!pineLinesRef.current.has(topKey)) {
+        try {
+          const topLine = series.createPriceLine({
+            price: box.topPrice,
+            color,
+            lineWidth: box.borderWidth as any,
+            lineStyle: LineStyle.Solid,
+            axisLabelVisible: true,
+            title: `${box.timeframe} ${isBull ? "Demand OB" : "Supply OB"} [${box.bottomPrice}-${box.topPrice}]`,
+          });
+          pineLinesRef.current.set(topKey, topLine);
+        } catch {}
+      }
+
+      if (!pineLinesRef.current.has(botKey)) {
+        try {
+          const botLine = series.createPriceLine({
+            price: box.bottomPrice,
+            color,
+            lineWidth: box.borderWidth as any,
+            lineStyle: LineStyle.Solid,
+            axisLabelVisible: true,
+            title: `${box.timeframe} OB Boundary`,
+          });
+          pineLinesRef.current.set(botKey, botLine);
+        } catch {}
+      }
+    }
+  }, [series, levels, boxes]);
 
   // Cleanup all Pine price lines when component unmounts
   useEffect(() => {

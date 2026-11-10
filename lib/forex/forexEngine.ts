@@ -33,6 +33,9 @@ export {
   aggregateCandlesTo4H,
   isOrderBlockPriceSane,
   MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT,
+  f_createOB,
+  f_manageOB,
+  DEFAULT_OB_EXTEND_BARS,
 } from "./smcDualHtfEngine";
 import {
   detectSMCOrderBlocks,
