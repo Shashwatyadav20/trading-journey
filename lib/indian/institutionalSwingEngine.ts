@@ -23,6 +23,8 @@
 import {
   detectSMCOrderBlocks,
   aggregateCandlesTo4H,
+  isOrderBlockPriceSane,
+  MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT,
   type SMCCandle,
   type SMCOrderBlock,
   type SMCQualityTier,
@@ -109,9 +111,9 @@ export const DEFAULT_NSE_SMC_SYMBOLS: Array<{
     symbol: "TRENT",
     companyName: "Trent Ltd",
     sector: "Retail & Consumer",
-    fallbackLtp: 6840.0,
-    obTop: 6870.0,
-    obBottom: 6760.0,
+    fallbackLtp: 3120.0,
+    obTop: 3150.0,
+    obBottom: 3080.0,
     direction: "BULLISH",
     quality: "Strong",
   },
@@ -119,9 +121,9 @@ export const DEFAULT_NSE_SMC_SYMBOLS: Array<{
     symbol: "HAL",
     companyName: "Hindustan Aeronautics Ltd",
     sector: "Defence & Aerospace",
-    fallbackLtp: 4210.0,
-    obTop: 4240.0,
-    obBottom: 4160.0,
+    fallbackLtp: 4990.0,
+    obTop: 5040.0,
+    obBottom: 4940.0,
     direction: "BULLISH",
     quality: "Medium",
   },
@@ -129,9 +131,9 @@ export const DEFAULT_NSE_SMC_SYMBOLS: Array<{
     symbol: "POLYCAB",
     companyName: "Polycab India Ltd",
     sector: "Cables & Wires",
-    fallbackLtp: 6380.0,
-    obTop: 6420.0,
-    obBottom: 6310.0,
+    fallbackLtp: 7830.0,
+    obTop: 7890.0,
+    obBottom: 7770.0,
     direction: "BULLISH",
     quality: "Medium",
   },
@@ -139,9 +141,9 @@ export const DEFAULT_NSE_SMC_SYMBOLS: Array<{
     symbol: "BAJFINANCE",
     companyName: "Bajaj Finance Ltd",
     sector: "Financial Services",
-    fallbackLtp: 6720.0,
-    obTop: 6760.0,
-    obBottom: 6680.0,
+    fallbackLtp: 1068.0,
+    obTop: 1078.0,
+    obBottom: 1058.0,
     direction: "BEARISH",
     quality: "Strong",
   },
@@ -206,19 +208,39 @@ export function evaluateSingleStock4HRetest(input: {
     riskRewardRatio = 2.6,
   } = input;
 
+  if (!Number.isFinite(livePrice) || livePrice <= 0) {
+    return null;
+  }
+
+  // Candle scale sanity check: Discard if incoming candle data scale is detached from live LTP
+  if (candles15m.length > 0) {
+    const lastClose = candles15m[candles15m.length - 1].close;
+    if (lastClose > 0 && Math.abs(lastClose - livePrice) / livePrice > MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT * 2) {
+      return null;
+    }
+  }
+
   const cleanSymbol = symbol.replace(/\.NS$/i, "").replace(/\.BO$/i, "").toUpperCase();
 
   // Aggregate 15m candles to fixed 4H (240m) candles
   const candles4h = aggregateCandlesTo4H(candles15m);
-  const obs4h = detectSMCOrderBlocks(cleanSymbol, candles4h, "4H", {
-    invalidationType: "Close",
-    displacementMultiplier: 1.5,
-    minBodyRatio: 0.35,
-    volumeMultiplierThreshold: 1.4,
-  });
+  const obs4h = detectSMCOrderBlocks(
+    cleanSymbol,
+    candles4h,
+    "4H",
+    {
+      invalidationType: "Close",
+      displacementMultiplier: 1.5,
+      minBodyRatio: 0.35,
+      volumeMultiplierThreshold: 1.4,
+    },
+    livePrice
+  );
 
-  // Find candidate non-invalidated Order Blocks
-  const validOB = obs4h.find((ob) => !ob.isInvalidated);
+  // Find candidate non-invalidated Order Blocks that pass real-time price proximity sanity
+  const validOB = obs4h.find(
+    (ob) => !ob.isInvalidated && isOrderBlockPriceSane(ob, livePrice, MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT)
+  );
 
   if (validOB) {
     const isBullish = validOB.direction === "BULLISH";
@@ -289,6 +311,18 @@ export function evaluateSingleStock4HRetest(input: {
   // Fallback: If live price is near known high-conviction baseline Order Blocks
   const baseline = DEFAULT_NSE_SMC_SYMBOLS.find((s) => s.symbol === cleanSymbol);
   if (baseline) {
+    // REAL-TIME PRICE PROXIMITY & SANITY FILTER:
+    // Reject any baseline Order Block if its price scale is detached from livePrice (>15%)
+    if (
+      !isOrderBlockPriceSane(
+        { topPrice: baseline.obTop, bottomPrice: baseline.obBottom },
+        livePrice,
+        MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT
+      )
+    ) {
+      return null;
+    }
+
     const isBullish = baseline.direction === "BULLISH";
     const obRange = baseline.obTop - baseline.obBottom;
     const isInsideZone =
@@ -452,4 +486,82 @@ export const DEFAULT_4H_RETEST_ALERTS: NSERetestAlert[] = [
       "Targeting +3.47% swing expansion with 1:2.6 RR",
     ],
   },
+  {
+    id: "RETEST-4H-BAJFINANCE-SEED",
+    symbol: "BAJFINANCE",
+    cleanSymbol: "BAJFINANCE",
+    companyName: "Bajaj Finance Ltd",
+    sector: "Financial Services",
+    direction: "BEARISH",
+    timeframe: "4H",
+    status: "OB_RETEST_ACTIVE",
+    quality: "Strong",
+    confidenceTag: "✓",
+    ema20: 1076.0,
+    emaAligned: true,
+    livePrice: 1071.0,
+    entryPrice: 1071.0,
+    stopLossPrice: 1081.0,
+    targetPrice: 1045.0,
+    rewardRiskRatio: 2.6,
+    riskPerShare: 10.0,
+    rewardPerShare: 26.0,
+    obMitigationRange: {
+      topPrice: 1078.0,
+      bottomPrice: 1060.0,
+      midpoint: 1069.0,
+      widthPercent: 1.69,
+    },
+    displacementBody: 22.0,
+    volumeMultiplier: 2.15,
+    retestDetectedAt: "14:25 IST",
+    rationale: [
+      "4H Bearish Supply Order Block mitigation active at ₹1,071.00",
+      "Real-time chart LTP synchronized with live market scale (post-split)",
+      "Quality: Strong Tier · 20 EMA Trend Alignment: ✓",
+      "Strict 1:2.6 Risk-to-Reward targeting daily demand pool",
+    ],
+  },
 ];
+
+/**
+ * Fetches real-time, corporate-action/split-adjusted live LTP for any NSE symbol.
+ * Queries local internal scanner routes or Yahoo Finance chart endpoints.
+ */
+export async function fetchLiveStockLtp(symbol: string): Promise<number | null> {
+  const clean = symbol.trim().toUpperCase().replace(/\.NS$/i, "").replace(/\.BO$/i, "");
+
+  // 1. In browser, query /api/indian/swing/daily-scanner or quote endpoint
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/indian/swing/daily-scanner?activeSymbols=${encodeURIComponent(clean)}`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const price = json?.livePrices?.[clean]?.ltp ?? json?.livePrices?.[`${clean}.NS`]?.ltp;
+        if (typeof price === "number" && price > 0) return Number(price.toFixed(2));
+      }
+    } catch {}
+  }
+
+  // 2. Direct Yahoo Finance quote snapshot
+  try {
+    const ticker = clean.startsWith("^") ? clean : `${clean}.NS`;
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1d&interval=1d`,
+      {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        cache: "no-store",
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const meta = data?.chart?.result?.[0]?.meta;
+      const ltp = meta?.regularMarketPrice;
+      if (typeof ltp === "number" && ltp > 0) return Number(ltp.toFixed(2));
+    }
+  } catch {}
+
+  return null;
+}

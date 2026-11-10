@@ -713,13 +713,15 @@ export default function IMSwingTradingView() {
         const persisted = readPersistedTrades<ActivePortfolioTrade>(STORAGE_KEY_ACTIVE_TRADES, LEGACY_ACTIVE_KEYS);
         if (persisted) activeSource = persisted;
       }
+      const smcMonitoredSymbols = DEFAULT_NSE_SMC_SYMBOLS.map((s) => s.symbol);
       const activeSymbols = Array.from(
-        new Set(
-          activeSource
+        new Set([
+          ...activeSource
             .filter((t) => !t.status || t.status === "ACTIVE")
             .map((t) => String(t.cleanSymbol || t.symbol || "").toUpperCase().replace(/\.NS$/i, "").replace(/\.BO$/i, ""))
-            .filter(Boolean)
-        )
+            .filter(Boolean),
+          ...smcMonitoredSymbols,
+        ])
       );
       const activeParam =
         activeSymbols.length > 0

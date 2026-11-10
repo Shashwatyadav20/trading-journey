@@ -31,6 +31,8 @@ export {
   detectSMCOrderBlocks,
   evaluateSMCOrderBlockRetests,
   aggregateCandlesTo4H,
+  isOrderBlockPriceSane,
+  MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT,
 } from "./smcDualHtfEngine";
 import {
   detectSMCOrderBlocks,

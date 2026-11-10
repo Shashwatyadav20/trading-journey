@@ -1014,13 +1014,15 @@ export default function IMSwingTradingView() {
                     );
                     if (stored) activeSource = stored;
                 }
+                const smcMonitoredSymbols = DEFAULT_NSE_SMC_SYMBOLS.map((s) => s.symbol);
                 const activeSymbols = Array.from(
-                    new Set(
-                        activeSource
+                    new Set([
+                        ...activeSource
                             .filter((t) => !t.status || t.status === "ACTIVE")
                             .map((t) => String(t.symbol || "").toUpperCase().replace(/\.NS$/i, "").replace(/\.BO$/i, ""))
-                            .filter(Boolean)
-                    )
+                            .filter(Boolean),
+                        ...smcMonitoredSymbols,
+                    ])
                 );
                 const activeParam =
                     activeSymbols.length > 0

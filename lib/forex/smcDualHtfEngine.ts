@@ -103,6 +103,41 @@ export const DEFAULT_SMC_CONFIG: Required<SMCScannerConfig> = {
   riskRewardRatio: 2.5,
 };
 
+// ─── Real-Time Price Proximity & Sanity Filter ────────────────────────────────
+
+/**
+ * Strict Real-Time Price Proximity & Sanity Threshold (±15% by default).
+ * Order Blocks whose boundaries fall outside this band relative to the current live LTP
+ * indicate unadjusted historical data, stock splits, or stale seed values and must be discarded.
+ */
+export const MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT = 0.15;
+
+/**
+ * Validates that an Order Block's boundaries and midpoint fall within a strict proximity (±15%)
+ * of the genuine live Last Traded Price (LTP).
+ */
+export function isOrderBlockPriceSane(
+  ob: { topPrice: number; bottomPrice: number; midpoint?: number },
+  livePrice: number,
+  maxDeviationPct: number = MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT
+): boolean {
+  if (!Number.isFinite(livePrice) || livePrice <= 0) return false;
+  if (!Number.isFinite(ob.topPrice) || !Number.isFinite(ob.bottomPrice)) return false;
+  if (ob.topPrice <= 0 || ob.bottomPrice <= 0 || ob.bottomPrice > ob.topPrice) return false;
+
+  const obMid = ob.midpoint ?? (ob.topPrice + ob.bottomPrice) / 2;
+  const deviation = Math.abs(obMid - livePrice) / livePrice;
+
+  // Midpoint deviation from live price cannot exceed maxDeviationPct
+  if (deviation > maxDeviationPct) return false;
+
+  // Both boundaries must fall within realistic proximity bounds
+  const minAllowed = livePrice * (1 - maxDeviationPct * 1.25);
+  const maxAllowed = livePrice * (1 + maxDeviationPct * 1.25);
+
+  return ob.bottomPrice >= minAllowed && ob.topPrice <= maxAllowed;
+}
+
 // ─── Mathematical Indicators ──────────────────────────────────────────────────
 
 /**
@@ -241,10 +276,13 @@ export function detectSMCOrderBlocks(
   symbol: string,
   candles: SMCCandle[],
   timeframe: SMCTimeframe,
-  userConfig: SMCScannerConfig = {}
+  userConfig: SMCScannerConfig = {},
+  livePrice?: number
 ): SMCOrderBlock[] {
   const config = { ...DEFAULT_SMC_CONFIG, ...userConfig };
   if (candles.length < 22) return [];
+
+  const referenceLtp = livePrice && livePrice > 0 ? livePrice : candles[candles.length - 1]?.close;
 
   const atrSeries = calculateATRSeries(candles, 14);
   const volSmaSeries = calculateVolumeSMASeries(candles, 20);
@@ -291,6 +329,10 @@ export function detectSMCOrderBlocks(
       const confidenceTag = emaAligned ? "✓" : "⚠️ Counter-Trend";
 
       if (!config.onlyTrendAligned || emaAligned) {
+        const topPrice = Number(prev.high.toFixed(2));
+        const bottomPrice = Number(prev.low.toFixed(2));
+        const isSane = referenceLtp ? isOrderBlockPriceSane({ topPrice, bottomPrice }, referenceLtp) : true;
+
         orderBlocks.push({
           id: `OB-${symbol}-${timeframe}-BULL-${prev.timestamp}`,
           symbol,
@@ -298,8 +340,8 @@ export function detectSMCOrderBlocks(
           direction: "BULLISH",
           candleIndex: i - 1,
           candleTimestamp: prev.timestamp,
-          topPrice: Number(prev.high.toFixed(2)),
-          bottomPrice: Number(prev.low.toFixed(2)),
+          topPrice,
+          bottomPrice,
           midpoint: Number(((prev.high + prev.low) / 2).toFixed(2)),
           displacementBody: Number(currBody.toFixed(2)),
           displacementVolume: curr.volume,
@@ -311,7 +353,7 @@ export function detectSMCOrderBlocks(
           confidenceTag,
           invalidationType: config.invalidationType,
           isMitigated: false,
-          isInvalidated: false,
+          isInvalidated: !isSane,
           hasTriggeredEntry: false,
         });
       }
@@ -338,6 +380,10 @@ export function detectSMCOrderBlocks(
       const confidenceTag = emaAligned ? "✓" : "⚠️ Counter-Trend";
 
       if (!config.onlyTrendAligned || emaAligned) {
+        const topPrice = Number(prev.high.toFixed(2));
+        const bottomPrice = Number(prev.low.toFixed(2));
+        const isSane = referenceLtp ? isOrderBlockPriceSane({ topPrice, bottomPrice }, referenceLtp) : true;
+
         orderBlocks.push({
           id: `OB-${symbol}-${timeframe}-BEAR-${prev.timestamp}`,
           symbol,
@@ -345,8 +391,8 @@ export function detectSMCOrderBlocks(
           direction: "BEARISH",
           candleIndex: i - 1,
           candleTimestamp: prev.timestamp,
-          topPrice: Number(prev.high.toFixed(2)),
-          bottomPrice: Number(prev.low.toFixed(2)),
+          topPrice,
+          bottomPrice,
           midpoint: Number(((prev.high + prev.low) / 2).toFixed(2)),
           displacementBody: Number(currBody.toFixed(2)),
           displacementVolume: curr.volume,
@@ -358,7 +404,7 @@ export function detectSMCOrderBlocks(
           confidenceTag,
           invalidationType: config.invalidationType,
           isMitigated: false,
-          isInvalidated: false,
+          isInvalidated: !isSane,
           hasTriggeredEntry: false,
         });
       }
@@ -426,8 +472,12 @@ export function evaluateSMCOrderBlockRetests(
   const setups: SMCRetestSetup[] = [];
 
   // Consider only valid (non-invalidated) Order Blocks that have not yet fired an entry
+  // and STRICTLY pass the real-time price proximity sanity filter (within ±15% of live LTP)
   const candidateBlocks = orderBlocks.filter(
-    (ob) => !ob.isInvalidated && !ob.hasTriggeredEntry
+    (ob) =>
+      !ob.isInvalidated &&
+      !ob.hasTriggeredEntry &&
+      isOrderBlockPriceSane(ob, livePrice, MAX_OB_PRICE_PROXIMITY_DEVIATION_PCT)
   );
 
   for (const ob of candidateBlocks) {
