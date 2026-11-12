@@ -1,12 +1,22 @@
 /**
- * Verification Script: Zero Mock Data & Real-Time Trade Execution Integrity
+ * Verification Script: Zero Mock Data, Legacy Cache Purge & Real-Time Execution Integrity
  * Validates:
- * 1. Backtest Ledger and Overview initialize 100% empty (0 trades, 0 P&L) when no live trades exist.
- * 2. Zero fallback seeds (no DEFAULT_CLOSED_TRADE_AUDIT_SEEDS or DEFAULT_FO_CLOSED_SEEDS injected).
- * 3. Strict execution logging when user deploys positions and square-off occurs (Target, SL, or manual).
+ * 1. Legacy cached mock keys (_v1, _v2, _v12, _v15) holding fake profits (e.g. +₹569.5k) are automatically purged on mount.
+ * 2. Synthetic/Auto IDs (AUDIT-, AUTO-, FO-EXIT-, etc.) are stripped even if present in _v3 storage.
+ * 3. Backtest Ledger and Overview initialize 100% empty (0 trades, ₹0.00 P&L) when no genuine user trades exist.
+ * 4. Strict execution logging when user deploys positions and square-off occurs (Target, SL, or manual) in _v3 keys.
  */
 
 import assert from "node:assert";
+import {
+  parseAllDeskTrades,
+  purgeLegacyAndSyntheticStorage,
+  isGenuineUserTrade,
+  normalizeDateKey,
+  STORAGE_KEY_INTRADAY_HISTORY,
+  STORAGE_KEY_SWING_HISTORY,
+  STORAGE_KEY_FO_HISTORY,
+} from "../components/indian-market/BacktestLedgerView";
 
 // Mock localStorage in Node.js environment
 const mockStorage: Record<string, string> = {};
@@ -25,125 +35,114 @@ const mockStorage: Record<string, string> = {};
 (global as any).window = global;
 
 console.log("================================================================================");
-console.log("VERIFYING: Zero Mock Data Policy & Strict Real-Time Execution Integrity");
+console.log("VERIFYING: Force Purge of Legacy Mock Cache & _v3 Real-Data Integrity");
 console.log("================================================================================\n");
 
-// Test 1: Verify Initial Pristine State (Zero mock / seed trades)
-console.log("Test 1: Initial State Pristine Check (0 Trades / Empty Ledger)");
+// Test 1: Pollute legacy keys with +₹569.5k fake/seed/auto trades and verify hard reset on mount
+console.log("Test 1: Hard Reset & Purge of Legacy Polluted Storage Keys (+₹569.5k Fake Profits)");
 localStorage.clear();
 
-const STORAGE_KEY_INTRADAY_ACTIVE = "nse_intraday_active_trades_v1";
-const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v1";
-const STORAGE_KEY_SWING_ACTIVE = "nse_swing_active_trades_v15";
-const STORAGE_KEY_SWING_HISTORY = "nse_swing_backtest_history_v15";
-const STORAGE_KEY_FO_ACTIVE = "nse_fo_quant_active_spreads_v1";
-const STORAGE_KEY_FO_HISTORY = "nse_fo_quant_closed_history_v1";
+localStorage.setItem(
+  "nse_intraday_history_trades_v1",
+  JSON.stringify([
+    { tradeId: "AUDIT-POLYCAB-101", symbol: "POLYCAB.NS", entryPrice: 6520, exitPrice: 6710, pnlAmount: 19000 },
+    { tradeId: "AUTO-INTRA-TRENT-999", symbol: "TRENT.NS", entryPrice: 6800, exitPrice: 7100, pnlAmount: 150000 },
+  ])
+);
+localStorage.setItem(
+  "nse_swing_backtest_history_v15",
+  JSON.stringify([
+    { tradeId: "AUTO-SOLARINDS-888", symbol: "SOLARINDS.NS", entryPrice: 9800, exitPrice: 10600, pnlAmount: 400500 },
+  ])
+);
+localStorage.setItem(
+  "backtest_portfolio_history_v2",
+  JSON.stringify([
+    { tradeId: "AUDIT-PGEL-102", symbol: "PGEL.NS", entryPrice: 710, exitPrice: 755, pnlAmount: 22500 },
+  ])
+);
+localStorage.setItem(
+  "nse_fo_quant_closed_history_v1",
+  JSON.stringify([
+    { positionId: "FO-EXIT-NIFTY-101", symbol: "^NSEI", entrySpotPrice: 24150, currentSpotPrice: 24180, realizedPnLINR: 8450 },
+  ])
+);
 
-assert.strictEqual(localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY), null, "Intraday history is empty on start");
-assert.strictEqual(localStorage.getItem(STORAGE_KEY_SWING_HISTORY), null, "Swing history is empty on start");
-assert.strictEqual(localStorage.getItem(STORAGE_KEY_FO_HISTORY), null, "F&O history is empty on start");
-console.log("  ✓ PASS: All storage keys are completely empty without mock seeds.");
+// Run parser (which triggers purgeLegacyAndSyntheticStorage)
+const initialTrades = parseAllDeskTrades();
+assert.strictEqual(initialTrades.length, 0, "parseAllDeskTrades() must return 0 trades after purging legacy keys");
+assert.strictEqual(localStorage.getItem("nse_intraday_history_trades_v1"), null, "Legacy intraday v1 key wiped");
+assert.strictEqual(localStorage.getItem("nse_swing_backtest_history_v15"), null, "Legacy swing v15 key wiped");
+assert.strictEqual(localStorage.getItem("backtest_portfolio_history_v2"), null, "Legacy swing v2 key wiped");
+assert.strictEqual(localStorage.getItem("nse_fo_quant_closed_history_v1"), null, "Legacy FO v1 key wiped");
+console.log("  ✓ PASS: All legacy keys (+₹569.5k fake trades) permanently wiped; ledger initialized to 0 records.");
 
-// Test 2: Simulate User 1-Click Deploy & Target Exit on Intraday Desk
-console.log("\nTest 2: Real Intraday Position Deployment & Target Hit Settlement");
-const intradayTrade = {
-  tradeId: "INTRA-LIVE-001",
+// Test 2: Verify synthetic prefix rejection even inside _v3 keys
+console.log("\nTest 2: Synthetic Prefix Rejection Inside _v3 Namespace");
+localStorage.setItem(
+  STORAGE_KEY_SWING_HISTORY,
+  JSON.stringify([
+    { tradeId: "AUDIT-SUNPHARMA-103", symbol: "SUNPHARMA.NS", entryPrice: 1820, pnlAmount: 25600 },
+    { tradeId: "AUTO-BAJFINANCE-777", symbol: "BAJFINANCE.NS", entryPrice: 1050, pnlAmount: 45000 },
+  ])
+);
+purgeLegacyAndSyntheticStorage();
+assert.strictEqual(localStorage.getItem(STORAGE_KEY_SWING_HISTORY), null, "Synthetic entries inside _v3 key wiped");
+assert.strictEqual(parseAllDeskTrades().length, 0, "Zero trades returned after stripping synthetic IDs");
+console.log("  ✓ PASS: Synthetic AUDIT- and AUTO- trades rejected and purged from _v3 storage.");
+
+// Test 3: Indian Locale Date Normalization (DD/MM/YYYY -> YYYY-MM-DD)
+console.log("\nTest 3: Indian Locale Date Key Normalization (DD/MM/YYYY)");
+assert.strictEqual(normalizeDateKey("12/11/2026, 5:10:00 pm"), "2026-11-12", "Parses DD/MM/YYYY accurately to 2026-11-12");
+assert.strictEqual(normalizeDateKey("2026-11-12"), "2026-11-12", "Preserves ISO YYYY-MM-DD");
+console.log("  ✓ PASS: Date normalization accurately resolves Indian locale timestamps.");
+
+// Test 4: Simulate Genuine User Deploy & Target Exit in _v3 Keys
+console.log("\nTest 4: Genuine User-Deployed Trade Execution Logging in _v3 Namespace");
+const genuineIntraday = {
+  tradeId: "INTRA-RELIANCE-1763000001",
   symbol: "NSE:RELIANCE",
   cleanSymbol: "RELIANCE",
   companyName: "Reliance Industries Ltd",
   strategyUsed: "⚡ 9:15-9:45 ORB Breakout",
   direction: "LONG" as const,
   entryPrice: 1280.0,
+  exitPrice: 1320.0,
   targetPrice: 1320.0,
   stopLossPrice: 1260.0,
   quantity: 50,
   allocatedCapital: 64000,
-  currentMarketPrice: 1280.0,
-  status: "ACTIVE",
-  executionTime: "09:32:15 IST",
-};
-
-// Deploy position
-localStorage.setItem(STORAGE_KEY_INTRADAY_ACTIVE, JSON.stringify([intradayTrade]));
-let activeIntra = JSON.parse(localStorage.getItem(STORAGE_KEY_INTRADAY_ACTIVE)!);
-assert.strictEqual(activeIntra.length, 1, "Active intraday trade deployed");
-assert.strictEqual(activeIntra[0].entryPrice, 1280.0, "Entry price frozen at 1280.0");
-console.log("  ✓ PASS: Live position successfully deployed to active intraday desk.");
-
-// Target Hit Event: Live price touches 1320.0
-const exitPrice = 1320.0;
-const pnlAmount = (exitPrice - intradayTrade.entryPrice) * intradayTrade.quantity;
-const pnlPercent = Number((((exitPrice - intradayTrade.entryPrice) / intradayTrade.entryPrice) * 100).toFixed(2));
-
-const closedIntradayTrade = {
-  ...intradayTrade,
-  exitPrice: exitPrice,
-  currentMarketPrice: exitPrice,
-  pnlAmount: pnlAmount,
-  pnlPercent: pnlPercent,
+  pnlAmount: 2000,
+  pnlPercent: 3.13,
   status: "TARGET_HIT",
-  auditTag: "TARGET_HIT",
+  lockedDateKey: "2026-11-12",
+  executionTime: "09:32:15 IST",
   exitTime: "11:45:00 IST",
-  exitReason: `Intraday Target ₹1320 achieved at Live LTP ₹${exitPrice}.`,
 };
 
-// Position exits and writes to persistent history
-localStorage.setItem(STORAGE_KEY_INTRADAY_ACTIVE, JSON.stringify([]));
-localStorage.setItem(STORAGE_KEY_INTRADAY_HISTORY, JSON.stringify([closedIntradayTrade]));
-
-const persistedIntraHistory = JSON.parse(localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY)!);
-assert.strictEqual(persistedIntraHistory.length, 1, "Intraday trade settled into persistent history");
-assert.strictEqual(persistedIntraHistory[0].status, "TARGET_HIT", "Status correctly marked TARGET_HIT");
-assert.strictEqual(persistedIntraHistory[0].pnlAmount, 2000, "Realized P&L matches +₹2,000");
-console.log("  ✓ PASS: Target Hit settled with exact real execution timestamps and P&L.");
-
-// Test 3: Simulate User Deploy & Stop Loss Exit on Institutional Swing (4H OB) Desk
-console.log("\nTest 3: Real Swing (4H OB) Position Deployment & Stop Loss Hit Settlement");
-const swingTrade = {
-  id: "SWING-LIVE-002",
+const genuineSwing = {
+  tradeId: "TRADE-4H-SOLARINDS-1763000002",
   symbol: "NSE:SOLARINDS",
   cleanSymbol: "SOLARINDS",
   companyName: "Solar Industries Ltd",
-  strategy: "🟣 4H Order Block Retest",
+  strategyUsed: "🟣 4H Order Block Retest",
   direction: "LONG" as const,
   entryPrice: 10450.0,
+  exitPrice: 10150.0,
   targetPrice: 11200.0,
   stopLossPrice: 10150.0,
   quantity: 10,
   allocatedCapital: 104500,
-  entryDate: "2026-11-12",
-  status: "ACTIVE",
-};
-
-localStorage.setItem(STORAGE_KEY_SWING_ACTIVE, JSON.stringify([swingTrade]));
-assert.strictEqual(JSON.parse(localStorage.getItem(STORAGE_KEY_SWING_ACTIVE)!).length, 1);
-
-// Stop Loss Hit Event: Live price touches 10150.0
-const swingExitPrice = 10150.0;
-const swingPnL = (swingExitPrice - swingTrade.entryPrice) * swingTrade.quantity;
-const closedSwingTrade = {
-  ...swingTrade,
-  exitPrice: swingExitPrice,
-  realizedPnL: swingPnL,
+  pnlAmount: -3000,
+  pnlPercent: -2.87,
   status: "STOP_LOSS_HIT",
-  exitDate: "2026-11-12",
+  lockedDateKey: "2026-11-12",
+  executionTime: "10:15:00 IST",
   exitTime: "14:10:00 IST",
-  exitReason: `Stop-Loss ₹10150 breached below 4H OB floor.`,
 };
 
-localStorage.setItem(STORAGE_KEY_SWING_ACTIVE, JSON.stringify([]));
-localStorage.setItem(STORAGE_KEY_SWING_HISTORY, JSON.stringify([closedSwingTrade]));
-
-const persistedSwingHistory = JSON.parse(localStorage.getItem(STORAGE_KEY_SWING_HISTORY)!);
-assert.strictEqual(persistedSwingHistory.length, 1);
-assert.strictEqual(persistedSwingHistory[0].status, "STOP_LOSS_HIT");
-assert.strictEqual(persistedSwingHistory[0].realizedPnL, -3000, "Realized Swing loss matches -₹3,000");
-console.log("  ✓ PASS: Stop Loss hit accurately recorded with strict risk-capping.");
-
-// Test 4: Simulate User Deploy & Manual Square-Off on F&O Quant Desk
-console.log("\nTest 4: Real F&O Spread Deployment & Manual Square-Off");
-const foSpread = {
-  positionId: "FO-LIVE-003",
+const genuineFO = {
+  positionId: "FO-POS-NIFTY-1763000003",
   symbol: "^NSEI",
   cleanSymbol: "NIFTY",
   companyName: "Nifty 50 Index",
@@ -154,42 +153,28 @@ const foSpread = {
   stopLossSpotLevel: 24200,
   totalQuantity: 50,
   marginBlockedINR: 85000,
-  netEntryPremiumPerUnit: 120,
-  currentNetPremiumPerUnit: 40,
+  realizedPnLINR: 4000,
   isNetCredit: true,
-  status: "ACTIVE",
-  entryTimestamp: "2026-11-12T09:25:00.000Z",
-};
-
-localStorage.setItem(STORAGE_KEY_FO_ACTIVE, JSON.stringify([foSpread]));
-assert.strictEqual(JSON.parse(localStorage.getItem(STORAGE_KEY_FO_ACTIVE)!).length, 1);
-
-// Manual square-off when premium decayed to 40 per unit
-const foPnL = (foSpread.netEntryPremiumPerUnit - foSpread.currentNetPremiumPerUnit) * foSpread.totalQuantity;
-const closedFOSpread = {
-  ...foSpread,
   status: "MANUAL_EXIT",
+  entryDateKey: "2026-11-12",
+  entryTimestamp: "2026-11-12T09:25:00.000Z",
   exitTimestamp: "2026-11-12T13:40:00.000Z",
-  realizedPnLINR: foPnL,
 };
 
-localStorage.setItem(STORAGE_KEY_FO_ACTIVE, JSON.stringify([]));
-localStorage.setItem(STORAGE_KEY_FO_HISTORY, JSON.stringify([closedFOSpread]));
+assert.strictEqual(isGenuineUserTrade(genuineIntraday), true, "Genuine intraday trade accepted");
+assert.strictEqual(isGenuineUserTrade(genuineSwing), true, "Genuine swing trade accepted");
+assert.strictEqual(isGenuineUserTrade(genuineFO), true, "Genuine FO trade accepted");
 
-const persistedFOHistory = JSON.parse(localStorage.getItem(STORAGE_KEY_FO_HISTORY)!);
-assert.strictEqual(persistedFOHistory.length, 1);
-assert.strictEqual(persistedFOHistory[0].realizedPnLINR, 4000, "Realized F&O profit matches +₹4,000");
-console.log("  ✓ PASS: F&O Spread manual square-off recorded with exact net premium decay.");
+localStorage.setItem(STORAGE_KEY_INTRADAY_HISTORY, JSON.stringify([genuineIntraday]));
+localStorage.setItem(STORAGE_KEY_SWING_HISTORY, JSON.stringify([genuineSwing]));
+localStorage.setItem(STORAGE_KEY_FO_HISTORY, JSON.stringify([genuineFO]));
 
-// Test 5: Verify Consolidated Audit Ledger Aggregation
-console.log("\nTest 5: Consolidated Ledger Aggregation Across All 3 Desks");
-const totalClosedTrades = persistedIntraHistory.length + persistedSwingHistory.length + persistedFOHistory.length;
-const totalRealizedPnL = persistedIntraHistory[0].pnlAmount + persistedSwingHistory[0].realizedPnL + persistedFOHistory[0].realizedPnLINR;
-
-assert.strictEqual(totalClosedTrades, 3, "Total closed trades equals 3 (1 Intraday + 1 Swing + 1 F&O)");
-assert.strictEqual(totalRealizedPnL, 3000, "Consolidated Net Realized P&L is +₹3,000 (+₹2000 - ₹3000 + ₹4000)");
-console.log(`  ✓ PASS: Consolidated P&L calculated strictly from real trades (+₹${totalRealizedPnL.toLocaleString("en-IN")}).`);
+const verifiedLedger = parseAllDeskTrades();
+assert.strictEqual(verifiedLedger.length, 3, "All 3 genuine user-executed trades parsed from _v3 storage");
+const totalNetPnL = verifiedLedger.reduce((sum, t) => sum + t.realizedPnLINR, 0);
+assert.strictEqual(totalNetPnL, 3000, "Consolidated net P&L equals +₹3,000 (+2000 - 3000 + 4000)");
+console.log("  ✓ PASS: Genuine _v3 user executions preserved and aggregated accurately (+₹3,000 across 3 trades).");
 
 console.log("\n================================================================================");
-console.log("ALL TESTS PASSED! Zero mock data policy strictly verified across all desks.");
+console.log("ALL TESTS PASSED! Legacy cache purged & _v3 real-data integrity verified.");
 console.log("================================================================================");

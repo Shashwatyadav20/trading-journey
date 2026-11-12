@@ -18,18 +18,18 @@ import {
 import { NavTabId } from "../layout/Sidebar";
 import { FlashValue } from "./fo/FOLiveCommandCenter";
 import { ActiveFOSpreadPosition } from "./fo/types";
+import {
+  isGenuineUserTrade,
+  purgeLegacyAndSyntheticStorage,
+  STORAGE_KEY_INTRADAY_HISTORY,
+  STORAGE_KEY_SWING_HISTORY,
+  STORAGE_KEY_FO_HISTORY,
+} from "./BacktestLedgerView";
 
-// LocalStorage Keys for all 3 Desks
-const STORAGE_KEY_INTRADAY_ACTIVE = "nse_intraday_active_trades_v1";
-const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v1";
-
-const STORAGE_KEY_SWING_ACTIVE = "nse_swing_active_trades_v15";
-const STORAGE_KEY_SWING_ACTIVE_LEGACY = "active_portfolio_trades_v2";
-const STORAGE_KEY_SWING_HISTORY = "nse_swing_backtest_history_v15";
-const STORAGE_KEY_SWING_HISTORY_LEGACY = "backtest_portfolio_history_v2";
-
-const STORAGE_KEY_FO_ACTIVE = "nse_fo_quant_active_spreads_v1";
-const STORAGE_KEY_FO_HISTORY = "nse_fo_quant_closed_history_v1";
+// Fresh _v3 LocalStorage Keys for all 3 Desks (Zero Legacy Fallback)
+const STORAGE_KEY_INTRADAY_ACTIVE = "nse_intraday_active_trades_v3";
+const STORAGE_KEY_SWING_ACTIVE = "nse_swing_active_trades_v3";
+const STORAGE_KEY_FO_ACTIVE = "nse_fo_quant_active_spreads_v3";
 
 // Unified Active Trade Item for the Live Master Table
 export interface UnifiedActivePosition {
@@ -100,22 +100,24 @@ export default function IMOverviewView({
     { symbol: "TRENT", ltp: 6990.0, change: 140.0, changePct: 2.04 },
   ]);
 
-  // Load All Active and Closed Data from LocalStorage - Pure Real Data
+  // Load All Active and Closed Data from LocalStorage - Pure Real Data (_v3 only)
   const loadTerminalData = useCallback(() => {
+    purgeLegacyAndSyntheticStorage();
+
     // 1. INTRADAY ACTIVE
     try {
       const raw = localStorage.getItem(STORAGE_KEY_INTRADAY_ACTIVE);
       const parsed = raw ? JSON.parse(raw) : null;
-      setIntradayPositions(Array.isArray(parsed) ? parsed : []);
+      setIntradayPositions(Array.isArray(parsed) ? parsed.filter(isGenuineUserTrade) : []);
     } catch {
       setIntradayPositions([]);
     }
 
     // 2. SWING ACTIVE
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_SWING_ACTIVE) || localStorage.getItem(STORAGE_KEY_SWING_ACTIVE_LEGACY);
+      const raw = localStorage.getItem(STORAGE_KEY_SWING_ACTIVE);
       const parsed = raw ? JSON.parse(raw) : null;
-      setSwingPositions(Array.isArray(parsed) ? parsed : []);
+      setSwingPositions(Array.isArray(parsed) ? parsed.filter(isGenuineUserTrade) : []);
     } catch {
       setSwingPositions([]);
     }
@@ -124,7 +126,7 @@ export default function IMOverviewView({
     try {
       const raw = localStorage.getItem(STORAGE_KEY_FO_ACTIVE);
       const parsed = raw ? JSON.parse(raw) : null;
-      setFoPositions(Array.isArray(parsed) ? parsed : []);
+      setFoPositions(Array.isArray(parsed) ? parsed.filter(isGenuineUserTrade) : []);
     } catch {
       setFoPositions([]);
     }
@@ -132,13 +134,16 @@ export default function IMOverviewView({
     // 4. CLOSED TRADES & WIN RATES
     try {
       const rawIntraHistory = localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY);
-      const intraHistory: any[] = rawIntraHistory ? JSON.parse(rawIntraHistory) : [];
+      const parsedIntra = rawIntraHistory ? JSON.parse(rawIntraHistory) : [];
+      const intraHistory: any[] = Array.isArray(parsedIntra) ? parsedIntra.filter(isGenuineUserTrade) : [];
 
-      const rawSwingHistory = localStorage.getItem(STORAGE_KEY_SWING_HISTORY) || localStorage.getItem(STORAGE_KEY_SWING_HISTORY_LEGACY);
-      const swingHistory: any[] = rawSwingHistory ? JSON.parse(rawSwingHistory) : [];
+      const rawSwingHistory = localStorage.getItem(STORAGE_KEY_SWING_HISTORY);
+      const parsedSwing = rawSwingHistory ? JSON.parse(rawSwingHistory) : [];
+      const swingHistory: any[] = Array.isArray(parsedSwing) ? parsedSwing.filter(isGenuineUserTrade) : [];
 
       const rawFoHistory = localStorage.getItem(STORAGE_KEY_FO_HISTORY);
-      const foHistory: any[] = rawFoHistory ? JSON.parse(rawFoHistory) : [];
+      const parsedFo = rawFoHistory ? JSON.parse(rawFoHistory) : [];
+      const foHistory: any[] = Array.isArray(parsedFo) ? parsedFo.filter(isGenuineUserTrade) : [];
 
       let totalPnL = 0;
       let totalWins = 0;

@@ -34,8 +34,8 @@ import { useAiNewsReversalWorker } from "../../../hooks/useAiNewsReversalWorker"
 import IMTradeExitAuditModal, { ClosedTradeExitAuditData } from "../IMTradeExitAuditModal";
 import { DEFAULT_CLOSED_TRADE_AUDIT_SEEDS } from "../../../lib/indian/backtestSeeds";
 
-const STORAGE_KEY_INTRADAY_ACTIVE = "nse_intraday_active_trades_v1";
-const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v1";
+const STORAGE_KEY_INTRADAY_ACTIVE = "nse_intraday_active_trades_v3";
+const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v3";
 
 export interface ActiveIntradayTrade {
   tradeId: string;
@@ -81,14 +81,14 @@ export default function IntradayDeskView() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [lastSyncIst, setLastSyncIst] = useState<string | null>(null);
   const [deskNotice, setDeskNotice] = useState<string | null>(null);
-  const [autoExecuteIntraday, setAutoExecuteIntraday] = useState<boolean>(true);
+  const [autoExecuteIntraday, setAutoExecuteIntraday] = useState<boolean>(false);
   const [autoSquareOff315Enabled, setAutoSquareOff315Enabled] = useState<boolean>(true);
   const [istClockInfo, setIstClockInfo] = useState(() => checkIntradaySquareOffWindow());
 
-  // Sub-tabs inside Intraday Desk (default to ACTIVE_TRADES so auto-active shares are immediately visible)
+  // Sub-tabs inside Intraday Desk
   const [activeSubTab, setActiveSubTab] = useState<
     "SCANNER" | "ACTIVE_TRADES" | "NEWS_REVERSAL_READER" | "HISTORY"
-  >("ACTIVE_TRADES");
+  >("SCANNER");
 
   // Filters
   const [strategyFilter, setStrategyFilter] = useState<"ALL" | IntradayStrategyId>("ALL");
@@ -104,23 +104,32 @@ export default function IntradayDeskView() {
     historyTradesRef.current = historyTrades;
   }, [historyTrades]);
 
-  // 1. Hydrate isolated Intraday localStorage state
+  // 1. Hydrate isolated Intraday localStorage state (Purge legacy _v1/_v2 keys)
   useEffect(() => {
     try {
+      ["nse_intraday_active_trades_v1", "nse_intraday_history_trades_v1", "nse_intraday_active_trades_v2", "nse_intraday_history_trades_v2"].forEach((k) =>
+        localStorage.removeItem(k)
+      );
       const savedActive = localStorage.getItem(STORAGE_KEY_INTRADAY_ACTIVE);
       if (savedActive) {
         const parsed = JSON.parse(savedActive);
         if (Array.isArray(parsed)) {
-          setActiveTrades(parsed);
-          activeTradesRef.current = parsed;
+          const clean = parsed.filter(
+            (t: any) => t && !String(t.tradeId || "").startsWith("AUDIT-") && !String(t.tradeId || "").startsWith("AUTO-")
+          );
+          setActiveTrades(clean);
+          activeTradesRef.current = clean;
         }
       }
       const savedHistory = localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY);
       if (savedHistory) {
         const parsedH = JSON.parse(savedHistory);
         if (Array.isArray(parsedH)) {
-          setHistoryTrades(parsedH);
-          historyTradesRef.current = parsedH;
+          const cleanH = parsedH.filter(
+            (t: any) => t && !String(t.tradeId || "").startsWith("AUDIT-") && !String(t.tradeId || "").startsWith("AUTO-")
+          );
+          setHistoryTrades(cleanH);
+          historyTradesRef.current = cleanH;
         } else {
           setHistoryTrades([]);
           historyTradesRef.current = [];

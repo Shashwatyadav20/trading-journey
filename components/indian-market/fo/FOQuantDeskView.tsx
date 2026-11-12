@@ -41,8 +41,8 @@ import {
 import { useLiveFoTicker } from "@/hooks/useLiveFoTicker";
 import FOLiveCommandCenter, { FlashValue } from "./FOLiveCommandCenter";
 
-const STORAGE_KEY_FO_ACTIVE_SPREADS = "nse_fo_quant_active_spreads_v1";
-const STORAGE_KEY_FO_CLOSED_HISTORY = "nse_fo_quant_closed_history_v1";
+const STORAGE_KEY_FO_ACTIVE_SPREADS = "nse_fo_quant_active_spreads_v3";
+const STORAGE_KEY_FO_CLOSED_HISTORY = "nse_fo_quant_closed_history_v3";
 
 type FODeskSubTab =
   | "LIVE_COMMAND_CENTER"
@@ -108,19 +108,42 @@ export default function FOQuantDeskView() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Load isolated F&O positions from localStorage
+  // Load isolated F&O positions from localStorage (Purge legacy _v1/_v2 keys)
   useEffect(() => {
     try {
+      [
+        "nse_fo_quant_active_spreads_v1",
+        "nse_fo_quant_closed_history_v1",
+        "nse_fo_quant_active_spreads_v2",
+        "nse_fo_quant_closed_history_v2",
+      ].forEach((k) => localStorage.removeItem(k));
+
       const rawActive = localStorage.getItem(STORAGE_KEY_FO_ACTIVE_SPREADS);
       if (rawActive) {
         const parsed = JSON.parse(rawActive);
-        if (Array.isArray(parsed)) setActivePositions(parsed);
+        if (Array.isArray(parsed)) {
+          setActivePositions(
+            parsed.filter(
+              (p: any) =>
+                p &&
+                !String(p.positionId || "").startsWith("FO-EXIT-") &&
+                !String(p.positionId || "").startsWith("FO-ACT-")
+            )
+          );
+        }
       }
       const rawClosed = localStorage.getItem(STORAGE_KEY_FO_CLOSED_HISTORY);
       if (rawClosed) {
         const parsed = JSON.parse(rawClosed);
         if (Array.isArray(parsed)) {
-          setClosedHistory(parsed);
+          setClosedHistory(
+            parsed.filter(
+              (p: any) =>
+                p &&
+                !String(p.positionId || "").startsWith("FO-EXIT-") &&
+                !String(p.positionId || "").startsWith("FO-ACT-")
+            )
+          );
         } else {
           setClosedHistory([]);
         }

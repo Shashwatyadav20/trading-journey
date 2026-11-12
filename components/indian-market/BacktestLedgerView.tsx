@@ -5,30 +5,113 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  TrendingUp,
-  TrendingDown,
   Clock,
   Search,
-  Filter,
   ShieldCheck,
   Zap,
   Crosshair,
   Layers,
-  CheckCircle2,
-  XCircle,
   ArrowUpRight,
-  Sparkles,
   BarChart3,
   CalendarDays,
-  FileSpreadsheet,
+  Trash2,
 } from "lucide-react";
 import IMTradeExitAuditModal, { ClosedTradeExitAuditData } from "./IMTradeExitAuditModal";
 
-// LocalStorage Keys for Closed History across all desks
-const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v1";
-const STORAGE_KEY_SWING_HISTORY = "nse_swing_backtest_history_v15";
-const STORAGE_KEY_SWING_HISTORY_LEGACY = "backtest_portfolio_history_v2";
-const STORAGE_KEY_FO_HISTORY = "nse_fo_quant_closed_history_v1";
+// Fresh _v3 LocalStorage Keys for Closed History across all desks (Zero Legacy Fallback)
+export const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v3";
+export const STORAGE_KEY_SWING_HISTORY = "nse_swing_backtest_history_v3";
+export const STORAGE_KEY_FO_HISTORY = "nse_fo_quant_closed_history_v3";
+
+// All legacy keys that may hold cached synthetic/seed/auto-executed trades
+export const LEGACY_POLLUTED_STORAGE_KEYS = [
+  "nse_intraday_active_trades_v1",
+  "nse_intraday_history_trades_v1",
+  "nse_intraday_active_trades_v2",
+  "nse_intraday_history_trades_v2",
+  "nse_swing_active_trades_v15",
+  "nse_swing_backtest_history_v15",
+  "nse_swing_active_trades_v12",
+  "nse_swing_backtest_history_v12",
+  "nse_swing_active_trades_v1",
+  "nse_swing_backtest_history_v1",
+  "active_portfolio_trades_v2",
+  "backtest_portfolio_history_v2",
+  "nse_fo_quant_active_spreads_v1",
+  "nse_fo_quant_closed_history_v1",
+  "nse_fo_quant_active_spreads_v2",
+  "nse_fo_quant_closed_history_v2",
+];
+
+// Prefixes used by historical mock seeds or auto-execution engines
+const SYNTHETIC_ID_PREFIXES = [
+  "AUDIT-",
+  "FO-EXIT-",
+  "AUTO-",
+  "INTRA-ACT-",
+  "SWING-ACT-",
+  "FO-ACT-",
+];
+
+export function isGenuineUserTrade(item: any): boolean {
+  if (!item || typeof item !== "object") return false;
+  const id = String(item.tradeId || item.positionId || item.id || "").toUpperCase();
+  if (!id) return false;
+  for (const prefix of SYNTHETIC_ID_PREFIXES) {
+    if (id.startsWith(prefix)) return false;
+  }
+  const entry = Number(item.entryPrice ?? item.entrySpotPrice ?? 0);
+  if (!Number.isFinite(entry) || entry <= 0) return false;
+  return true;
+}
+
+/**
+ * Hard-resets and wipes out any legacy or synthetic mock records in localStorage.
+ */
+export function purgeLegacyAndSyntheticStorage(): void {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return;
+
+  // 1. Delete all legacy storage keys unconditionally
+  for (const legacyKey of LEGACY_POLLUTED_STORAGE_KEYS) {
+    try {
+      localStorage.removeItem(legacyKey);
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  // 2. Sanitize current _v3 keys if any synthetic/mock entries exist inside them
+  const v3Keys = [
+    STORAGE_KEY_INTRADAY_HISTORY,
+    STORAGE_KEY_SWING_HISTORY,
+    STORAGE_KEY_FO_HISTORY,
+    "nse_intraday_active_trades_v3",
+    "nse_swing_active_trades_v3",
+    "nse_fo_quant_active_spreads_v3",
+  ];
+
+  for (const key of v3Keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        localStorage.removeItem(key);
+        continue;
+      }
+      const genuineOnly = parsed.filter(isGenuineUserTrade);
+      if (genuineOnly.length !== parsed.length) {
+        if (genuineOnly.length === 0) {
+          localStorage.removeItem(key);
+        } else {
+          localStorage.setItem(key, JSON.stringify(genuineOnly));
+        }
+      }
+    } catch {
+      localStorage.removeItem(key);
+    }
+  }
+}
 
 export type DeskType = "INTRADAY" | "SWING" | "FO";
 
@@ -84,16 +167,25 @@ const DESK_CONFIG: Record<
   },
 };
 
-function normalizeDateKey(rawDate?: string): string {
+export function normalizeDateKey(rawDate?: string): string {
   if (!rawDate) {
     return new Date().toISOString().slice(0, 10);
   }
+  const trimmed = rawDate.trim();
   // If already YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
-    return rawDate.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
   }
-  // Try parsing ISO or locale string
-  const parsed = Date.parse(rawDate);
+  // Check Indian locale DD/MM/YYYY format (e.g., "12/11/2026, 5:10:00 pm")
+  const ddmmyyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (ddmmyyyy) {
+    const day = ddmmyyyy[1].padStart(2, "0");
+    const month = ddmmyyyy[2].padStart(2, "0");
+    const year = ddmmyyyy[3];
+    return `${year}-${month}-${day}`;
+  }
+  // Try parsing ISO or standard date string
+  const parsed = Date.parse(trimmed);
   if (!Number.isNaN(parsed)) {
     return new Date(parsed).toISOString().slice(0, 10);
   }
@@ -101,22 +193,29 @@ function normalizeDateKey(rawDate?: string): string {
 }
 
 // Convert heterogeneous desk trade objects into UnifiedLedgerTrade format
-// Pure zero-mock parser: if no live trades were executed, returns an empty array []
-function parseAllDeskTrades(): UnifiedLedgerTrade[] {
+// Pure zero-mock parser: only reads _v3 keys and filters via isGenuineUserTrade
+export function parseAllDeskTrades(): UnifiedLedgerTrade[] {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") {
+    return [];
+  }
+
+  // Ensure legacy polluted keys are purged before reading
+  purgeLegacyAndSyntheticStorage();
+
   const unified: UnifiedLedgerTrade[] = [];
 
-  // 1. INTRADAY DESK TRADES
+  // 1. INTRADAY DESK TRADES (_v3 only)
   try {
-    const rawIntraday = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY) : null;
+    const rawIntraday = localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY);
     const parsed = rawIntraday ? JSON.parse(rawIntraday) : [];
-    const intradayList = Array.isArray(parsed) ? parsed : [];
-    
+    const intradayList = Array.isArray(parsed) ? parsed.filter(isGenuineUserTrade) : [];
+
     intradayList.forEach((t: any, idx: number) => {
       const entry = Number(t.entryPrice || 0);
       const exit = Number(t.exitPrice || t.currentMarketPrice || entry);
       const cleanSym = String(t.cleanSymbol || t.symbol || "INTRADAY").replace(/\.NS$/i, "").replace(/\.BO$/i, "");
-      const dKey = normalizeDateKey(t.exitTime || t.executionTime || t.lockedDateKey || t.dateKey);
-      
+      const dKey = normalizeDateKey(t.lockedDateKey || t.dateKey || t.exitTime || t.executionTime);
+
       unified.push({
         tradeId: t.tradeId || `INTRADAY-${cleanSym}-${idx}`,
         desk: "INTRADAY",
@@ -152,20 +251,17 @@ function parseAllDeskTrades(): UnifiedLedgerTrade[] {
     console.error("Error loading intraday history:", err);
   }
 
-  // 2. INSTITUTIONAL SWING DESK TRADES (4H OB & Purple Box)
+  // 2. INSTITUTIONAL SWING DESK TRADES (_v3 only - zero legacy fallback)
   try {
-    const rawSwing = typeof window !== "undefined"
-      ? localStorage.getItem(STORAGE_KEY_SWING_HISTORY) ||
-        localStorage.getItem(STORAGE_KEY_SWING_HISTORY_LEGACY)
-      : null;
+    const rawSwing = localStorage.getItem(STORAGE_KEY_SWING_HISTORY);
     const parsed = rawSwing ? JSON.parse(rawSwing) : [];
-    const swingList = Array.isArray(parsed) ? parsed : [];
+    const swingList = Array.isArray(parsed) ? parsed.filter(isGenuineUserTrade) : [];
 
     swingList.forEach((t: any, idx: number) => {
       const entry = Number(t.entryPrice || 0);
       const exit = Number(t.exitPrice || t.currentPrice || t.currentMarketPrice || entry);
       const cleanSym = String(t.cleanSymbol || t.symbol || "SWING").replace(/\.NS$/i, "").replace(/\.BO$/i, "");
-      const dKey = normalizeDateKey(t.exitDate || t.exitTime || t.entryDate || t.lockedDateKey || t.dateKey);
+      const dKey = normalizeDateKey(t.lockedDateKey || t.dateKey || t.exitDate || t.entryDate || t.exitTime);
 
       unified.push({
         tradeId: t.tradeId || t.id || `SWING-${cleanSym}-${idx}`,
@@ -202,14 +298,14 @@ function parseAllDeskTrades(): UnifiedLedgerTrade[] {
     console.error("Error loading swing history:", err);
   }
 
-  // 3. F&O QUANT DESK SPREADS
+  // 3. F&O QUANT DESK SPREADS (_v3 only)
   try {
-    const rawFO = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY_FO_HISTORY) : null;
+    const rawFO = localStorage.getItem(STORAGE_KEY_FO_HISTORY);
     const parsed = rawFO ? JSON.parse(rawFO) : [];
-    const foList = Array.isArray(parsed) ? parsed : [];
+    const foList = Array.isArray(parsed) ? parsed.filter(isGenuineUserTrade) : [];
 
     foList.forEach((pos: any, idx: number) => {
-      const dKey = normalizeDateKey(pos.exitTimestamp || pos.entryTimestamp || pos.entryDateKey);
+      const dKey = normalizeDateKey(pos.entryDateKey || pos.exitTimestamp || pos.entryTimestamp);
       const pnl = Number(pos.realizedPnLINR ?? 0);
       const margin = Math.max(1, Number(pos.marginBlockedINR || 0));
       const pnlPct = Number(((pnl / margin) * 100).toFixed(2));
@@ -275,8 +371,9 @@ export default function BacktestLedgerView({
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [viewScope, setViewScope] = useState<"SELECTED_DAY" | "ENTIRE_MONTH">("SELECTED_DAY");
 
-  // Load trades from localStorage
+  // Load trades from localStorage (after purging any legacy/synthetic entries)
   const loadTrades = useCallback(() => {
+    purgeLegacyAndSyntheticStorage();
     const list = parseAllDeskTrades();
     setTrades(list);
   }, []);
@@ -286,6 +383,15 @@ export default function BacktestLedgerView({
     window.addEventListener("storage", loadTrades);
     return () => window.removeEventListener("storage", loadTrades);
   }, [loadTrades]);
+
+  const handleResetAllHistory = () => {
+    if (typeof window === "undefined") return;
+    purgeLegacyAndSyntheticStorage();
+    localStorage.removeItem(STORAGE_KEY_INTRADAY_HISTORY);
+    localStorage.removeItem(STORAGE_KEY_SWING_HISTORY);
+    localStorage.removeItem(STORAGE_KEY_FO_HISTORY);
+    setTrades([]);
+  };
 
   // Aggregate daily statistics for the calendar heatmap
   const dailyStatsMap = useMemo(() => {
@@ -582,23 +688,35 @@ export default function BacktestLedgerView({
           </div>
         </div>
 
-        {/* Month Selector Buttons */}
-        <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-800 rounded-xl p-1.5 self-stretch md:self-auto justify-between">
-          <button
-            onClick={handlePrevMonth}
-            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
-            title="Previous Month"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="text-xs font-bold text-white px-3 tracking-wide">{monthTitle}</span>
-          <button
-            onClick={handleNextMonth}
-            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
-            title="Next Month"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+        {/* Month Selector & Reset Buttons */}
+        <div className="flex items-center gap-2 self-stretch md:self-auto">
+          {trades.length > 0 && (
+            <button
+              onClick={handleResetAllHistory}
+              className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+              title="Clear all recorded history"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear Ledger</span>
+            </button>
+          )}
+          <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-800 rounded-xl p-1.5 justify-between">
+            <button
+              onClick={handlePrevMonth}
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+              title="Previous Month"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-bold text-white px-3 tracking-wide">{monthTitle}</span>
+            <button
+              onClick={handleNextMonth}
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+              title="Next Month"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -608,7 +726,7 @@ export default function BacktestLedgerView({
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="w-4 h-4 text-cyan-400 flex-shrink-0" />
             <span>
-              <strong className="text-cyan-300">Zero Mock Data Integrity:</strong> The Backtest Ledger initializes with zero records. Trades are recorded only when a position is deployed and settled via Target, Stop Loss, or Manual Exit from the live trading desks.
+              <strong className="text-cyan-300">Zero Mock Data Integrity:</strong> The Backtest Ledger initializes with zero records. Trades are recorded only when a position is explicitly deployed and settled via Target, Stop Loss, or Manual Exit from the live trading desks.
             </span>
           </div>
         </div>

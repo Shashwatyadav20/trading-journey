@@ -49,12 +49,12 @@ import {
     evaluateSingleStock4HRetest,
 } from "../../../lib/indian/institutionalSwingEngine";
 
-const STORAGE_KEY_ACTIVE_TRADES = "nse_swing_active_trades_v15";
-const STORAGE_KEY_BACKTEST_HISTORY = "nse_swing_backtest_history_v15";
-const STORAGE_KEY_RISK_SETTINGS = "nse_swing_risk_settings_v1";
-const STORAGE_KEY_SAME_DAY_FREEZE = "nse_swing_same_day_freeze_v1";
-const LEGACY_ACTIVE_TRADE_KEYS = ["nse_swing_active_trades_v12", "nse_swing_active_trades_v1"];
-const LEGACY_HISTORY_KEYS = ["nse_swing_backtest_history_v12", "nse_swing_backtest_history_v1"];
+const STORAGE_KEY_ACTIVE_TRADES = "nse_swing_active_trades_v3";
+const STORAGE_KEY_BACKTEST_HISTORY = "nse_swing_backtest_history_v3";
+const STORAGE_KEY_RISK_SETTINGS = "nse_swing_risk_settings_v3";
+const STORAGE_KEY_SAME_DAY_FREEZE = "nse_swing_same_day_freeze_v3";
+const LEGACY_ACTIVE_TRADE_KEYS: string[] = [];
+const LEGACY_HISTORY_KEYS: string[] = [];
 
 function readJsonArrayFromStorage<T>(primaryKey: string, legacyKeys: string[]): T[] | null {
     const keys = [primaryKey, ...legacyKeys];
@@ -63,7 +63,15 @@ function readJsonArrayFromStorage<T>(primaryKey: string, legacyKeys: string[]): 
         if (!raw) continue;
         try {
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed as T[];
+            if (Array.isArray(parsed)) {
+                const clean = parsed.filter(
+                    (t: any) =>
+                        t &&
+                        !String(t.tradeId || "").startsWith("AUDIT-") &&
+                        !String(t.tradeId || "").startsWith("AUTO-")
+                );
+                if (clean.length > 0) return clean as T[];
+            }
         } catch {
             // skip corrupt
         }
