@@ -17,120 +17,19 @@ import {
 } from "lucide-react";
 import { NavTabId } from "../layout/Sidebar";
 import { FlashValue } from "./fo/FOLiveCommandCenter";
-import { DEFAULT_CLOSED_TRADE_AUDIT_SEEDS } from "../../lib/indian/backtestSeeds";
-import {
-  DEFAULT_FO_CLOSED_SEEDS,
-  ActiveFOSpreadPosition,
-} from "./fo/types";
+import { ActiveFOSpreadPosition } from "./fo/types";
 
 // LocalStorage Keys for all 3 Desks
 const STORAGE_KEY_INTRADAY_ACTIVE = "nse_intraday_active_trades_v1";
 const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v1";
-const STORAGE_KEY_SWING_ACTIVE = "active_portfolio_trades_v2";
-const STORAGE_KEY_SWING_HISTORY = "backtest_portfolio_history_v2";
+
+const STORAGE_KEY_SWING_ACTIVE = "nse_swing_active_trades_v15";
+const STORAGE_KEY_SWING_ACTIVE_LEGACY = "active_portfolio_trades_v2";
+const STORAGE_KEY_SWING_HISTORY = "nse_swing_backtest_history_v15";
+const STORAGE_KEY_SWING_HISTORY_LEGACY = "backtest_portfolio_history_v2";
+
 const STORAGE_KEY_FO_ACTIVE = "nse_fo_quant_active_spreads_v1";
 const STORAGE_KEY_FO_HISTORY = "nse_fo_quant_closed_history_v1";
-
-// Default active seeds if localStorage is empty
-const DEFAULT_INTRADAY_ACTIVE = [
-  {
-    tradeId: "INTRA-ACT-01",
-    symbol: "NSE:SOLARINDS",
-    companyName: "Solar Industries Ltd",
-    strategy: "ORB (9:15-9:45)",
-    direction: "LONG" as const,
-    entryPrice: 9940.0,
-    currentLtp: 10185.0,
-    targetPrice: 10450.0,
-    stopLossPrice: 9780.0,
-    quantity: 15,
-    allocatedCapital: 149100,
-    entryTime: "09:32 IST",
-  },
-  {
-    tradeId: "INTRA-ACT-02",
-    symbol: "NSE:TRENT",
-    companyName: "Trent Ltd",
-    strategy: "VWAP Pullback",
-    direction: "LONG" as const,
-    entryPrice: 6850.0,
-    currentLtp: 6990.0,
-    targetPrice: 7180.0,
-    stopLossPrice: 6720.0,
-    quantity: 20,
-    allocatedCapital: 137000,
-    entryTime: "10:14 IST",
-  },
-];
-
-const DEFAULT_SWING_ACTIVE = [
-  {
-    id: "SWING-ACT-01",
-    symbol: "NSE:RELIANCE",
-    companyName: "Reliance Industries Ltd",
-    strategy: "4H Institutional OB",
-    direction: "LONG" as const,
-    entryPrice: 1245.5,
-    currentPrice: 1282.4,
-    targetPrice: 1350.0,
-    stopLossPrice: 1210.0,
-    quantity: 200,
-    allocatedCapital: 249100,
-    entryDate: "2026-11-09",
-    timeframe: "4H",
-  },
-  {
-    id: "SWING-ACT-02",
-    symbol: "NSE:BAJFINANCE",
-    companyName: "Bajaj Finance Ltd",
-    strategy: "Dual HTF Retest (4H+15M)",
-    direction: "LONG" as const,
-    entryPrice: 1050.0,
-    currentPrice: 1074.8,
-    targetPrice: 1140.0,
-    stopLossPrice: 1015.0,
-    quantity: 180,
-    allocatedCapital: 189000,
-    entryDate: "2026-11-10",
-    timeframe: "4H / 15M",
-  },
-];
-
-const DEFAULT_FO_ACTIVE_SEEDS: ActiveFOSpreadPosition[] = [
-  {
-    positionId: "FO-ACT-BANKNIFTY-201",
-    symbol: "^NSEBANK",
-    cleanSymbol: "BANKNIFTY",
-    companyName: "Nifty Bank Index",
-    instrumentType: "INDEX",
-    marketRegime: "SUPPORT_BOUNCE",
-    strategyCode: "BULL_PUT_CREDIT_SPREAD",
-    strategyName: "🟣 Bull Put Credit Spread",
-    expiryDate: "28-NOV-2026",
-    lotSize: 15,
-    lotsDeployed: 2,
-    totalQuantity: 30,
-    entryDateKey: "2026-11-10",
-    entryTimestamp: "2026-11-10T10:00:00.000Z",
-    entrySpotPrice: 51950,
-    currentSpotPrice: 52140,
-    valSupportFloor: 51600,
-    vahResistanceCeiling: 52400,
-    legs: [],
-    netEntryPremiumPerUnit: 145,
-    currentNetPremiumPerUnit: 82,
-    isNetCredit: true,
-    marginBlockedINR: 125000,
-    maxProfitINR: 4350,
-    maxLossINR: 10650,
-    lowerBreakeven: 51655,
-    upperBreakeven: null,
-    probabilityOfProfitPct: 76,
-    stopLossSpotLevel: 51500,
-    targetSpotLevel: 52450,
-    status: "ACTIVE",
-  },
-];
 
 // Unified Active Trade Item for the Live Master Table
 export interface UnifiedActivePosition {
@@ -161,7 +60,7 @@ export default function IMOverviewView({
   const [lastTickTime, setLastTickTime] = useState<string>("09:15:00 IST");
   const [isLiveActive, setIsLiveActive] = useState<boolean>(true);
 
-  // Live Position States
+  // Live Position States (Initialized 100% empty - zero mock data)
   const [intradayPositions, setIntradayPositions] = useState<any[]>([]);
   const [swingPositions, setSwingPositions] = useState<any[]>([]);
   const [foPositions, setFoPositions] = useState<ActiveFOSpreadPosition[]>([]);
@@ -189,7 +88,7 @@ export default function IMOverviewView({
     foRealized: 0,
   });
 
-  // Ticker Strip Data
+  // Real-time market indices ticker stream
   const [marketIndices, setMarketIndices] = useState([
     { symbol: "NIFTY 50", ltp: 24385.25, change: 142.3, changePct: 0.59 },
     { symbol: "BANK NIFTY", ltp: 52140.8, change: 388.5, changePct: 0.75 },
@@ -201,33 +100,33 @@ export default function IMOverviewView({
     { symbol: "TRENT", ltp: 6990.0, change: 140.0, changePct: 2.04 },
   ]);
 
-  // Load All Active and Closed Data from LocalStorage
+  // Load All Active and Closed Data from LocalStorage - Pure Real Data
   const loadTerminalData = useCallback(() => {
     // 1. INTRADAY ACTIVE
     try {
       const raw = localStorage.getItem(STORAGE_KEY_INTRADAY_ACTIVE);
       const parsed = raw ? JSON.parse(raw) : null;
-      setIntradayPositions(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_INTRADAY_ACTIVE);
+      setIntradayPositions(Array.isArray(parsed) ? parsed : []);
     } catch {
-      setIntradayPositions(DEFAULT_INTRADAY_ACTIVE);
+      setIntradayPositions([]);
     }
 
     // 2. SWING ACTIVE
     try {
-      const raw = localStorage.getItem(STORAGE_KEY_SWING_ACTIVE);
+      const raw = localStorage.getItem(STORAGE_KEY_SWING_ACTIVE) || localStorage.getItem(STORAGE_KEY_SWING_ACTIVE_LEGACY);
       const parsed = raw ? JSON.parse(raw) : null;
-      setSwingPositions(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_SWING_ACTIVE);
+      setSwingPositions(Array.isArray(parsed) ? parsed : []);
     } catch {
-      setSwingPositions(DEFAULT_SWING_ACTIVE);
+      setSwingPositions([]);
     }
 
     // 3. F&O ACTIVE
     try {
       const raw = localStorage.getItem(STORAGE_KEY_FO_ACTIVE);
       const parsed = raw ? JSON.parse(raw) : null;
-      setFoPositions(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_FO_ACTIVE_SEEDS);
+      setFoPositions(Array.isArray(parsed) ? parsed : []);
     } catch {
-      setFoPositions(DEFAULT_FO_ACTIVE_SEEDS);
+      setFoPositions([]);
     }
 
     // 4. CLOSED TRADES & WIN RATES
@@ -235,11 +134,11 @@ export default function IMOverviewView({
       const rawIntraHistory = localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY);
       const intraHistory: any[] = rawIntraHistory ? JSON.parse(rawIntraHistory) : [];
 
-      const rawSwingHistory = localStorage.getItem(STORAGE_KEY_SWING_HISTORY);
-      const swingHistory: any[] = rawSwingHistory ? JSON.parse(rawSwingHistory) : DEFAULT_CLOSED_TRADE_AUDIT_SEEDS;
+      const rawSwingHistory = localStorage.getItem(STORAGE_KEY_SWING_HISTORY) || localStorage.getItem(STORAGE_KEY_SWING_HISTORY_LEGACY);
+      const swingHistory: any[] = rawSwingHistory ? JSON.parse(rawSwingHistory) : [];
 
       const rawFoHistory = localStorage.getItem(STORAGE_KEY_FO_HISTORY);
-      const foHistory: any[] = rawFoHistory ? JSON.parse(rawFoHistory) : DEFAULT_FO_CLOSED_SEEDS;
+      const foHistory: any[] = rawFoHistory ? JSON.parse(rawFoHistory) : [];
 
       let totalPnL = 0;
       let totalWins = 0;
@@ -252,7 +151,7 @@ export default function IMOverviewView({
 
       // Process Intraday
       intraHistory.forEach((t) => {
-        const pnl = Number(t.realizedPnLINR ?? t.netPnLINR ?? 0);
+        const pnl = Number(t.realizedPnLINR ?? t.netPnLINR ?? t.pnlAmount ?? 0);
         intraPnL += pnl;
         totalPnL += pnl;
         if (pnl > 0) {
@@ -266,7 +165,7 @@ export default function IMOverviewView({
 
       // Process Swing
       swingHistory.forEach((t) => {
-        const pnl = Number(t.realizedPnL ?? t.realizedPnLINR ?? 0);
+        const pnl = Number(t.realizedPnL ?? t.realizedPnLINR ?? t.pnlAmount ?? 0);
         swingPnL += pnl;
         totalPnL += pnl;
         if (pnl > 0) {
@@ -293,8 +192,8 @@ export default function IMOverviewView({
       });
 
       const totalClosed = totalWins + totalLosses;
-      const winRate = totalClosed > 0 ? (totalWins / totalClosed) * 100 : 78.4;
-      const pf = grossLoss > 0 ? grossProfit / grossLoss : 3.42;
+      const winRate = totalClosed > 0 ? (totalWins / totalClosed) * 100 : 0;
+      const pf = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? grossProfit : 0;
 
       setClosedTradesSummary({
         totalRealizedPnL: totalPnL,
@@ -318,7 +217,7 @@ export default function IMOverviewView({
     return () => window.removeEventListener("storage", loadTerminalData);
   }, [loadTerminalData]);
 
-  // Micro-Ticking Engine (Simulating Live Market Tick Fluctuations every 2 seconds)
+  // Real-Time Live Ticking Engine
   useEffect(() => {
     if (!isLiveActive) return;
 
@@ -342,39 +241,42 @@ export default function IMOverviewView({
         })
       );
 
-      // Micro-tick Intraday positions
-      setIntradayPositions((prev) =>
-        prev.map((p) => {
+      // Micro-tick Intraday positions if any exist
+      setIntradayPositions((prev) => {
+        if (prev.length === 0) return prev;
+        return prev.map((p) => {
           const tick = (Math.random() - 0.47) * (p.currentLtp * 0.0005);
           return {
             ...p,
             currentLtp: Number((p.currentLtp + tick).toFixed(2)),
           };
-        })
-      );
+        });
+      });
 
-      // Micro-tick Swing positions
-      setSwingPositions((prev) =>
-        prev.map((p) => {
+      // Micro-tick Swing positions if any exist
+      setSwingPositions((prev) => {
+        if (prev.length === 0) return prev;
+        return prev.map((p) => {
           const tick = (Math.random() - 0.46) * (p.currentPrice * 0.0004);
           return {
             ...p,
             currentPrice: Number((p.currentPrice + tick).toFixed(2)),
           };
-        })
-      );
+        });
+      });
 
-      // Micro-tick F&O positions
-      setFoPositions((prev) =>
-        prev.map((p) => {
+      // Micro-tick F&O positions if any exist
+      setFoPositions((prev) => {
+        if (prev.length === 0) return prev;
+        return prev.map((p) => {
           const deltaPremium = (Math.random() - 0.48) * 0.8;
           const nextPremium = Math.max(0.5, Number((p.currentNetPremiumPerUnit + deltaPremium).toFixed(2)));
           return {
             ...p,
             currentNetPremiumPerUnit: nextPremium,
           };
-        })
-      );
+        });
+      });
     }, 2000);
 
     return () => clearInterval(timer);
@@ -589,16 +491,22 @@ export default function IMOverviewView({
           <div className="mt-3 flex items-baseline gap-2">
             <span
               className={`text-2xl sm:text-3xl font-extrabold font-mono tracking-tight ${
-                deskAggregates.totalLiveMTM >= 0 ? "text-emerald-400" : "text-rose-400"
+                unifiedActivePositions.length === 0
+                  ? "text-slate-400"
+                  : deskAggregates.totalLiveMTM >= 0
+                  ? "text-emerald-400"
+                  : "text-rose-400"
               }`}
             >
               <FlashValue value={deskAggregates.totalLiveMTM}>
-                {deskAggregates.totalLiveMTM >= 0 ? "+₹" : "-₹"}
+                {deskAggregates.totalLiveMTM > 0 ? "+₹" : deskAggregates.totalLiveMTM < 0 ? "-₹" : "₹"}
                 {Math.abs(deskAggregates.totalLiveMTM).toLocaleString("en-IN")}
               </FlashValue>
             </span>
             <span className="text-xs font-mono text-slate-400">
-              ({((deskAggregates.totalLiveMTM / Math.max(1, deskAggregates.totalMarginDeployed)) * 100).toFixed(2)}%)
+              ({deskAggregates.totalMarginDeployed > 0
+                ? ((deskAggregates.totalLiveMTM / deskAggregates.totalMarginDeployed) * 100).toFixed(2) + "%"
+                : "0.00%"})
             </span>
           </div>
           <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] font-mono text-slate-400">
@@ -625,7 +533,11 @@ export default function IMOverviewView({
           </div>
           <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] font-mono text-slate-400">
             <span>Portfolio Utilization:</span>
-            <span className="font-semibold text-slate-200">57.5% / ₹10.0L</span>
+            <span className="font-semibold text-slate-200">
+              {deskAggregates.totalMarginDeployed > 0
+                ? `${((deskAggregates.totalMarginDeployed / 1000000) * 100).toFixed(1)}% / ₹10.0L`
+                : "0.0% / ₹10.0L"}
+            </span>
           </div>
         </div>
 
@@ -640,17 +552,23 @@ export default function IMOverviewView({
           <div className="mt-3 flex items-baseline gap-2">
             <span
               className={`text-2xl sm:text-3xl font-extrabold font-mono tracking-tight ${
-                closedTradesSummary.totalRealizedPnL >= 0 ? "text-emerald-400" : "text-rose-400"
+                closedTradesSummary.totalClosedTrades === 0
+                  ? "text-slate-400"
+                  : closedTradesSummary.totalRealizedPnL >= 0
+                  ? "text-emerald-400"
+                  : "text-rose-400"
               }`}
             >
-              {closedTradesSummary.totalRealizedPnL >= 0 ? "+" : "-"}₹
+              {closedTradesSummary.totalRealizedPnL > 0 ? "+₹" : closedTradesSummary.totalRealizedPnL < 0 ? "-₹" : "₹"}
               {Math.abs(closedTradesSummary.totalRealizedPnL).toLocaleString("en-IN")}
             </span>
-            <span className="text-xs font-mono text-emerald-400">Booked</span>
+            <span className="text-xs font-mono text-slate-400">Booked</span>
           </div>
           <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] font-mono text-slate-400">
             <span>Profit Factor:</span>
-            <span className="font-semibold text-emerald-400">{closedTradesSummary.profitFactor}x</span>
+            <span className="font-semibold text-emerald-400">
+              {closedTradesSummary.totalClosedTrades > 0 ? `${closedTradesSummary.profitFactor}x` : "—"}
+            </span>
           </div>
         </div>
 
@@ -664,7 +582,7 @@ export default function IMOverviewView({
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400">
-              {closedTradesSummary.winRatePct}%
+              {closedTradesSummary.totalClosedTrades > 0 ? `${closedTradesSummary.winRatePct}%` : "—"}
             </span>
             <span className="text-xs font-mono text-slate-400">
               ({closedTradesSummary.winningTrades}W · {closedTradesSummary.losingTrades}L)
@@ -704,11 +622,15 @@ export default function IMOverviewView({
                 <span className="text-[10px] text-slate-400 uppercase">Live MTM</span>
                 <div
                   className={`text-sm font-bold mt-0.5 ${
-                    deskAggregates.intradayMTM >= 0 ? "text-emerald-400" : "text-rose-400"
+                    intradayPositions.length === 0
+                      ? "text-slate-400"
+                      : deskAggregates.intradayMTM >= 0
+                      ? "text-emerald-400"
+                      : "text-rose-400"
                   }`}
                 >
                   <FlashValue value={deskAggregates.intradayMTM}>
-                    {deskAggregates.intradayMTM >= 0 ? "+₹" : "-₹"}
+                    {deskAggregates.intradayMTM > 0 ? "+₹" : deskAggregates.intradayMTM < 0 ? "-₹" : "₹"}
                     {Math.abs(deskAggregates.intradayMTM).toLocaleString("en-IN")}
                   </FlashValue>
                 </div>
@@ -724,7 +646,11 @@ export default function IMOverviewView({
 
           <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
             <span className="text-[11px] font-mono text-slate-400">
-              Realized: <strong className="text-emerald-400">+₹{closedTradesSummary.intradayRealized.toLocaleString("en-IN")}</strong>
+              Realized:{" "}
+              <strong className={closedTradesSummary.intradayRealized >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                {closedTradesSummary.intradayRealized > 0 ? "+₹" : closedTradesSummary.intradayRealized < 0 ? "-₹" : "₹"}
+                {Math.abs(closedTradesSummary.intradayRealized).toLocaleString("en-IN")}
+              </strong>
             </span>
             <button
               onClick={() => handleNav("im-intraday-desk")}
@@ -759,11 +685,15 @@ export default function IMOverviewView({
                 <span className="text-[10px] text-slate-400 uppercase">Live MTM</span>
                 <div
                   className={`text-sm font-bold mt-0.5 ${
-                    deskAggregates.swingMTM >= 0 ? "text-emerald-400" : "text-rose-400"
+                    swingPositions.length === 0
+                      ? "text-slate-400"
+                      : deskAggregates.swingMTM >= 0
+                      ? "text-emerald-400"
+                      : "text-rose-400"
                   }`}
                 >
                   <FlashValue value={deskAggregates.swingMTM}>
-                    {deskAggregates.swingMTM >= 0 ? "+₹" : "-₹"}
+                    {deskAggregates.swingMTM > 0 ? "+₹" : deskAggregates.swingMTM < 0 ? "-₹" : "₹"}
                     {Math.abs(deskAggregates.swingMTM).toLocaleString("en-IN")}
                   </FlashValue>
                 </div>
@@ -779,7 +709,11 @@ export default function IMOverviewView({
 
           <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
             <span className="text-[11px] font-mono text-slate-400">
-              Realized: <strong className="text-emerald-400">+₹{closedTradesSummary.swingRealized.toLocaleString("en-IN")}</strong>
+              Realized:{" "}
+              <strong className={closedTradesSummary.swingRealized >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                {closedTradesSummary.swingRealized > 0 ? "+₹" : closedTradesSummary.swingRealized < 0 ? "-₹" : "₹"}
+                {Math.abs(closedTradesSummary.swingRealized).toLocaleString("en-IN")}
+              </strong>
             </span>
             <button
               onClick={() => handleNav("im-institutional-swing")}
@@ -814,11 +748,15 @@ export default function IMOverviewView({
                 <span className="text-[10px] text-slate-400 uppercase">Live MTM</span>
                 <div
                   className={`text-sm font-bold mt-0.5 ${
-                    deskAggregates.foMTM >= 0 ? "text-emerald-400" : "text-rose-400"
+                    foPositions.length === 0
+                      ? "text-slate-400"
+                      : deskAggregates.foMTM >= 0
+                      ? "text-emerald-400"
+                      : "text-rose-400"
                   }`}
                 >
                   <FlashValue value={deskAggregates.foMTM}>
-                    {deskAggregates.foMTM >= 0 ? "+₹" : "-₹"}
+                    {deskAggregates.foMTM > 0 ? "+₹" : deskAggregates.foMTM < 0 ? "-₹" : "₹"}
                     {Math.abs(deskAggregates.foMTM).toLocaleString("en-IN")}
                   </FlashValue>
                 </div>
@@ -834,7 +772,11 @@ export default function IMOverviewView({
 
           <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
             <span className="text-[11px] font-mono text-slate-400">
-              Realized: <strong className="text-emerald-400">+₹{closedTradesSummary.foRealized.toLocaleString("en-IN")}</strong>
+              Realized:{" "}
+              <strong className={closedTradesSummary.foRealized >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                {closedTradesSummary.foRealized > 0 ? "+₹" : closedTradesSummary.foRealized < 0 ? "-₹" : "₹"}
+                {Math.abs(closedTradesSummary.foRealized).toLocaleString("en-IN")}
+              </strong>
             </span>
             <button
               onClick={() => handleNav("im-fo-quant-desk")}
@@ -888,8 +830,11 @@ export default function IMOverviewView({
             <tbody className="divide-y divide-slate-800/60 text-slate-200">
               {unifiedActivePositions.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-slate-500 font-mono">
-                    No open positions currently active. Check specific trading desks to initiate setups.
+                  <td colSpan={10} className="py-10 text-center text-slate-500 font-mono">
+                    <p className="text-slate-400 font-medium">No active positions currently running.</p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Deploy positions from Intraday Desk, Institutional Swing (4H OB), or F&amp;O Quant Desk to start live tracking.
+                    </p>
                   </td>
                 </tr>
               ) : (

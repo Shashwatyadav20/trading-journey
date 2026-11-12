@@ -119,13 +119,13 @@ export default function FOQuantDeskView() {
       const rawClosed = localStorage.getItem(STORAGE_KEY_FO_CLOSED_HISTORY);
       if (rawClosed) {
         const parsed = JSON.parse(rawClosed);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           setClosedHistory(parsed);
         } else {
-          setClosedHistory(DEFAULT_FO_CLOSED_SEEDS);
+          setClosedHistory([]);
         }
       } else {
-        setClosedHistory(DEFAULT_FO_CLOSED_SEEDS);
+        setClosedHistory([]);
       }
     } catch {
       // ignore storage errors

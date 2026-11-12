@@ -457,7 +457,7 @@ export default function IMSwingTradingView() {
             if (parsedHistory && parsedHistory.length > 0) {
                 setBacktestHistory(parsedHistory);
             } else {
-                setBacktestHistory(DEFAULT_CLOSED_TRADE_AUDIT_SEEDS as any);
+                setBacktestHistory([]);
             }
 
             const savedSettings = localStorage.getItem(STORAGE_KEY_RISK_SETTINGS);

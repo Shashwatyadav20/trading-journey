@@ -23,12 +23,11 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import IMTradeExitAuditModal, { ClosedTradeExitAuditData } from "./IMTradeExitAuditModal";
-import { DEFAULT_CLOSED_TRADE_AUDIT_SEEDS } from "../../lib/indian/backtestSeeds";
-import { DEFAULT_FO_CLOSED_SEEDS, ActiveFOSpreadPosition } from "./fo/types";
 
 // LocalStorage Keys for Closed History across all desks
 const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v1";
-const STORAGE_KEY_SWING_HISTORY = "backtest_portfolio_history_v2";
+const STORAGE_KEY_SWING_HISTORY = "nse_swing_backtest_history_v15";
+const STORAGE_KEY_SWING_HISTORY_LEGACY = "backtest_portfolio_history_v2";
 const STORAGE_KEY_FO_HISTORY = "nse_fo_quant_closed_history_v1";
 
 export type DeskType = "INTRADAY" | "SWING" | "FO";
@@ -85,10 +84,9 @@ const DESK_CONFIG: Record<
   },
 };
 
-function normalizeDateKey(rawDate?: string, fallbackOffset = 0): string {
+function normalizeDateKey(rawDate?: string): string {
   if (!rawDate) {
-    const d = new Date(Date.now() - fallbackOffset * 86400000);
-    return d.toISOString().slice(0, 10);
+    return new Date().toISOString().slice(0, 10);
   }
   // If already YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
@@ -103,30 +101,31 @@ function normalizeDateKey(rawDate?: string, fallbackOffset = 0): string {
 }
 
 // Convert heterogeneous desk trade objects into UnifiedLedgerTrade format
+// Pure zero-mock parser: if no live trades were executed, returns an empty array []
 function parseAllDeskTrades(): UnifiedLedgerTrade[] {
   const unified: UnifiedLedgerTrade[] = [];
 
   // 1. INTRADAY DESK TRADES
   try {
-    const rawIntraday = localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY);
+    const rawIntraday = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY) : null;
     const parsed = rawIntraday ? JSON.parse(rawIntraday) : [];
-    const intradayList = Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
+    const intradayList = Array.isArray(parsed) ? parsed : [];
     
     intradayList.forEach((t: any, idx: number) => {
       const entry = Number(t.entryPrice || 0);
       const exit = Number(t.exitPrice || t.currentMarketPrice || entry);
       const cleanSym = String(t.cleanSymbol || t.symbol || "INTRADAY").replace(/\.NS$/i, "").replace(/\.BO$/i, "");
-      const dKey = normalizeDateKey(t.lockedDateKey || t.dateKey || t.executionTime, idx % 5);
+      const dKey = normalizeDateKey(t.exitTime || t.executionTime || t.lockedDateKey || t.dateKey);
       
       unified.push({
-        tradeId: t.tradeId || `INTRADAY-${idx}-${Date.now()}`,
+        tradeId: t.tradeId || `INTRADAY-${cleanSym}-${idx}`,
         desk: "INTRADAY",
         deskLabel: "Intraday Desk (ORB / VWAP)",
         symbol: t.symbol || `${cleanSym}.NS`,
         cleanSymbol: cleanSym,
         companyName: t.companyName || cleanSym,
         dateKey: dKey,
-        executionTime: t.executionTime || "09:22:15 IST",
+        executionTime: t.executionTime || "09:15:00 IST",
         exitTime: t.exitTime || "15:15:00 IST",
         direction: t.direction || "LONG",
         strategyTag: t.strategyUsed || "⚡ 9:15-9:45 ORB Breakout",
@@ -134,10 +133,10 @@ function parseAllDeskTrades(): UnifiedLedgerTrade[] {
         exitPrice: exit,
         targetPrice: t.targetPrice,
         stopLossPrice: t.stopLossPrice,
-        quantity: t.quantity || 100,
-        allocatedCapital: t.allocatedCapital || entry * (t.quantity || 100),
-        realizedPnLINR: t.pnlAmount || 0,
-        realizedPnLPct: t.pnlPercent || 0,
+        quantity: t.quantity || 1,
+        allocatedCapital: t.allocatedCapital || entry * (t.quantity || 1),
+        realizedPnLINR: Number(t.pnlAmount ?? t.netPnLINR ?? 0),
+        realizedPnLPct: Number(t.pnlPercent ?? t.netPnLPct ?? 0),
         status: t.status || "SETTLED",
         auditTag: t.auditTag || t.status,
         exitReason: t.exitReason,
@@ -155,38 +154,39 @@ function parseAllDeskTrades(): UnifiedLedgerTrade[] {
 
   // 2. INSTITUTIONAL SWING DESK TRADES (4H OB & Purple Box)
   try {
-    const rawSwing = localStorage.getItem(STORAGE_KEY_SWING_HISTORY);
-    const parsed = rawSwing ? JSON.parse(rawSwing) : null;
-    const swingList = Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_CLOSED_TRADE_AUDIT_SEEDS;
+    const rawSwing = typeof window !== "undefined"
+      ? localStorage.getItem(STORAGE_KEY_SWING_HISTORY) ||
+        localStorage.getItem(STORAGE_KEY_SWING_HISTORY_LEGACY)
+      : null;
+    const parsed = rawSwing ? JSON.parse(rawSwing) : [];
+    const swingList = Array.isArray(parsed) ? parsed : [];
 
     swingList.forEach((t: any, idx: number) => {
       const entry = Number(t.entryPrice || 0);
-      const exit = Number(t.exitPrice || t.currentMarketPrice || entry);
+      const exit = Number(t.exitPrice || t.currentPrice || t.currentMarketPrice || entry);
       const cleanSym = String(t.cleanSymbol || t.symbol || "SWING").replace(/\.NS$/i, "").replace(/\.BO$/i, "");
-      // Distribute seed dates across November 2026 trading days
-      const defaultDateKeys = ["2026-11-11", "2026-11-10", "2026-11-07", "2026-11-06", "2026-11-05"];
-      const dKey = t.lockedDateKey || t.dateKey ? normalizeDateKey(t.lockedDateKey || t.dateKey) : defaultDateKeys[idx % defaultDateKeys.length];
+      const dKey = normalizeDateKey(t.exitDate || t.exitTime || t.entryDate || t.lockedDateKey || t.dateKey);
 
       unified.push({
-        tradeId: t.tradeId || `SWING-${cleanSym}-${idx}`,
+        tradeId: t.tradeId || t.id || `SWING-${cleanSym}-${idx}`,
         desk: "SWING",
         deskLabel: "Institutional Swing (4H OB)",
         symbol: t.symbol || `${cleanSym}.NS`,
         cleanSymbol: cleanSym,
         companyName: t.companyName || cleanSym,
         dateKey: dKey,
-        executionTime: t.executionTime || "09:35:10 IST",
-        exitTime: t.exitTime || "14:45:00 IST",
+        executionTime: t.executionTime || (t.entryDate ? `${t.entryDate} 09:30 IST` : "09:30:00 IST"),
+        exitTime: t.exitTime || (t.exitDate ? `${t.exitDate} 15:00 IST` : "15:00:00 IST"),
         direction: t.direction || "LONG",
-        strategyTag: t.strategyUsed || "🟣 4H Order Block Retest",
+        strategyTag: t.strategyUsed || t.strategy || "🟣 4H Order Block Retest",
         entryPrice: entry,
         exitPrice: exit,
         targetPrice: t.targetPrice,
         stopLossPrice: t.stopLossPrice,
-        quantity: t.quantity || 100,
-        allocatedCapital: t.allocatedCapital || entry * (t.quantity || 100),
-        realizedPnLINR: t.pnlAmount || 0,
-        realizedPnLPct: t.pnlPercent || 0,
+        quantity: t.quantity || 1,
+        allocatedCapital: t.allocatedCapital || entry * (t.quantity || 1),
+        realizedPnLINR: Number(t.realizedPnL ?? t.pnlAmount ?? t.realizedPnLINR ?? 0),
+        realizedPnLPct: Number(t.realizedPnLPct ?? t.pnlPercent ?? 0),
         status: t.status || "SETTLED",
         auditTag: t.auditTag || t.status,
         exitReason: t.exitReason,
@@ -204,15 +204,15 @@ function parseAllDeskTrades(): UnifiedLedgerTrade[] {
 
   // 3. F&O QUANT DESK SPREADS
   try {
-    const rawFO = localStorage.getItem(STORAGE_KEY_FO_HISTORY);
-    const parsed = rawFO ? JSON.parse(rawFO) : null;
-    const foList = Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_FO_CLOSED_SEEDS;
+    const rawFO = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY_FO_HISTORY) : null;
+    const parsed = rawFO ? JSON.parse(rawFO) : [];
+    const foList = Array.isArray(parsed) ? parsed : [];
 
-    foList.forEach((pos: ActiveFOSpreadPosition, idx: number) => {
-      const defaultDateKeys = ["2026-11-09", "2026-11-08", "2026-11-05", "2026-11-04"];
-      const dKey = pos.entryDateKey ? normalizeDateKey(pos.entryDateKey) : defaultDateKeys[idx % defaultDateKeys.length];
-      const pnl = pos.realizedPnLINR ?? 0;
-      const pnlPct = Number(((pnl / Math.max(1, pos.marginBlockedINR)) * 100).toFixed(2));
+    foList.forEach((pos: any, idx: number) => {
+      const dKey = normalizeDateKey(pos.exitTimestamp || pos.entryTimestamp || pos.entryDateKey);
+      const pnl = Number(pos.realizedPnLINR ?? 0);
+      const margin = Math.max(1, Number(pos.marginBlockedINR || 0));
+      const pnlPct = Number(((pnl / margin) * 100).toFixed(2));
 
       unified.push({
         tradeId: pos.positionId || `FO-${pos.cleanSymbol}-${idx}`,
@@ -222,10 +222,10 @@ function parseAllDeskTrades(): UnifiedLedgerTrade[] {
         cleanSymbol: pos.cleanSymbol,
         companyName: pos.companyName,
         dateKey: dKey,
-        executionTime: pos.entryTimestamp ? new Date(pos.entryTimestamp).toLocaleTimeString("en-IN") : "09:25:00 IST",
+        executionTime: pos.entryTimestamp ? new Date(pos.entryTimestamp).toLocaleTimeString("en-IN") : "09:20:00 IST",
         exitTime: pos.exitTimestamp ? new Date(pos.exitTimestamp).toLocaleTimeString("en-IN") : "15:20:00 IST",
         direction: pos.isNetCredit ? "SHORT" : "LONG",
-        strategyTag: `🟣 ${pos.strategyName}`,
+        strategyTag: `🟣 ${pos.strategyName || "Hedged Spread"}`,
         entryPrice: pos.entrySpotPrice,
         exitPrice: pos.currentSpotPrice,
         targetPrice: pos.targetSpotLevel,
@@ -234,14 +234,14 @@ function parseAllDeskTrades(): UnifiedLedgerTrade[] {
         allocatedCapital: pos.marginBlockedINR,
         realizedPnLINR: pnl,
         realizedPnLPct: pnlPct,
-        status: pos.status,
+        status: pos.status || "SETTLED",
         auditTag: pos.status,
         exitReason: pos.status === "TARGET_HIT"
-          ? `🎯 Target Spot ₹${pos.targetSpotLevel.toLocaleString("en-IN")} Achieved on ${pos.cleanSymbol} VAH expansion. Full profit captured.`
+          ? `🎯 Target Spot ₹${pos.targetSpotLevel?.toLocaleString("en-IN")} Achieved. Net premium captured.`
           : pos.status === "SL_HIT"
-          ? `🛑 Stop Loss Spot ₹${pos.stopLossSpotLevel.toLocaleString("en-IN")} Breached. Position capped at strict risk.`
-          : `Manual square-off executed at spot ₹${pos.currentSpotPrice.toLocaleString("en-IN")}.`,
-        exitHeadline: `${pos.cleanSymbol} ${pos.strategyName}: ${pos.status.replace(/_/g, " ")} executed at ₹${pos.currentSpotPrice.toLocaleString("en-IN")}`,
+          ? `🛑 Stop Loss Spot ₹${pos.stopLossSpotLevel?.toLocaleString("en-IN")} Breached. Position closed at capped risk.`
+          : `Manual square-off executed at spot ₹${pos.currentSpotPrice?.toLocaleString("en-IN")}.`,
+        exitHeadline: `${pos.cleanSymbol} ${pos.strategyName}: ${(pos.status || "EXIT").replace(/_/g, " ")} executed at ₹${pos.currentSpotPrice?.toLocaleString("en-IN")}`,
         exitPublisher: "NSE F&O Derivatives Stream",
         exitSentimentScore: pos.status === "TARGET_HIT" ? 52 : pos.status === "SL_HIT" ? -48 : 0,
         volumeSpikeMultiplier: 2.1,
@@ -265,10 +265,11 @@ export default function BacktestLedgerView({
   const [trades, setTrades] = useState<UnifiedLedgerTrade[]>([]);
   const [selectedExitAuditTrade, setSelectedExitAuditTrade] = useState<ClosedTradeExitAuditData | null>(null);
 
-  // Calendar State: Default to current year & month (November 2026)
-  const [currentYear, setCurrentYear] = useState<number>(2026);
-  const [currentMonth, setCurrentMonth] = useState<number>(10); // 0-indexed: 10 = November
-  const [selectedDateKey, setSelectedDateKey] = useState<string>("2026-11-10");
+  // Calendar State: Default to current year & month
+  const today = useMemo(() => new Date(), []);
+  const [currentYear, setCurrentYear] = useState<number>(() => today.getFullYear());
+  const [currentMonth, setCurrentMonth] = useState<number>(() => today.getMonth());
+  const [selectedDateKey, setSelectedDateKey] = useState<string>(() => today.toISOString().slice(0, 10));
   const [filterDesk, setFilterDesk] = useState<"ALL" | DeskType>("ALL");
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -415,7 +416,7 @@ export default function BacktestLedgerView({
     const lossTrades = monthTrades.filter((t) => t.realizedPnLINR < 0);
     const totalWins = winTrades.reduce((acc, t) => acc + t.realizedPnLINR, 0);
     const totalLosses = Math.abs(lossTrades.reduce((acc, t) => acc + t.realizedPnLINR, 0));
-    const profitFactor = totalLosses > 0 ? (totalWins / totalLosses).toFixed(2) : "∞";
+    const profitFactor = totalLosses > 0 ? (totalWins / totalLosses).toFixed(2) : totalWins > 0 ? "∞" : "0.00";
 
     const tradingDays = new Set(monthTrades.map((t) => t.dateKey));
     let greenDays = 0;
@@ -601,16 +602,32 @@ export default function BacktestLedgerView({
         </div>
       </div>
 
+      {/* Zero Mock Policy Info Banner when Ledger is pristine */}
+      {trades.length === 0 && (
+        <div className="p-4 rounded-xl bg-[#0d1322]/80 border border-cyan-500/30 flex items-center justify-between gap-3 text-xs text-slate-300">
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+            <span>
+              <strong className="text-cyan-300">Zero Mock Data Integrity:</strong> The Backtest Ledger initializes with zero records. Trades are recorded only when a position is deployed and settled via Target, Stop Loss, or Manual Exit from the live trading desks.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ─── Month Summary Strip (Glassmorphism) ─── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="p-3.5 rounded-xl bg-[#0d1322]/85 border border-slate-800 backdrop-blur-md">
           <span className="text-[10px] text-slate-500 uppercase block">Monthly Realized Net P&amp;L</span>
           <div
             className={`text-lg font-black mt-1 ${
-              monthMetrics.totalPnL >= 0 ? "text-emerald-400" : "text-rose-400"
+              monthMetrics.totalTrades === 0
+                ? "text-slate-400"
+                : monthMetrics.totalPnL >= 0
+                ? "text-emerald-400"
+                : "text-rose-400"
             }`}
           >
-            {monthMetrics.totalPnL >= 0 ? "+" : ""}₹{monthMetrics.totalPnL.toLocaleString("en-IN")}
+            {monthMetrics.totalPnL > 0 ? "+" : ""}₹{monthMetrics.totalPnL.toLocaleString("en-IN")}
           </div>
         </div>
 
@@ -621,12 +638,16 @@ export default function BacktestLedgerView({
 
         <div className="p-3.5 rounded-xl bg-[#0d1322]/85 border border-slate-800 backdrop-blur-md">
           <span className="text-[10px] text-slate-500 uppercase block">Win Rate %</span>
-          <div className="text-lg font-black text-cyan-400 mt-1">{monthMetrics.winRatePct}%</div>
+          <div className="text-lg font-black text-cyan-400 mt-1">
+            {monthMetrics.totalTrades > 0 ? `${monthMetrics.winRatePct}%` : "—"}
+          </div>
         </div>
 
         <div className="p-3.5 rounded-xl bg-[#0d1322]/85 border border-slate-800 backdrop-blur-md">
           <span className="text-[10px] text-slate-500 uppercase block">Profit Factor</span>
-          <div className="text-lg font-black text-amber-400 mt-1">{monthMetrics.profitFactor}</div>
+          <div className="text-lg font-black text-amber-400 mt-1">
+            {monthMetrics.totalTrades > 0 ? `${monthMetrics.profitFactor}x` : "—"}
+          </div>
         </div>
 
         <div className="p-3.5 rounded-xl bg-[#0d1322]/85 border border-slate-800 backdrop-blur-md">
@@ -760,54 +781,52 @@ export default function BacktestLedgerView({
           </div>
         </div>
 
-        {/* Right Col: Segmented Daily Breakdown for Selected Day (5 Cols wide) */}
+        {/* Right Col: Segmented Daily Breakdown Panel (5 Cols wide) */}
         <div className="lg:col-span-5 space-y-4">
           <div className="p-5 rounded-2xl bg-[#0d1322]/90 backdrop-blur-xl border border-slate-800 shadow-2xl space-y-4">
-            <div className="flex items-start justify-between pb-3 border-b border-slate-800">
-              <div>
-                <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold block">
-                  SELECTED CALENDAR DATE AUDIT
+            {/* Header: Selected Date & Total Day P&L */}
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold">
+                  DAILY BREAKDOWN
                 </span>
-                <h3 className="text-sm sm:text-base font-black text-white mt-0.5">
-                  {selectedDateFormatted}
-                </h3>
+                <span className="text-xs text-slate-400">{selectedDateFormatted}</span>
               </div>
-              <button
-                onClick={() => setViewScope((prev) => (prev === "SELECTED_DAY" ? "ENTIRE_MONTH" : "SELECTED_DAY"))}
-                className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[11px] font-bold text-slate-300 hover:text-white cursor-pointer"
-              >
-                {viewScope === "SELECTED_DAY" ? "View Entire Month" : "Scope: Selected Day"}
-              </button>
+              <h3 className="text-base font-black text-white mt-0.5">
+                Performance for {selectedDateKey}
+              </h3>
             </div>
 
-            {/* Consolidated Day Net P&L Card */}
-            <div
-              className={`p-4 rounded-xl border backdrop-blur-md ${
-                selectedDateStats.totalPnL >= 0
-                  ? "bg-emerald-950/25 border-emerald-500/40"
-                  : "bg-rose-950/25 border-rose-500/40"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] uppercase font-bold text-slate-300">
-                  Total Day Consolidated P&amp;L
-                </span>
+            {/* Total Day P&L Hero Card */}
+            <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 relative overflow-hidden">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Consolidated Day Net P&amp;L</span>
                 <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                    selectedDateStats.totalPnL >= 0
-                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                      : "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                  className={`text-[10px] px-2 py-0.5 rounded font-black ${
+                    selectedDateStats.tradesCount === 0
+                      ? "bg-slate-800 text-slate-400"
+                      : selectedDateStats.totalPnL >= 0
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : "bg-rose-500/20 text-rose-300 border border-rose-500/40"
                   }`}
                 >
-                  {selectedDateStats.totalPnL >= 0 ? "🟢 PROFITABLE DAY" : "🔴 DRAWDOWN DAY"}
+                  {selectedDateStats.tradesCount === 0
+                    ? "⚪ NO EXECUTIONS"
+                    : selectedDateStats.totalPnL >= 0
+                    ? "🟢 PROFITABLE DAY"
+                    : "🔴 DRAWDOWN DAY"}
                 </span>
               </div>
               <div
                 className={`text-2xl font-black mt-1.5 ${
-                  selectedDateStats.totalPnL >= 0 ? "text-emerald-400" : "text-rose-400"
+                  selectedDateStats.tradesCount === 0
+                    ? "text-slate-400"
+                    : selectedDateStats.totalPnL >= 0
+                    ? "text-emerald-400"
+                    : "text-rose-400"
                 }`}
               >
-                {selectedDateStats.totalPnL >= 0 ? "+" : ""}₹
+                {selectedDateStats.totalPnL > 0 ? "+" : ""}₹
                 {selectedDateStats.totalPnL.toLocaleString("en-IN")}
               </div>
               <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
@@ -815,9 +834,8 @@ export default function BacktestLedgerView({
                 <span>
                   Win Rate:{" "}
                   {selectedDateStats.tradesCount > 0
-                    ? Math.round((selectedDateStats.winsCount / selectedDateStats.tradesCount) * 100)
-                    : 0}
-                  %
+                    ? `${Math.round((selectedDateStats.winsCount / selectedDateStats.tradesCount) * 100)}%`
+                    : "—"}
                 </span>
               </div>
             </div>
@@ -844,13 +862,25 @@ export default function BacktestLedgerView({
                 <div className="text-right">
                   <div
                     className={`text-sm font-black ${
-                      selectedDateStats.intradayPnL >= 0 ? "text-emerald-400" : "text-rose-400"
+                      selectedDateStats.intradayCount === 0
+                        ? "text-slate-500"
+                        : selectedDateStats.intradayPnL >= 0
+                        ? "text-emerald-400"
+                        : "text-rose-400"
                     }`}
                   >
-                    {selectedDateStats.intradayPnL >= 0 ? "+" : ""}₹
+                    {selectedDateStats.intradayPnL > 0 ? "+" : ""}₹
                     {selectedDateStats.intradayPnL.toLocaleString("en-IN")}
                   </div>
-                  <div className="text-[9px] text-slate-500">Realized P&amp;L</div>
+                  {onSelectTab && (
+                    <button
+                      onClick={() => onSelectTab("im-intraday-desk")}
+                      className="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-0.5 justify-end mt-0.5 cursor-pointer"
+                    >
+                      <span>Open Desk</span>
+                      <ArrowUpRight className="w-2.5 h-2.5" />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -863,20 +893,32 @@ export default function BacktestLedgerView({
                   <div>
                     <div className="text-xs font-bold text-white">Institutional Swing</div>
                     <div className="text-[10px] text-slate-400">
-                      4H Order Block · {selectedDateStats.swingCount} Trade(s)
+                      4H OB · {selectedDateStats.swingCount} Trade(s)
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
                   <div
                     className={`text-sm font-black ${
-                      selectedDateStats.swingPnL >= 0 ? "text-emerald-400" : "text-rose-400"
+                      selectedDateStats.swingCount === 0
+                        ? "text-slate-500"
+                        : selectedDateStats.swingPnL >= 0
+                        ? "text-emerald-400"
+                        : "text-rose-400"
                     }`}
                   >
-                    {selectedDateStats.swingPnL >= 0 ? "+" : ""}₹
+                    {selectedDateStats.swingPnL > 0 ? "+" : ""}₹
                     {selectedDateStats.swingPnL.toLocaleString("en-IN")}
                   </div>
-                  <div className="text-[9px] text-slate-500">Realized P&amp;L</div>
+                  {onSelectTab && (
+                    <button
+                      onClick={() => onSelectTab("im-institutional-swing")}
+                      className="text-[10px] text-violet-400 hover:text-violet-300 flex items-center gap-0.5 justify-end mt-0.5 cursor-pointer"
+                    >
+                      <span>Open Desk</span>
+                      <ArrowUpRight className="w-2.5 h-2.5" />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -889,20 +931,32 @@ export default function BacktestLedgerView({
                   <div>
                     <div className="text-xs font-bold text-white">F&amp;O Quant Desk</div>
                     <div className="text-[10px] text-slate-400">
-                      Hedged Spreads · {selectedDateStats.foCount} Spread(s)
+                      Spreads · {selectedDateStats.foCount} Trade(s)
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
                   <div
                     className={`text-sm font-black ${
-                      selectedDateStats.foPnL >= 0 ? "text-emerald-400" : "text-rose-400"
+                      selectedDateStats.foCount === 0
+                        ? "text-slate-500"
+                        : selectedDateStats.foPnL >= 0
+                        ? "text-emerald-400"
+                        : "text-rose-400"
                     }`}
                   >
-                    {selectedDateStats.foPnL >= 0 ? "+" : ""}₹
+                    {selectedDateStats.foPnL > 0 ? "+" : ""}₹
                     {selectedDateStats.foPnL.toLocaleString("en-IN")}
                   </div>
-                  <div className="text-[9px] text-slate-500">Realized P&amp;L</div>
+                  {onSelectTab && (
+                    <button
+                      onClick={() => onSelectTab("im-fo-quant-desk")}
+                      className="text-[10px] text-fuchsia-400 hover:text-fuchsia-300 flex items-center gap-0.5 justify-end mt-0.5 cursor-pointer"
+                    >
+                      <span>Open Desk</span>
+                      <ArrowUpRight className="w-2.5 h-2.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -910,43 +964,64 @@ export default function BacktestLedgerView({
         </div>
       </div>
 
-      {/* ─── Historical Audit Table Section ─── */}
+      {/* ─── Historical Audit Ledger Table (High-Density) ─── */}
       <div className="p-5 rounded-2xl bg-[#0d1322]/90 backdrop-blur-xl border border-slate-800 shadow-2xl space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-cyan-400" />
-              <span>
-                Historical Trade Audit Log ({auditTableTrades.length}{" "}
-                {viewScope === "SELECTED_DAY" ? "on " + selectedDateKey : "in " + monthTitle})
-              </span>
+        {/* Table Controls & Filter Strip */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+              {viewScope === "SELECTED_DAY"
+                ? `Historical Audit Ledger (${selectedDateKey})`
+                : `Entire Month Audit Ledger (${monthTitle})`}
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Click any execution row to open the verified Trade Exit Audit Modal with scraped news &amp; microstructure telemetry.
-            </p>
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">
+              {auditTableTrades.length} Trades
+            </span>
           </div>
 
-          {/* Desk Filter Pills */}
-          <div className="flex items-center gap-1.5 flex-wrap text-xs">
-            <span className="text-[10px] text-slate-500 uppercase font-bold flex items-center gap-1 mr-1">
-              <Filter className="w-3 h-3" /> Desk:
-            </span>
-            {(["ALL", "INTRADAY", "SWING", "FO"] as const).map((desk) => (
+          <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto">
+            {/* View Scope Toggle */}
+            <div className="flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-[11px]">
               <button
-                key={desk}
-                onClick={() => setFilterDesk(desk)}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
-                  filterDesk === desk
-                    ? "bg-cyan-500/25 text-cyan-300 border-cyan-500/50 shadow-sm"
-                    : "bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200"
+                onClick={() => setViewScope("SELECTED_DAY")}
+                className={`px-2.5 py-1 rounded font-bold transition cursor-pointer ${
+                  viewScope === "SELECTED_DAY"
+                    ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                    : "text-slate-400 hover:text-white"
                 }`}
               >
-                {desk === "ALL"
+                Selected Day
+              </button>
+              <button
+                onClick={() => setViewScope("ENTIRE_MONTH")}
+                className={`px-2.5 py-1 rounded font-bold transition cursor-pointer ${
+                  viewScope === "ENTIRE_MONTH"
+                    ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Entire Month
+              </button>
+            </div>
+
+            {/* Desk Filter */}
+            {(["ALL", "INTRADAY", "SWING", "FO"] as const).map((d) => (
+              <button
+                key={d}
+                onClick={() => setFilterDesk(d)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                  filterDesk === d
+                    ? "bg-slate-800 text-white border-cyan-500/50"
+                    : "border-slate-800 text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {d === "ALL"
                   ? "All Desks"
-                  : desk === "INTRADAY"
+                  : d === "INTRADAY"
                   ? "⚡ Intraday"
-                  : desk === "SWING"
-                  ? "🎯 Swing"
+                  : d === "SWING"
+                  ? "🟣 Swing"
                   : "🟣 F&O"}
               </button>
             ))}
@@ -973,106 +1048,125 @@ export default function BacktestLedgerView({
             <p className="text-sm text-slate-400">
               No closed executions recorded for {viewScope === "SELECTED_DAY" ? selectedDateKey : monthTitle}.
             </p>
-            <button
-              onClick={() => {
-                setViewScope("ENTIRE_MONTH");
-                setFilterDesk("ALL");
-              }}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 text-xs font-bold border border-slate-800 cursor-pointer"
-            >
-              Expand Scope to Entire Month
-            </button>
+            {trades.length > 0 && viewScope === "SELECTED_DAY" && (
+              <button
+                onClick={() => {
+                  setViewScope("ENTIRE_MONTH");
+                  setFilterDesk("ALL");
+                }}
+                className="text-xs text-cyan-400 hover:underline cursor-pointer"
+              >
+                View all executions across {monthTitle} ({trades.length} available)
+              </button>
+            )}
+            {trades.length === 0 && (
+              <p className="text-xs text-slate-500">
+                Deploy positions from the Intraday Desk, Institutional Swing (4H OB), or F&amp;O Quant Desk. Once settled, they will appear here.
+              </p>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-800 bg-slate-950/80 text-[10px] uppercase text-slate-400">
-                  <th className="py-3 px-3">Time &amp; Date</th>
-                  <th className="py-3 px-3">Desk &amp; Symbol</th>
-                  <th className="py-3 px-3">Strategy &amp; Setup</th>
-                  <th className="py-3 px-3">Entry → Exit</th>
-                  <th className="py-3 px-3">🎯 Target &amp; 🛑 SL</th>
-                  <th className="py-3 px-3">Status Tag</th>
-                  <th className="py-3 px-3">Realized P&amp;L</th>
-                  <th className="py-3 px-3 text-right">Audit</th>
+                <tr className="border-b border-slate-800 text-[10px] text-slate-400 uppercase tracking-wider">
+                  <th className="py-2.5 px-3">Date / Time</th>
+                  <th className="py-2.5 px-3">Desk</th>
+                  <th className="py-2.5 px-3">Symbol</th>
+                  <th className="py-2.5 px-3">Strategy</th>
+                  <th className="py-2.5 px-3">Direction</th>
+                  <th className="py-2.5 px-3">Entry</th>
+                  <th className="py-2.5 px-3">Exit</th>
+                  <th className="py-2.5 px-3">Target / SL</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3">Realized P&amp;L</th>
+                  <th className="py-2.5 px-3 text-right">Audit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {auditTableTrades.map((t) => {
-                  const isProfit = t.realizedPnLINR >= 0;
-                  const isNews = t.status.includes("NEWS");
-                  const isReversal = t.status.includes("REVERSAL");
-                  const isTarget = t.status.includes("TARGET");
-                  const isSL = t.status.includes("SL") || t.status.includes("STOP");
-                  const deskCfg = DESK_CONFIG[t.desk];
+                  const isProfit = t.realizedPnLINR > 0;
+                  const cfg = DESK_CONFIG[t.desk];
+                  const Icon = cfg.icon;
 
                   return (
                     <tr
                       key={t.tradeId}
-                      onClick={() => openAuditModal(t)}
-                      className="hover:bg-cyan-950/20 cursor-pointer transition-colors group"
+                      className="hover:bg-slate-800/30 transition-colors group"
                     >
-                      <td className="py-3.5 px-3">
+                      <td className="py-3.5 px-3 whitespace-nowrap">
                         <div className="font-bold text-slate-200">{t.dateKey}</div>
-                        <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                          <Clock className="w-3 h-3 text-slate-500" />
+                        <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                          <Clock className="w-2.5 h-2.5" />
                           <span>{t.executionTime}</span>
                         </div>
                       </td>
 
-                      <td className="py-3.5 px-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-extrabold text-white text-sm">{t.cleanSymbol}</span>
-                          <span className={`text-[9px] px-1.5 py-0.2 rounded border font-bold ${deskCfg.badgeClass}`}>
-                            {t.desk}
-                          </span>
+                      <td className="py-3.5 px-3 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${cfg.badgeClass}`}
+                        >
+                          <Icon className="w-3 h-3" />
+                          <span>{cfg.label}</span>
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-3 whitespace-nowrap">
+                        <div className="font-bold text-white flex items-center gap-1.5">
+                          <span>{t.cleanSymbol}</span>
                         </div>
-                        <div className="text-[10px] text-slate-400 truncate max-w-[130px] mt-0.5">
+                        <div className="text-[10px] text-slate-400 truncate max-w-[140px]">
                           {t.companyName}
                         </div>
                       </td>
 
                       <td className="py-3.5 px-3">
-                        <div className="font-bold text-cyan-300">{t.strategyTag}</div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">
-                          {t.direction} · {t.quantity} Units
-                        </div>
+                        <span className="text-[11px] text-slate-300 font-medium">
+                          {t.strategyTag}
+                        </span>
                       </td>
 
-                      <td className="py-3.5 px-3">
-                        <div className="font-bold text-slate-200">
-                          ₹{t.entryPrice.toLocaleString("en-IN")} →{" "}
-                          <span className="text-white font-extrabold">
-                            ₹{t.exitPrice.toLocaleString("en-IN")}
-                          </span>
-                        </div>
+                      <td className="py-3.5 px-3 whitespace-nowrap">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                            t.direction === "LONG"
+                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                              : t.direction === "SHORT"
+                              ? "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                              : "bg-fuchsia-500/15 text-fuchsia-400 border border-fuchsia-500/30"
+                          }`}
+                        >
+                          {t.direction}
+                        </span>
                       </td>
 
-                      <td className="py-3.5 px-3">
-                        <div className="text-emerald-400 text-[11px] font-bold">
+                      <td className="py-3.5 px-3 font-mono font-bold text-slate-300">
+                        ₹{t.entryPrice.toLocaleString("en-IN", { minimumFractionDigits: 1 })}
+                      </td>
+
+                      <td className="py-3.5 px-3 font-mono font-bold text-white">
+                        ₹{t.exitPrice.toLocaleString("en-IN", { minimumFractionDigits: 1 })}
+                      </td>
+
+                      <td className="py-3.5 px-3 text-[11px]">
+                        <div className="text-emerald-400 font-bold">
                           🎯 {t.targetPrice ? `₹${t.targetPrice.toLocaleString("en-IN")}` : "—"}
                         </div>
-                        <div className="text-rose-400 text-[10px] font-bold mt-0.5">
+                        <div className="text-rose-400 font-bold text-[10px]">
                           🛑 {t.stopLossPrice ? `₹${t.stopLossPrice.toLocaleString("en-IN")}` : "—"}
                         </div>
                       </td>
 
-                      <td className="py-3.5 px-3">
+                      <td className="py-3.5 px-3 whitespace-nowrap">
                         <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border inline-flex items-center gap-1 ${
-                            isNews
-                              ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
-                              : isReversal
-                              ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-                              : isTarget
-                              ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                              : isSL
-                              ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
-                              : "bg-slate-800 text-slate-300 border-slate-700"
+                          className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                            t.status.includes("TARGET")
+                              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                              : t.status.includes("SL") || t.status.includes("STOP")
+                              ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                              : "bg-slate-800 text-slate-300 border border-slate-700"
                           }`}
                         >
-                          {isTarget ? "🎯 " : isNews ? "🚨 " : isReversal ? "⚠️ " : isSL ? "🛑 " : "⚡ "}
                           {t.status.replace(/_/g, " ")}
                         </span>
                       </td>

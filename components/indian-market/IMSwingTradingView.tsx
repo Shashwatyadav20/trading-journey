@@ -253,7 +253,7 @@ export default function IMSwingTradingView() {
       if (parsedH && parsedH.length > 0) {
         setBacktestHistory(parsedH);
       } else {
-        setBacktestHistory(DEFAULT_CLOSED_TRADE_AUDIT_SEEDS as any);
+        setBacktestHistory([]);
       }
     } catch { } finally {
       setIsStorageHydrated(true);

@@ -118,16 +118,16 @@ export default function IntradayDeskView() {
       const savedHistory = localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY);
       if (savedHistory) {
         const parsedH = JSON.parse(savedHistory);
-        if (Array.isArray(parsedH) && parsedH.length > 0) {
+        if (Array.isArray(parsedH)) {
           setHistoryTrades(parsedH);
           historyTradesRef.current = parsedH;
         } else {
-          setHistoryTrades(DEFAULT_CLOSED_TRADE_AUDIT_SEEDS as any);
-          historyTradesRef.current = DEFAULT_CLOSED_TRADE_AUDIT_SEEDS as any;
+          setHistoryTrades([]);
+          historyTradesRef.current = [];
         }
       } else {
-        setHistoryTrades(DEFAULT_CLOSED_TRADE_AUDIT_SEEDS as any);
-        historyTradesRef.current = DEFAULT_CLOSED_TRADE_AUDIT_SEEDS as any;
+        setHistoryTrades([]);
+        historyTradesRef.current = [];
       }
     } catch (e) {
       console.error("Failed to hydrate intraday trades:", e);
