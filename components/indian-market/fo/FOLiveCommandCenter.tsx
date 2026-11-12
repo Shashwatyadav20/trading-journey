@@ -271,7 +271,7 @@ export default function FOLiveCommandCenter({
   return (
     <div className="space-y-4 font-mono">
       {/* ── Header & LIVE badge ── */}
-      <div className={`${glass} border-emerald-500/30 p-4 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-[#07101f]/90 via-[#0b1120]/90 to-[#120a1f]/90`}>
+      <div className={`${glass} ${ticker.isStreaming ? "border-emerald-500/30" : "border-rose-500/30"} p-4 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-[#07101f]/90 via-[#0b1120]/90 to-[#120a1f]/90`}>
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-fuchsia-500/15 border border-fuchsia-500/40 shadow-[0_0_20px_rgba(217,70,239,0.25)]">
             <Zap className="w-5 h-5 text-fuchsia-300" />
@@ -281,7 +281,9 @@ export default function FOLiveCommandCenter({
               F&amp;O LIVE COMMAND CENTER
             </h2>
             <p className="text-[10px] text-slate-400">
-              Black-Scholes re-pricing every 1.5s · Micro-ticks simulated between NSE feed syncs (anchored to real spot)
+              {ticker.isStreaming
+                ? "Black-Scholes re-pricing every 1.5s · NSE Regular Session (09:15–15:30 IST)"
+                : `${ticker.marketStatus?.reason || "NSE Market Closed (Regular Hours: Mon–Fri 09:15–15:30 IST)"} · LTP, Option Premiums & MTM P&L Frozen at Final Closing Settlement`}
             </p>
           </div>
         </div>
@@ -291,19 +293,24 @@ export default function FOLiveCommandCenter({
             className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-black border ${
               ticker.isStreaming
                 ? "bg-emerald-500/10 border-emerald-400/60 text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.35)]"
-                : "bg-slate-800 border-slate-700 text-slate-400"
+                : "bg-rose-500/15 border-rose-500/50 text-rose-300 shadow-[0_0_16px_rgba(244,63,94,0.25)]"
             }`}
           >
-            <span className="relative flex h-2.5 w-2.5">
-              {ticker.isStreaming && (
+            {ticker.isStreaming && (
+              <span className="relative flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              )}
-              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${ticker.isStreaming ? "bg-emerald-400" : "bg-slate-500"}`} />
-            </span>
-            {ticker.isStreaming ? "🔴 LIVE STREAMING ACTIVE" : "STREAM PAUSED"}
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400" />
+              </span>
+            )}
+            {ticker.isStreaming
+              ? "🔴 LIVE STREAMING ACTIVE"
+              : "🔴 MARKET CLOSED — P&L FROZEN"}
           </span>
           <span className="px-2.5 py-1.5 rounded-full text-[10px] bg-slate-900 border border-slate-700 text-slate-300 flex items-center gap-1">
-            <Radio className="w-3 h-3 text-cyan-400" /> Tick #{ticker.tickCount} · {lastTickLabel}
+            <Radio className={`w-3 h-3 ${ticker.isStreaming ? "text-cyan-400" : "text-slate-500"}`} />
+            {ticker.isStreaming
+              ? `Tick #${ticker.tickCount} · ${lastTickLabel}`
+              : `${ticker.marketStatus?.istDayName || "IST"} ${ticker.marketStatus?.istTimeString || lastTickLabel} · SETTLEMENT FROZEN`}
           </span>
         </div>
       </div>

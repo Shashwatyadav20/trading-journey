@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { NavTabId } from "../layout/Sidebar";
 import { FlashValue } from "./fo/FOLiveCommandCenter";
+import { checkNseMarketHoursIST, type NseMarketStatus } from "@/hooks/useLiveFoTicker";
 import { ActiveFOSpreadPosition } from "./fo/types";
 import {
   isGenuineUserTrade,
@@ -222,13 +223,32 @@ export default function IMOverviewView({
     return () => window.removeEventListener("storage", loadTerminalData);
   }, [loadTerminalData]);
 
-  // Real-Time Live Ticking Engine
+  // Real-Time Live Ticking Engine (Strictly Gated by NSE Regular Market Hours: Mon-Fri 09:15-15:30 IST)
+  const [marketStatus, setMarketStatus] = useState<NseMarketStatus>(() =>
+    checkNseMarketHoursIST()
+  );
+
   useEffect(() => {
-    if (!isLiveActive) return;
+    const syncMarketStatus = () => {
+      const latest = checkNseMarketHoursIST();
+      setMarketStatus(latest);
+      setLastTickTime(latest.istTimeString);
+    };
+    syncMarketStatus();
+    const clockTimer = setInterval(syncMarketStatus, 10_000);
+    return () => clearInterval(clockTimer);
+  }, []);
+
+  useEffect(() => {
+    if (!isLiveActive || !marketStatus.isOpen) return;
 
     const timer = setInterval(() => {
-      const now = new Date();
-      setLastTickTime(now.toLocaleTimeString("en-IN") + " IST");
+      const latestStatus = checkNseMarketHoursIST();
+      setMarketStatus(latestStatus);
+      setLastTickTime(latestStatus.istTimeString);
+
+      // Immediately freeze LTPs and MTM P&L if outside 09:15-15:30 IST
+      if (!latestStatus.isOpen) return;
 
       // Micro-tick index prices
       setMarketIndices((prev) =>
@@ -285,7 +305,7 @@ export default function IMOverviewView({
     }, 2000);
 
     return () => clearInterval(timer);
-  }, [isLiveActive]);
+  }, [isLiveActive, marketStatus.isOpen]);
 
   // Consolidate Active Positions into Unified List
   const unifiedActivePositions = useMemo<UnifiedActivePosition[]>(() => {
@@ -422,32 +442,42 @@ export default function IMOverviewView({
       {/* ── TOP REAL-TIME TICKER STRIP ── */}
       <div className="rounded-xl border border-slate-800/80 bg-[#0d1322]/90 backdrop-blur-xl p-3 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between mb-2 px-1">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-            </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {marketStatus.isOpen && isLiveActive ? (
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+            ) : (
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+            )}
             <span className="text-xs font-mono font-semibold tracking-wider text-slate-300 uppercase">
               NSE Live Order Flow Stream
             </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-              Sync Active
-            </span>
+            {marketStatus.isOpen && isLiveActive ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
+                🟢 LIVE STREAMING ACTIVE
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono px-2.5 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/40 font-extrabold">
+                🔴 MARKET CLOSED — P&amp;L FROZEN
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
             <span className="flex items-center gap-1">
               <Clock className="w-3.5 h-3.5 text-cyan-400" />
-              {lastTickTime}
+              {marketStatus.istDayName} {lastTickTime}
             </span>
             <button
               onClick={() => setIsLiveActive(!isLiveActive)}
               className={`px-2 py-0.5 rounded border text-[10px] font-mono font-medium transition-colors ${
-                isLiveActive
+                isLiveActive && marketStatus.isOpen
                   ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20"
                   : "bg-slate-800 border-slate-700 text-slate-400"
               }`}
             >
-              {isLiveActive ? "Streaming" : "Paused"}
+              {marketStatus.isOpen ? (isLiveActive ? "Streaming" : "Paused") : "Closed (09:15–15:30 IST)"}
             </button>
           </div>
         </div>

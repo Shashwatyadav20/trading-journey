@@ -31,6 +31,96 @@ import type {
 } from "@/components/indian-market/fo/types";
 
 export type TickDirection = "UP" | "DOWN" | "FLAT";
+export type NseMarketPhase = "REGULAR_OPEN" | "PRE_OPEN" | "CLOSED";
+
+export interface NseMarketStatus {
+  isOpen: boolean;
+  isPreOpen: boolean;
+  phase: NseMarketPhase;
+  istTimeString: string;
+  istDayName: string;
+  statusBadgeText: string;
+  reason: string;
+}
+
+/**
+ * Strict Indian Standard Time (IST / UTC+05:30) NSE Market Status Gatekeeper.
+ * - NSE Regular Hours: Monday–Friday, 09:15 AM to 03:30 PM IST (555 <= mins < 930)
+ * - NSE Pre-Open Session: Monday–Friday, 09:00 AM to 09:15 AM IST (540 <= mins < 555)
+ * - Outside these hours or on Saturday/Sunday: CLOSED (all micro-ticks & P&L frozen).
+ */
+export function checkNseMarketHoursIST(now: Date = new Date()): NseMarketStatus {
+  // Shift UTC timestamp by +5 hours 30 minutes (330 minutes) to get exact IST wall clock
+  const istMs = now.getTime() + 330 * 60 * 1000;
+  const istDate = new Date(istMs);
+
+  const dayOfWeek = istDate.getUTCDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  const hours = istDate.getUTCHours();
+  const minutes = istDate.getUTCMinutes();
+  const seconds = istDate.getUTCSeconds();
+
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const istDayName = dayNames[dayOfWeek] || "IST";
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const istTimeString = `${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)} IST`;
+
+  const minutesFromMidnight = hours * 60 + minutes;
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+  if (isWeekend) {
+    return {
+      isOpen: false,
+      isPreOpen: false,
+      phase: "CLOSED",
+      istTimeString,
+      istDayName,
+      statusBadgeText: "🔴 MARKET CLOSED — P&L FROZEN",
+      reason: `Weekend (${istDayName}) — NSE Closed`,
+    };
+  }
+
+  // Pre-Open: 09:00 AM (540) to 09:15 AM (555) IST
+  if (minutesFromMidnight >= 540 && minutesFromMidnight < 555) {
+    return {
+      isOpen: false,
+      isPreOpen: true,
+      phase: "PRE_OPEN",
+      istTimeString,
+      istDayName,
+      statusBadgeText: "🔴 MARKET CLOSED — P&L FROZEN",
+      reason: "NSE Pre-Open Session (09:00–09:15 IST) — Regular Ticks Paused",
+    };
+  }
+
+  // Regular Market Hours: 09:15 AM (555) to 03:30 PM (930) IST
+  if (minutesFromMidnight >= 555 && minutesFromMidnight < 930) {
+    return {
+      isOpen: true,
+      isPreOpen: false,
+      phase: "REGULAR_OPEN",
+      istTimeString,
+      istDayName,
+      statusBadgeText: "🟢 LIVE MARKET — STREAMING ACTIVE",
+      reason: "NSE Regular Session (09:15–15:30 IST)",
+    };
+  }
+
+  // Before 09:00 AM or at/after 03:30 PM IST
+  const sessionNote =
+    minutesFromMidnight < 540
+      ? "Pre-Market Hours (Opens 09:15 IST)"
+      : "After Market Hours (Closed 15:30 IST)";
+
+  return {
+    isOpen: false,
+    isPreOpen: false,
+    phase: "CLOSED",
+    istTimeString,
+    istDayName,
+    statusBadgeText: "🔴 MARKET CLOSED — P&L FROZEN",
+    reason: sessionNote,
+  };
+}
 
 export interface LiveSymbolTick {
   symbol: string;
@@ -87,6 +177,7 @@ export interface UseLiveFoTickerResult {
   tickCount: number;
   lastTickAt: number | null;
   isStreaming: boolean;
+  marketStatus: NseMarketStatus;
   mode: "SIMULATED_MICROTICK";
 }
 
@@ -158,12 +249,129 @@ export function useLiveFoTicker({
   const [positionTicks, setPositionTicks] = useState<Record<string, LivePositionTick>>({});
   const [tickCount, setTickCount] = useState(0);
   const [lastTickAt, setLastTickAt] = useState<number | null>(null);
+  const [marketStatus, setMarketStatus] = useState<NseMarketStatus>(() =>
+    checkNseMarketHoursIST()
+  );
 
   const spotRef = useRef<Record<string, LiveSymbolTick>>({});
   const legModelRef = useRef<Record<string, LegModelState>>({});
   const pnlRef = useRef<Record<string, number>>({});
   const setupsRef = useRef(setups);
   const positionsRef = useRef(positions);
+
+  // Periodically check IST market status every 10 seconds so open/close transitions happen automatically
+  useEffect(() => {
+    const syncClock = () => {
+      setMarketStatus(checkNseMarketHoursIST());
+    };
+    syncClock();
+    const clockTimer = setInterval(syncClock, 10_000);
+    return () => clearInterval(clockTimer);
+  }, []);
+
+  /**
+   * Computes a completely static, frozen snapshot of spot LTPs, option premiums,
+   * and Black-Scholes Greeks at the exact closing/settlement prices (zero random shock).
+   */
+  const computeStaticFrozenSnapshot = () => {
+    const frozenSpots: Record<string, LiveSymbolTick> = {};
+    setupsRef.current.forEach((s) => {
+      const frozen: LiveSymbolTick = {
+        symbol: s.cleanSymbol,
+        spot: s.spotPrice,
+        prevSpot: s.spotPrice,
+        anchorSpot: s.spotPrice,
+        sessionOpenSpot: s.spotPrice / (1 + (s.changePercent || 0) / 100),
+        changePct: round2(s.changePercent || 0),
+        direction: "FLAT",
+        atmIV: s.optionChain?.atmIV || 14,
+      };
+      spotRef.current[s.cleanSymbol] = frozen;
+      frozenSpots[s.cleanSymbol] = frozen;
+    });
+
+    const frozenPositions: Record<string, LivePositionTick> = {};
+    const fallbackDte = (sym: string) =>
+      setupsRef.current.find((s) => s.cleanSymbol === sym)?.daysToExpiry ?? 7;
+
+    positionsRef.current.forEach((pos) => {
+      const sym = pos.cleanSymbol;
+      const settlementSpot =
+        frozenSpots[sym]?.spot ?? pos.currentSpotPrice ?? pos.entrySpotPrice;
+      const dte = daysToExpiryFrom(pos.expiryDate, fallbackDte(sym));
+
+      let pnl = 0;
+      let netDelta = 0;
+      let netGamma = 0;
+      let netTheta = 0;
+      let netVega = 0;
+
+      const legs: LiveLegTick[] = pos.legs.map((leg) => {
+        const key = `${pos.positionId}:${leg.legId}`;
+        const atEntry = computeBlackScholesGreeks(
+          pos.entrySpotPrice,
+          leg.strike,
+          dte,
+          leg.iv,
+          leg.right
+        );
+        const basis = leg.premium - atEntry.price;
+        const priced = priceLeg(leg, settlementSpot, dte, leg.iv, basis);
+
+        legModelRef.current[key] = {
+          baseIV: leg.iv,
+          iv: leg.iv,
+          basis,
+          premium: priced.premium,
+        };
+
+        const side = leg.action === "BUY" ? 1 : -1;
+        const qty = leg.lots * leg.lotSize;
+        pnl += side * (priced.premium - leg.premium) * qty;
+        netDelta += side * priced.delta * qty;
+        netGamma += side * priced.gamma * qty;
+        netTheta += side * priced.theta * qty;
+        netVega += side * priced.vega * qty;
+
+        return {
+          legId: leg.legId,
+          right: leg.right,
+          action: leg.action,
+          strike: leg.strike,
+          entryPremium: leg.premium,
+          premium: priced.premium,
+          prevPremium: priced.premium,
+          iv: round2(leg.iv),
+          delta: priced.delta,
+          gamma: priced.gamma,
+          theta: priced.theta,
+          vega: priced.vega,
+          direction: "FLAT",
+        };
+      });
+
+      const roundedPnl = Math.round(pnl);
+      pnlRef.current[pos.positionId] = roundedPnl;
+
+      frozenPositions[pos.positionId] = {
+        positionId: pos.positionId,
+        symbol: sym,
+        spot: settlementSpot,
+        legs,
+        unrealizedPnLINR: roundedPnl,
+        prevUnrealizedPnLINR: roundedPnl,
+        roiOnMarginPct: round2((roundedPnl / Math.max(1, pos.marginBlockedINR)) * 100),
+        netDelta: round2(netDelta),
+        netGamma: Math.round(netGamma * 10000) / 10000,
+        netThetaINRPerDay: Math.round(netTheta),
+        netVegaINRPerPct: Math.round(netVega),
+        direction: "FLAT",
+      };
+    });
+
+    setSymbolTicks(frozenSpots);
+    setPositionTicks(frozenPositions);
+  };
 
   useEffect(() => {
     setupsRef.current = setups;
@@ -184,19 +392,43 @@ export function useLiveFoTicker({
       } else {
         existing.anchorSpot = s.spotPrice;
         existing.atmIV = s.optionChain?.atmIV || existing.atmIV;
+        if (!marketStatus.isOpen) {
+          existing.spot = s.spotPrice;
+          existing.prevSpot = s.spotPrice;
+          existing.direction = "FLAT";
+        }
       }
     });
-  }, [setups]);
+
+    if (!enabled || !marketStatus.isOpen) {
+      computeStaticFrozenSnapshot();
+    }
+  }, [setups, enabled, marketStatus.isOpen]);
 
   useEffect(() => {
     positionsRef.current = positions;
-  }, [positions]);
+    if (!enabled || !marketStatus.isOpen) {
+      computeStaticFrozenSnapshot();
+    }
+  }, [positions, enabled, marketStatus.isOpen]);
 
   useEffect(() => {
-    if (!enabled) return;
+    // Strict Market-Hours Gatekeeper: NEVER run the micro-tick timer when NSE is closed
+    if (!enabled || !marketStatus.isOpen) {
+      computeStaticFrozenSnapshot();
+      return;
+    }
 
     const tick = () => {
       if (typeof document !== "undefined" && document.hidden) return;
+
+      // Re-verify IST market hours inside every tick to immediately freeze at 15:30:00 IST
+      const latestStatus = checkNseMarketHoursIST();
+      if (!latestStatus.isOpen) {
+        setMarketStatus(latestStatus);
+        computeStaticFrozenSnapshot();
+        return;
+      }
 
       const dtSeconds = intervalMs / 1000;
       const stepScale = Math.sqrt(dtSeconds / TRADING_YEAR_SECONDS);
@@ -328,7 +560,7 @@ export function useLiveFoTicker({
     tick();
     const timer = setInterval(tick, intervalMs);
     return () => clearInterval(timer);
-  }, [enabled, intervalMs]);
+  }, [enabled, intervalMs, marketStatus.isOpen]);
 
   return useMemo(
     () => ({
@@ -336,10 +568,11 @@ export function useLiveFoTicker({
       positionTicks,
       tickCount,
       lastTickAt,
-      isStreaming: enabled && lastTickAt !== null,
+      isStreaming: enabled && marketStatus.isOpen && lastTickAt !== null,
+      marketStatus,
       mode: "SIMULATED_MICROTICK" as const,
     }),
-    [symbolTicks, positionTicks, tickCount, lastTickAt, enabled]
+    [symbolTicks, positionTicks, tickCount, lastTickAt, enabled, marketStatus]
   );
 }
 

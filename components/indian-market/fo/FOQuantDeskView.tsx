@@ -38,7 +38,7 @@ import {
   FO_PORTFOLIO_DEFAULT_CAPITAL,
   calculateSpreadPayoffAndMargin,
 } from "@/lib/indian/foQuantEngine";
-import { useLiveFoTicker } from "@/hooks/useLiveFoTicker";
+import { useLiveFoTicker, checkNseMarketHoursIST } from "@/hooks/useLiveFoTicker";
 import FOLiveCommandCenter, { FlashValue } from "./FOLiveCommandCenter";
 
 const STORAGE_KEY_FO_ACTIVE_SPREADS = "nse_fo_quant_active_spreads_v3";
@@ -262,11 +262,13 @@ export default function FOQuantDeskView() {
     fetchFOScanner(false);
   }, [fetchFOScanner]);
 
-  // Real-time auto-polling interval (every 25 seconds when enabled)
+  // Real-time auto-polling interval (every 25 seconds when enabled AND NSE market is open)
   useEffect(() => {
     if (!autoRefreshEnabled) return;
     const timer = setInterval(() => {
-      fetchFOScanner(true);
+      if (checkNseMarketHoursIST().isOpen) {
+        fetchFOScanner(true);
+      }
     }, 25000);
     return () => clearInterval(timer);
   }, [autoRefreshEnabled, fetchFOScanner]);
@@ -551,11 +553,17 @@ export default function FOQuantDeskView() {
       <div className="bg-[#0d1322]/90 backdrop-blur-xl border border-slate-800/80 hover:border-fuchsia-500/50 transition-all rounded-2xl p-5 shadow-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            {/* Prominent Live Feed Indicator Badge */}
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 text-[11px] font-extrabold flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>🟢 LIVE FEED ACTIVE</span>
-            </span>
+            {/* Prominent Live Feed / Market Hours Status Badge */}
+            {liveTicker.isStreaming ? (
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 text-[11px] font-extrabold flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>🟢 LIVE FEED ACTIVE</span>
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/40 text-[11px] font-extrabold flex items-center gap-1.5 shadow-[0_0_15px_rgba(244,63,94,0.2)]">
+                <span>🔴 MARKET CLOSED — P&amp;L FROZEN</span>
+              </span>
+            )}
 
             <span className="px-2.5 py-1 rounded-lg bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/40 text-[11px] font-bold">
               ISOLATED F&amp;O DERIVATIVES DESK
