@@ -75,17 +75,11 @@ export const FOREX_NAV_ITEMS: NavItem[] = [
 
 // Indian Market nav items
 export const INDIAN_NAV_ITEMS: NavItem[] = [
-  { id: "im-overview", label: "Overview", icon: LayoutDashboard },
+  { id: "im-overview", label: "Dashboard", icon: LayoutDashboard, badge: "Live" },
   { id: "im-intraday-desk", label: "Intraday Desk", icon: Zap, badge: "ORB · VWAP" },
-  { id: "im-institutional-swing", label: "Institutional Swing", icon: Crosshair, badge: "4-Strategy" },
-  { id: "im-fo-quant-desk", label: "F&O Quant Desk", icon: Layers3, badge: "F&O Spreads" },
-  { id: "im-swing-trade", label: "Legacy Swing", icon: Crosshair },
-  { id: "im-paper-trading", label: "Paper Trading", icon: ShieldAlert, badge: "Paper" },
-  { id: "im-operations", label: "Operations Monitor", icon: ShieldCheck, badge: "Ops" },
-  { id: "im-option-chain", label: "Option Chain", icon: Layers3, badge: "Live" },
-  { id: "im-strategy", label: "Strategy & Signals", icon: LineChart },
-  { id: "im-positions", label: "Positions", icon: ListOrdered },
-  { id: "im-backtest", label: "Backtest", icon: FlaskConical },
+  { id: "im-institutional-swing", label: "Institutional Swing", icon: Crosshair, badge: "4H OB" },
+  { id: "im-fo-quant-desk", label: "F&O Quant Desk", icon: Layers3, badge: "Spreads" },
+  { id: "im-backtest", label: "Backtest Ledger", icon: Calendar, badge: "Audit" },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 

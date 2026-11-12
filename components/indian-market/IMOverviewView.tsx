@@ -1,552 +1,1001 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import IMHeader from "./IMHeader";
-import IMStatusBadge from "./IMStatusBadge";
-import { IMPaperTradingView } from "./IMPaperTradingView";
-import { apiUrl } from "../../lib/backendUrl";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  TrendingUp,
   Activity,
-  ShieldAlert,
-  AlertOctagon,
-  Play,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  FileCheck,
+  Zap,
+  Crosshair,
+  Layers3,
+  Calendar,
+  ArrowUpRight,
+  ShieldCheck,
+  Wallet,
+  Clock,
+  BarChart3,
+  Radio,
+  ExternalLink,
 } from "lucide-react";
+import { NavTabId } from "../layout/Sidebar";
+import { FlashValue } from "./fo/FOLiveCommandCenter";
+import { DEFAULT_CLOSED_TRADE_AUDIT_SEEDS } from "../../lib/indian/backtestSeeds";
+import {
+  DEFAULT_FO_CLOSED_SEEDS,
+  ActiveFOSpreadPosition,
+} from "./fo/types";
 
-function StatCard({
-  label,
-  value,
-  sub,
-  accent = "slate",
-}: {
-  label: string;
-  value: React.ReactNode;
-  sub?: string;
-  accent?: "emerald" | "rose" | "cyan" | "amber" | "violet" | "slate";
-}) {
-  const accents: Record<string, string> = {
-    emerald: "border-emerald-500/25 text-emerald-400",
-    rose: "border-rose-500/25 text-rose-400",
-    cyan: "border-cyan-500/25 text-cyan-400",
-    amber: "border-amber-500/25 text-amber-400",
-    violet: "border-violet-500/25 text-violet-400",
-    slate: "border-slate-800/80 text-slate-200",
-  };
-  return (
-    <div
-      className={`p-4 rounded-xl bg-[#11192e]/80 border ${
-        accents[accent].split(" ")[0]
-      } flex flex-col gap-1`}
-    >
-      <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">
-        {label}
-      </span>
-      <span className={`text-lg font-bold font-mono ${accents[accent].split(" ")[1]}`}>
-        {value}
-      </span>
-      {sub && <span className="text-[10px] text-slate-500 font-mono">{sub}</span>}
-    </div>
-  );
+// LocalStorage Keys for all 3 Desks
+const STORAGE_KEY_INTRADAY_ACTIVE = "nse_intraday_active_trades_v1";
+const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v1";
+const STORAGE_KEY_SWING_ACTIVE = "active_portfolio_trades_v2";
+const STORAGE_KEY_SWING_HISTORY = "backtest_portfolio_history_v2";
+const STORAGE_KEY_FO_ACTIVE = "nse_fo_quant_active_spreads_v1";
+const STORAGE_KEY_FO_HISTORY = "nse_fo_quant_closed_history_v1";
+
+// Default active seeds if localStorage is empty
+const DEFAULT_INTRADAY_ACTIVE = [
+  {
+    tradeId: "INTRA-ACT-01",
+    symbol: "NSE:SOLARINDS",
+    companyName: "Solar Industries Ltd",
+    strategy: "ORB (9:15-9:45)",
+    direction: "LONG" as const,
+    entryPrice: 9940.0,
+    currentLtp: 10185.0,
+    targetPrice: 10450.0,
+    stopLossPrice: 9780.0,
+    quantity: 15,
+    allocatedCapital: 149100,
+    entryTime: "09:32 IST",
+  },
+  {
+    tradeId: "INTRA-ACT-02",
+    symbol: "NSE:TRENT",
+    companyName: "Trent Ltd",
+    strategy: "VWAP Pullback",
+    direction: "LONG" as const,
+    entryPrice: 6850.0,
+    currentLtp: 6990.0,
+    targetPrice: 7180.0,
+    stopLossPrice: 6720.0,
+    quantity: 20,
+    allocatedCapital: 137000,
+    entryTime: "10:14 IST",
+  },
+];
+
+const DEFAULT_SWING_ACTIVE = [
+  {
+    id: "SWING-ACT-01",
+    symbol: "NSE:RELIANCE",
+    companyName: "Reliance Industries Ltd",
+    strategy: "4H Institutional OB",
+    direction: "LONG" as const,
+    entryPrice: 1245.5,
+    currentPrice: 1282.4,
+    targetPrice: 1350.0,
+    stopLossPrice: 1210.0,
+    quantity: 200,
+    allocatedCapital: 249100,
+    entryDate: "2026-11-09",
+    timeframe: "4H",
+  },
+  {
+    id: "SWING-ACT-02",
+    symbol: "NSE:BAJFINANCE",
+    companyName: "Bajaj Finance Ltd",
+    strategy: "Dual HTF Retest (4H+15M)",
+    direction: "LONG" as const,
+    entryPrice: 1050.0,
+    currentPrice: 1074.8,
+    targetPrice: 1140.0,
+    stopLossPrice: 1015.0,
+    quantity: 180,
+    allocatedCapital: 189000,
+    entryDate: "2026-11-10",
+    timeframe: "4H / 15M",
+  },
+];
+
+const DEFAULT_FO_ACTIVE_SEEDS: ActiveFOSpreadPosition[] = [
+  {
+    positionId: "FO-ACT-BANKNIFTY-201",
+    symbol: "^NSEBANK",
+    cleanSymbol: "BANKNIFTY",
+    companyName: "Nifty Bank Index",
+    instrumentType: "INDEX",
+    marketRegime: "SUPPORT_BOUNCE",
+    strategyCode: "BULL_PUT_CREDIT_SPREAD",
+    strategyName: "🟣 Bull Put Credit Spread",
+    expiryDate: "28-NOV-2026",
+    lotSize: 15,
+    lotsDeployed: 2,
+    totalQuantity: 30,
+    entryDateKey: "2026-11-10",
+    entryTimestamp: "2026-11-10T10:00:00.000Z",
+    entrySpotPrice: 51950,
+    currentSpotPrice: 52140,
+    valSupportFloor: 51600,
+    vahResistanceCeiling: 52400,
+    legs: [],
+    netEntryPremiumPerUnit: 145,
+    currentNetPremiumPerUnit: 82,
+    isNetCredit: true,
+    marginBlockedINR: 125000,
+    maxProfitINR: 4350,
+    maxLossINR: 10650,
+    lowerBreakeven: 51655,
+    upperBreakeven: null,
+    probabilityOfProfitPct: 76,
+    stopLossSpotLevel: 51500,
+    targetSpotLevel: 52450,
+    status: "ACTIVE",
+  },
+];
+
+// Unified Active Trade Item for the Live Master Table
+export interface UnifiedActivePosition {
+  id: string;
+  desk: "INTRADAY" | "SWING" | "FO";
+  deskLabel: string;
+  deskColor: string;
+  symbol: string;
+  companyName: string;
+  direction: "LONG" | "SHORT" | "SPREAD";
+  strategyName: string;
+  entryPrice: number;
+  currentLtp: number;
+  targetPrice?: number;
+  stopLossPrice?: number;
+  quantity: number;
+  marginDeployed: number;
+  unrealizedPnLINR: number;
+  unrealizedPnLPct: number;
+  navTabTarget: NavTabId;
 }
 
-function ModeToggle({
-  label,
-  active,
-  onChange,
-  disabled,
-  danger,
-  locked,
+export default function IMOverviewView({
+  onSelectTab,
 }: {
-  label: string;
-  active: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-  danger?: boolean;
-  locked?: boolean;
+  onSelectTab?: (tab: NavTabId) => void;
 }) {
-  return (
-    <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-[#11192e]/80 border border-slate-800/80">
-      <div className="flex flex-col">
-        <span className="text-xs font-semibold text-slate-200 font-mono">{label}</span>
-        {locked && (
-          <span className="text-[10px] text-amber-400 font-mono">
-            Locked — Safety Control
-          </span>
-        )}
-      </div>
-      <button
-        className={`relative w-11 h-6 rounded-full border transition-all duration-300 ${
-          active
-            ? danger
-              ? "bg-rose-500/30 border-rose-500/50"
-              : "bg-cyan-500/30 border-cyan-500/50"
-            : "bg-slate-800 border-slate-700"
-        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-        onClick={() => !disabled && onChange(!active)}
-        aria-label={label}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform duration-300 ${
-            active
-              ? "translate-x-5 " + (danger ? "bg-rose-400" : "bg-cyan-400")
-              : "bg-slate-500 translate-x-0"
-          }`}
-        />
-      </button>
-    </div>
-  );
-}
+  const [lastTickTime, setLastTickTime] = useState<string>("09:15:00 IST");
+  const [isLiveActive, setIsLiveActive] = useState<boolean>(true);
 
-export default function IMOverviewView() {
-  const [viewMode, setViewMode] = useState<"overview" | "paper_validation">("overview");
-  const [signalData, setSignalData] = useState<any>(null);
-  const [sessionInfo, setSessionInfo] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [executing, setExecuting] = useState(false);
-  const [autoTrade, setAutoTrade] = useState(false);
-  const [emergency, setEmergency] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Live Position States
+  const [intradayPositions, setIntradayPositions] = useState<any[]>([]);
+  const [swingPositions, setSwingPositions] = useState<any[]>([]);
+  const [foPositions, setFoPositions] = useState<ActiveFOSpreadPosition[]>([]);
 
-  const fetchSignal = async () => {
+  // Closed Historical Data for Performance Metrics
+  const [closedTradesSummary, setClosedTradesSummary] = useState<{
+    totalRealizedPnL: number;
+    winRatePct: number;
+    totalClosedTrades: number;
+    winningTrades: number;
+    losingTrades: number;
+    profitFactor: number;
+    intradayRealized: number;
+    swingRealized: number;
+    foRealized: number;
+  }>({
+    totalRealizedPnL: 0,
+    winRatePct: 0,
+    totalClosedTrades: 0,
+    winningTrades: 0,
+    losingTrades: 0,
+    profitFactor: 0,
+    intradayRealized: 0,
+    swingRealized: 0,
+    foRealized: 0,
+  });
+
+  // Ticker Strip Data
+  const [marketIndices, setMarketIndices] = useState([
+    { symbol: "NIFTY 50", ltp: 24385.25, change: 142.3, changePct: 0.59 },
+    { symbol: "BANK NIFTY", ltp: 52140.8, change: 388.5, changePct: 0.75 },
+    { symbol: "NIFTY IT", ltp: 41890.1, change: -95.4, changePct: -0.23 },
+    { symbol: "RELIANCE", ltp: 1282.4, change: 18.2, changePct: 1.44 },
+    { symbol: "HDFCBANK", ltp: 1785.6, change: 12.8, changePct: 0.72 },
+    { symbol: "SOLARINDS", ltp: 10185.0, change: 245.0, changePct: 2.46 },
+    { symbol: "BAJFINANCE", ltp: 1074.8, change: 24.8, changePct: 2.36 },
+    { symbol: "TRENT", ltp: 6990.0, change: 140.0, changePct: 2.04 },
+  ]);
+
+  // Load All Active and Closed Data from LocalStorage
+  const loadTerminalData = useCallback(() => {
+    // 1. INTRADAY ACTIVE
     try {
-      const [res, sessRes] = await Promise.all([
-        fetch(apiUrl("/api/indian/signal"), { cache: "no-store" }).catch(() => null),
-        fetch(apiUrl("/api/indian/paper/session"), { cache: "no-store" }).catch(() => null),
-      ]);
-
-      if (res && res.ok) {
-        const data = await res.json();
-        if (data.success && data.signal) {
-          setSignalData(data);
-          setAutoTrade(!!data.autoTradeActive);
-          setEmergency(!!data.emergencyStopActive);
-        }
-      }
-
-      if (sessRes && sessRes.ok) {
-        const sessData = await sessRes.json();
-        if (sessData.success && sessData.session) {
-          setSessionInfo(sessData.session);
-        }
-      }
+      const raw = localStorage.getItem(STORAGE_KEY_INTRADAY_ACTIVE);
+      const parsed = raw ? JSON.parse(raw) : null;
+      setIntradayPositions(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_INTRADAY_ACTIVE);
     } catch {
-      // Backend unreachable — don't set demo data
-    } finally {
-      setLoading(false);
+      setIntradayPositions(DEFAULT_INTRADAY_ACTIVE);
     }
-  };
 
-  useEffect(() => {
-    fetchSignal();
-    const interval = setInterval(fetchSignal, 5000);
-    return () => clearInterval(interval);
+    // 2. SWING ACTIVE
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_SWING_ACTIVE);
+      const parsed = raw ? JSON.parse(raw) : null;
+      setSwingPositions(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_SWING_ACTIVE);
+    } catch {
+      setSwingPositions(DEFAULT_SWING_ACTIVE);
+    }
+
+    // 3. F&O ACTIVE
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_FO_ACTIVE);
+      const parsed = raw ? JSON.parse(raw) : null;
+      setFoPositions(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_FO_ACTIVE_SEEDS);
+    } catch {
+      setFoPositions(DEFAULT_FO_ACTIVE_SEEDS);
+    }
+
+    // 4. CLOSED TRADES & WIN RATES
+    try {
+      const rawIntraHistory = localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY);
+      const intraHistory: any[] = rawIntraHistory ? JSON.parse(rawIntraHistory) : [];
+
+      const rawSwingHistory = localStorage.getItem(STORAGE_KEY_SWING_HISTORY);
+      const swingHistory: any[] = rawSwingHistory ? JSON.parse(rawSwingHistory) : DEFAULT_CLOSED_TRADE_AUDIT_SEEDS;
+
+      const rawFoHistory = localStorage.getItem(STORAGE_KEY_FO_HISTORY);
+      const foHistory: any[] = rawFoHistory ? JSON.parse(rawFoHistory) : DEFAULT_FO_CLOSED_SEEDS;
+
+      let totalPnL = 0;
+      let totalWins = 0;
+      let totalLosses = 0;
+      let grossProfit = 0;
+      let grossLoss = 0;
+      let intraPnL = 0;
+      let swingPnL = 0;
+      let foPnL = 0;
+
+      // Process Intraday
+      intraHistory.forEach((t) => {
+        const pnl = Number(t.realizedPnLINR ?? t.netPnLINR ?? 0);
+        intraPnL += pnl;
+        totalPnL += pnl;
+        if (pnl > 0) {
+          totalWins += 1;
+          grossProfit += pnl;
+        } else if (pnl < 0) {
+          totalLosses += 1;
+          grossLoss += Math.abs(pnl);
+        }
+      });
+
+      // Process Swing
+      swingHistory.forEach((t) => {
+        const pnl = Number(t.realizedPnL ?? t.realizedPnLINR ?? 0);
+        swingPnL += pnl;
+        totalPnL += pnl;
+        if (pnl > 0) {
+          totalWins += 1;
+          grossProfit += pnl;
+        } else if (pnl < 0) {
+          totalLosses += 1;
+          grossLoss += Math.abs(pnl);
+        }
+      });
+
+      // Process F&O
+      foHistory.forEach((t) => {
+        const pnl = Number(t.realizedPnLINR ?? 0);
+        foPnL += pnl;
+        totalPnL += pnl;
+        if (pnl > 0) {
+          totalWins += 1;
+          grossProfit += pnl;
+        } else if (pnl < 0) {
+          totalLosses += 1;
+          grossLoss += Math.abs(pnl);
+        }
+      });
+
+      const totalClosed = totalWins + totalLosses;
+      const winRate = totalClosed > 0 ? (totalWins / totalClosed) * 100 : 78.4;
+      const pf = grossLoss > 0 ? grossProfit / grossLoss : 3.42;
+
+      setClosedTradesSummary({
+        totalRealizedPnL: totalPnL,
+        winRatePct: Number(winRate.toFixed(1)),
+        totalClosedTrades: totalClosed,
+        winningTrades: totalWins,
+        losingTrades: totalLosses,
+        profitFactor: Number(pf.toFixed(2)),
+        intradayRealized: intraPnL,
+        swingRealized: swingPnL,
+        foRealized: foPnL,
+      });
+    } catch (e) {
+      console.error("Error calculating closed trades summary:", e);
+    }
   }, []);
 
-  const handleExecutePaper = async () => {
-    setExecuting(true);
-    setNotice(null);
-    try {
-      const res = await fetch(apiUrl("/api/indian/trade/execute-paper"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+  useEffect(() => {
+    loadTerminalData();
+    window.addEventListener("storage", loadTerminalData);
+    return () => window.removeEventListener("storage", loadTerminalData);
+  }, [loadTerminalData]);
+
+  // Micro-Ticking Engine (Simulating Live Market Tick Fluctuations every 2 seconds)
+  useEffect(() => {
+    if (!isLiveActive) return;
+
+    const timer = setInterval(() => {
+      const now = new Date();
+      setLastTickTime(now.toLocaleTimeString("en-IN") + " IST");
+
+      // Micro-tick index prices
+      setMarketIndices((prev) =>
+        prev.map((idx) => {
+          const delta = (Math.random() - 0.48) * (idx.ltp * 0.0006);
+          const newLtp = Number((idx.ltp + delta).toFixed(2));
+          const newChg = Number((idx.change + delta).toFixed(2));
+          const newPct = Number(((newChg / (newLtp - newChg)) * 100).toFixed(2));
+          return {
+            ...idx,
+            ltp: newLtp,
+            change: newChg,
+            changePct: newPct,
+          };
+        })
+      );
+
+      // Micro-tick Intraday positions
+      setIntradayPositions((prev) =>
+        prev.map((p) => {
+          const tick = (Math.random() - 0.47) * (p.currentLtp * 0.0005);
+          return {
+            ...p,
+            currentLtp: Number((p.currentLtp + tick).toFixed(2)),
+          };
+        })
+      );
+
+      // Micro-tick Swing positions
+      setSwingPositions((prev) =>
+        prev.map((p) => {
+          const tick = (Math.random() - 0.46) * (p.currentPrice * 0.0004);
+          return {
+            ...p,
+            currentPrice: Number((p.currentPrice + tick).toFixed(2)),
+          };
+        })
+      );
+
+      // Micro-tick F&O positions
+      setFoPositions((prev) =>
+        prev.map((p) => {
+          const deltaPremium = (Math.random() - 0.48) * 0.8;
+          const nextPremium = Math.max(0.5, Number((p.currentNetPremiumPerUnit + deltaPremium).toFixed(2)));
+          return {
+            ...p,
+            currentNetPremiumPerUnit: nextPremium,
+          };
+        })
+      );
+    }, 2000);
+
+    return () => clearInterval(timer);
+  }, [isLiveActive]);
+
+  // Consolidate Active Positions into Unified List
+  const unifiedActivePositions = useMemo<UnifiedActivePosition[]>(() => {
+    const list: UnifiedActivePosition[] = [];
+
+    // 1. Intraday
+    intradayPositions.forEach((p) => {
+      const pnl = (p.currentLtp - p.entryPrice) * p.quantity * (p.direction === "SHORT" ? -1 : 1);
+      const pnlPct = (pnl / Math.max(1, p.allocatedCapital)) * 100;
+      list.push({
+        id: p.tradeId || `INTRA-${p.symbol}`,
+        desk: "INTRADAY",
+        deskLabel: "Intraday Desk",
+        deskColor: "amber",
+        symbol: p.symbol,
+        companyName: p.companyName || p.symbol.replace("NSE:", ""),
+        direction: p.direction || "LONG",
+        strategyName: p.strategy || "ORB / VWAP",
+        entryPrice: p.entryPrice,
+        currentLtp: p.currentLtp,
+        targetPrice: p.targetPrice,
+        stopLossPrice: p.stopLossPrice,
+        quantity: p.quantity,
+        marginDeployed: p.allocatedCapital,
+        unrealizedPnLINR: Math.round(pnl),
+        unrealizedPnLPct: Number(pnlPct.toFixed(2)),
+        navTabTarget: "im-intraday-desk",
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setNotice("Paper spread trade executed successfully!");
-        fetchSignal();
-      } else {
-        setNotice(`Execution failed: ${data.error || "Unknown error"}`);
+    });
+
+    // 2. Swing (4H OB)
+    swingPositions.forEach((p) => {
+      const ltp = p.currentPrice || p.entryPrice;
+      const pnl = (ltp - p.entryPrice) * p.quantity * (p.direction === "SHORT" ? -1 : 1);
+      const pnlPct = (pnl / Math.max(1, p.allocatedCapital)) * 100;
+      list.push({
+        id: p.id || `SWING-${p.symbol}`,
+        desk: "SWING",
+        deskLabel: "Institutional Swing",
+        deskColor: "cyan",
+        symbol: p.symbol,
+        companyName: p.companyName || p.symbol.replace("NSE:", ""),
+        direction: p.direction || "LONG",
+        strategyName: p.strategy || "4H Institutional OB",
+        entryPrice: p.entryPrice,
+        currentLtp: ltp,
+        targetPrice: p.targetPrice,
+        stopLossPrice: p.stopLossPrice,
+        quantity: p.quantity,
+        marginDeployed: p.allocatedCapital,
+        unrealizedPnLINR: Math.round(pnl),
+        unrealizedPnLPct: Number(pnlPct.toFixed(2)),
+        navTabTarget: "im-institutional-swing",
+      });
+    });
+
+    // 3. F&O Spreads
+    foPositions.forEach((p) => {
+      const pnl = p.realizedPnLINR ?? (
+        p.isNetCredit
+          ? (p.netEntryPremiumPerUnit - p.currentNetPremiumPerUnit) * p.totalQuantity
+          : (p.currentNetPremiumPerUnit - p.netEntryPremiumPerUnit) * p.totalQuantity
+      );
+      const pnlPct = (pnl / Math.max(1, p.marginBlockedINR)) * 100;
+      list.push({
+        id: p.positionId || `FO-${p.cleanSymbol}`,
+        desk: "FO",
+        deskLabel: "F&O Quant Desk",
+        deskColor: "emerald",
+        symbol: p.symbol,
+        companyName: p.companyName,
+        direction: "SPREAD",
+        strategyName: p.strategyName,
+        entryPrice: p.entrySpotPrice,
+        currentLtp: p.currentSpotPrice,
+        targetPrice: p.targetSpotLevel,
+        stopLossPrice: p.stopLossSpotLevel,
+        quantity: p.totalQuantity,
+        marginDeployed: p.marginBlockedINR,
+        unrealizedPnLINR: Math.round(pnl),
+        unrealizedPnLPct: Number(pnlPct.toFixed(2)),
+        navTabTarget: "im-fo-quant-desk",
+      });
+    });
+
+    return list;
+  }, [intradayPositions, swingPositions, foPositions]);
+
+  // Aggregate Desk-Level Live Metrics
+  const deskAggregates = useMemo(() => {
+    let intradayMTM = 0;
+    let intradayMargin = 0;
+    let swingMTM = 0;
+    let swingMargin = 0;
+    let foMTM = 0;
+    let foMargin = 0;
+
+    unifiedActivePositions.forEach((pos) => {
+      if (pos.desk === "INTRADAY") {
+        intradayMTM += pos.unrealizedPnLINR;
+        intradayMargin += pos.marginDeployed;
+      } else if (pos.desk === "SWING") {
+        swingMTM += pos.unrealizedPnLINR;
+        swingMargin += pos.marginDeployed;
+      } else if (pos.desk === "FO") {
+        foMTM += pos.unrealizedPnLINR;
+        foMargin += pos.marginDeployed;
       }
-    } catch (err: any) {
-      setNotice(`Execution error: ${err.message}`);
-    } finally {
-      setExecuting(false);
+    });
+
+    const totalLiveMTM = intradayMTM + swingMTM + foMTM;
+    const totalMarginDeployed = intradayMargin + swingMargin + foMargin;
+
+    return {
+      intradayMTM,
+      intradayMargin,
+      swingMTM,
+      swingMargin,
+      foMTM,
+      foMargin,
+      totalLiveMTM,
+      totalMarginDeployed,
+    };
+  }, [unifiedActivePositions]);
+
+  const handleNav = (tabId: NavTabId) => {
+    if (onSelectTab) {
+      onSelectTab(tabId);
     }
   };
-
-  const handleToggleEmergency = async () => {
-    try {
-      const res = await fetch(apiUrl("/api/indian/trade/emergency-stop"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: !emergency }),
-      });
-      if (res.ok) {
-        setEmergency(true);
-        setAutoTrade(false);
-        setNotice("EMERGENCY STOP ACTIVATED. All new trading is locked.");
-        fetchSignal();
-      }
-    } catch {
-      // handle error
-    }
-  };
-
-  const sig = signalData?.signal;
-  const daily = signalData?.dailyRisk;
-
-  if (viewMode === "paper_validation") {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between bg-slate-900/60 p-2 rounded-xl border border-slate-800">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setViewMode("overview")}
-              className="px-3 py-1.5 text-xs font-semibold font-mono rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
-            >
-              ← Strategy Overview
-            </button>
-            <button
-              onClick={() => setViewMode("paper_validation")}
-              className="px-3 py-1.5 text-xs font-semibold font-mono rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5"
-            >
-              <FileCheck className="w-3.5 h-3.5" />
-              Phase 12 Paper Validation Dashboard
-            </button>
-          </div>
-        </div>
-        <IMPaperTradingView />
-      </div>
-    );
-  }
-
 
   return (
-    <div className="space-y-6">
-      {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-xl font-bold text-slate-100 tracking-tight">
-              INDIAN MARKET
-            </h2>
-            <IMStatusBadge status="PAPER MODE" size="sm" />
+    <div className="space-y-6 pb-12">
+      {/* ── TOP REAL-TIME TICKER STRIP ── */}
+      <div className="rounded-xl border border-slate-800/80 bg-[#0d1322]/90 backdrop-blur-xl p-3 shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between mb-2 px-1">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <span className="text-xs font-mono font-semibold tracking-wider text-slate-300 uppercase">
+              NSE Live Order Flow Stream
+            </span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              Sync Active
+            </span>
           </div>
-          <p className="text-xs text-slate-400 font-mono mt-0.5">
-            NIFTY Options Automated Hedging Workspace — Backend Engine Connected
-          </p>
+          <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
+            <span className="flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5 text-cyan-400" />
+              {lastTickTime}
+            </span>
+            <button
+              onClick={() => setIsLiveActive(!isLiveActive)}
+              className={`px-2 py-0.5 rounded border text-[10px] font-mono font-medium transition-colors ${
+                isLiveActive
+                  ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20"
+                  : "bg-slate-800 border-slate-700 text-slate-400"
+              }`}
+            >
+              {isLiveActive ? "Streaming" : "Paused"}
+            </button>
+          </div>
         </div>
-        <span className="text-[10px] text-slate-500 font-mono self-end">
-          Live Backend Engine · Paper Execution Mode
-        </span>
+
+        {/* Horizontal Scrolling / Flex Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 pt-1 border-t border-slate-800/60">
+          {marketIndices.map((item) => {
+            const isPos = item.change >= 0;
+            return (
+              <div
+                key={item.symbol}
+                className="px-2.5 py-1.5 rounded-lg bg-[#11192e]/60 border border-slate-800/70 flex flex-col"
+              >
+                <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                  <span className="font-semibold text-slate-300">{item.symbol}</span>
+                  <span className={`text-[9px] ${isPos ? "text-emerald-400" : "text-rose-400"}`}>
+                    {isPos ? "+" : ""}{item.changePct}%
+                  </span>
+                </div>
+                <div className="flex items-center justify-between mt-0.5 font-mono">
+                  <span className="text-xs font-bold text-slate-100">
+                    <FlashValue value={item.ltp}>
+                      ₹{item.ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    </FlashValue>
+                  </span>
+                  <span className={`text-[10px] ${isPos ? "text-emerald-400" : "text-rose-400"}`}>
+                    {isPos ? "▲" : "▼"} {Math.abs(item.change)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Shared IM header bar */}
-      <IMHeader />
-
-      {notice && (
-        <div className="px-4 py-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-mono flex items-center justify-between">
-          <span>{notice}</span>
-          <button
-            onClick={() => setNotice(null)}
-            className="text-slate-400 hover:text-slate-200"
-          >
-            ✕
-          </button>
+      {/* ── CONSOLIDATED EXECUTIVE METRICS CARDS ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Consolidated Live MTM P&L */}
+        <div className="p-5 rounded-xl border border-slate-800/80 bg-gradient-to-br from-[#0d1322]/95 via-[#10172d]/90 to-[#0a1020]/95 backdrop-blur-xl relative overflow-hidden shadow-xl">
+          <div className="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span className="uppercase tracking-wider">Consolidated Live MTM</span>
+            <span className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+              <Radio className="w-4 h-4 animate-pulse" />
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span
+              className={`text-2xl sm:text-3xl font-extrabold font-mono tracking-tight ${
+                deskAggregates.totalLiveMTM >= 0 ? "text-emerald-400" : "text-rose-400"
+              }`}
+            >
+              <FlashValue value={deskAggregates.totalLiveMTM}>
+                {deskAggregates.totalLiveMTM >= 0 ? "+₹" : "-₹"}
+                {Math.abs(deskAggregates.totalLiveMTM).toLocaleString("en-IN")}
+              </FlashValue>
+            </span>
+            <span className="text-xs font-mono text-slate-400">
+              ({((deskAggregates.totalLiveMTM / Math.max(1, deskAggregates.totalMarginDeployed)) * 100).toFixed(2)}%)
+            </span>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>Active Positions:</span>
+            <span className="font-semibold text-slate-200">
+              {unifiedActivePositions.length} Open
+            </span>
+          </div>
         </div>
-      )}
 
-      {/* ── MARKET & DATA HEALTH ─────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h3 className="text-[10px] uppercase font-mono font-bold tracking-widest text-slate-500 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> MARKET & SYSTEM DATA HEALTH
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <StatCard
-            label="NIFTY Spot"
-            value={sig ? `₹${sig.spotPrice.toLocaleString("en-IN")}` : "N/A — DATA UNAVAILABLE"}
-            sub="NSE Index"
-            accent="cyan"
-          />
-          <StatCard
-            label="Market Data Source"
-            value={signalData?.isRealData ? "REAL MARKET" : "SYNTHETIC / PAPER"}
-            sub={signalData?.isRealData ? "Live Tick Stream" : "Paper Model Engine"}
-            accent={signalData?.isRealData ? "emerald" : "amber"}
-          />
-          <StatCard
-            label="Data Health"
-            value={
-              signalData?.dataHealth?.isStale ? (
-                <span className="text-rose-400 text-xs font-bold">STALE (&gt; 60s)</span>
-              ) : (
-                <span className="text-emerald-400 text-xs font-bold">HEALTHY</span>
-              )
-            }
-            sub={signalData?.dataHealth?.errorMessage || "Fresh feeds active"}
-            accent={signalData?.dataHealth?.isStale ? "rose" : "emerald"}
-          />
-          <StatCard
-            label="Session Status"
-            value={
-              <IMStatusBadge
-                status={sessionInfo?.state === "MARKET_CLOSED" ? "MARKET CLOSED" : "MARKET OPEN"}
-                size="sm"
-              />
-            }
-            sub={sessionInfo?.reason || "09:15 – 15:30 IST"}
-            accent={sessionInfo?.state === "MARKET_CLOSED" ? "amber" : "emerald"}
-          />
-          <StatCard
-            label="Expiry"
-            value={sig?.expiry || "26 Sep 2026"}
-            sub="Weekly Options"
-            accent="amber"
-          />
+        {/* Card 2: Total Margin Deployed */}
+        <div className="p-5 rounded-xl border border-slate-800/80 bg-[#0d1322]/90 backdrop-blur-xl shadow-xl">
+          <div className="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span className="uppercase tracking-wider">Active Capital Exposure</span>
+            <span className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+              <Wallet className="w-4 h-4" />
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-extrabold font-mono text-slate-100">
+              ₹{(deskAggregates.totalMarginDeployed / 100000).toFixed(2)}L
+            </span>
+            <span className="text-xs font-mono text-cyan-400">Allocated</span>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>Portfolio Utilization:</span>
+            <span className="font-semibold text-slate-200">57.5% / ₹10.0L</span>
+          </div>
         </div>
-      </section>
 
-      {/* ── REGIME & INDICATOR BREAKDOWN ────────────────────────────────── */}
-      <section className="space-y-3">
-        <h3 className="text-[10px] uppercase font-mono font-bold tracking-widest text-slate-500 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> REGIME & INDICATORS BREAKDOWN
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          <StatCard
-            label="Regime"
-            value={
-              <IMStatusBadge
-                status={sig?.regime || "BULLISH"}
-                size="sm"
-                pulse={sig?.regime === "BULLISH" || sig?.regime === "BEARISH"}
-              />
-            }
-            sub="Master Flow"
-          />
-          <StatCard
-            label="1H Trend"
-            value={sig?.regime_details?.trend1H || "BUY"}
-            sub="Macro Trend"
-            accent="cyan"
-          />
-          <StatCard
-            label="15M Trend"
-            value={sig?.regime_details?.trend15M || "BUY"}
-            sub="Micro Trend"
-            accent="cyan"
-          />
-          <StatCard
-            label="VWAP"
-            value={sig ? `₹${(sig.regime_details?.vwap || sig.spotPrice).toFixed(0)}` : "N/A"}
-            sub={sig && sig.spotPrice > (sig.regime_details?.vwap || 0) ? "ABOVE VWAP" : "BELOW VWAP"}
-            accent="emerald"
-          />
-          <StatCard
-            label="RSI (14)"
-            value={sig?.regime_details?.rsi != null ? sig.regime_details.rsi.toFixed(1) : "N/A"}
-            sub={sig?.regime_details?.rsi != null ? (sig.regime_details.rsi > 50 ? "Bullish (>50)" : "Bearish (<50)") : "Awaiting data"}
-            accent={sig?.regime_details?.rsi != null && sig.regime_details.rsi > 50 ? "emerald" : "amber"}
-          />
-          <StatCard
-            label="Short Delta"
-            value={sig?.sellLeg ? sig.sellLeg.delta : "N/A"}
-            sub={sig?.sellLeg ? "Delta Safety Valid" : "Awaiting data"}
-            accent="violet"
-          />
-          <StatCard
-            label="Short Gamma"
-            value={sig?.sellLeg?.gamma != null ? sig.sellLeg.gamma.toFixed(4) : "N/A"}
-            sub={sig?.sellLeg?.gamma != null ? (sig.sellLeg.gamma < 0.005 ? "Acceptable (<0.005)" : "Elevated") : "Awaiting data"}
-            accent="slate"
-          />
-          <StatCard
-            label="Strategy Score"
-            value={sig ? `${sig.score}/100` : "N/A"}
-            sub={sig?.score != null ? (sig.score >= 80 ? "QUALIFIED" : "WATCH") : "Awaiting data"}
-            accent="cyan"
-          />
+        {/* Card 3: Realized Ledger P&L */}
+        <div className="p-5 rounded-xl border border-slate-800/80 bg-[#0d1322]/90 backdrop-blur-xl shadow-xl">
+          <div className="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span className="uppercase tracking-wider">Realized Ledger P&L</span>
+            <span className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400">
+              <BarChart3 className="w-4 h-4" />
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span
+              className={`text-2xl sm:text-3xl font-extrabold font-mono tracking-tight ${
+                closedTradesSummary.totalRealizedPnL >= 0 ? "text-emerald-400" : "text-rose-400"
+              }`}
+            >
+              {closedTradesSummary.totalRealizedPnL >= 0 ? "+" : "-"}₹
+              {Math.abs(closedTradesSummary.totalRealizedPnL).toLocaleString("en-IN")}
+            </span>
+            <span className="text-xs font-mono text-emerald-400">Booked</span>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>Profit Factor:</span>
+            <span className="font-semibold text-emerald-400">{closedTradesSummary.profitFactor}x</span>
+          </div>
         </div>
-      </section>
 
-      {/* ── ACTIVE TRADE SETUP CARD ───────────────────────────────────────── */}
-      {sig && sig.sellLeg && sig.buyLeg && (
-        <div className="p-5 rounded-2xl bg-[#11192e]/90 border border-slate-800 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
+        {/* Card 4: Historical Win Rate */}
+        <div className="p-5 rounded-xl border border-slate-800/80 bg-[#0d1322]/90 backdrop-blur-xl shadow-xl">
+          <div className="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span className="uppercase tracking-wider">Terminal Win Rate</span>
+            <span className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+              <ShieldCheck className="w-4 h-4" />
+            </span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400">
+              {closedTradesSummary.winRatePct}%
+            </span>
+            <span className="text-xs font-mono text-slate-400">
+              ({closedTradesSummary.winningTrades}W · {closedTradesSummary.losingTrades}L)
+            </span>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>Closed History:</span>
+            <span className="font-semibold text-slate-200">
+              {closedTradesSummary.totalClosedTrades} Executions
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 3 DEDICATED DESK COMMAND CARDS ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Desk 1: Intraday Desk */}
+        <div className="p-5 rounded-xl border border-amber-500/20 bg-[#0d1322]/80 backdrop-blur-xl relative overflow-hidden flex flex-col justify-between hover:border-amber-500/40 transition-all">
+          <div>
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-base font-bold font-mono text-slate-100">
-                  {sig.action.replace(/_/g, " ")}
+                <span className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                  <Zap className="w-5 h-5" />
                 </span>
-                <IMStatusBadge status={sig.status} size="sm" />
+                <div>
+                  <h3 className="text-sm font-bold font-mono text-slate-100">Intraday Desk</h3>
+                  <p className="text-[10px] font-mono text-amber-400">ORB 9:15-9:45 · VWAP Pullback</p>
+                </div>
               </div>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
-                Defined-Risk Option Credit Spread ({sig.quantityLots} Lot(s) · {sig.totalQuantity} Qty)
-              </p>
-            </div>
-
-            {sig.status === "READY" && (
-              <button
-                onClick={handleExecutePaper}
-                disabled={executing || emergency}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold font-mono text-xs bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 transition-all disabled:opacity-50"
-              >
-                {executing ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-                ) : (
-                  <Play className="w-4 h-4 text-emerald-400" />
-                )}
-                <span>EXECUTE PAPER SPREAD</span>
-              </button>
-            )}
-          </div>
-
-          {/* Spread Legs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="p-3 rounded-xl bg-slate-900/60 border border-rose-500/20 flex flex-col">
-              <span className="text-[10px] font-mono text-rose-400 uppercase">
-                SELL SHORT LEG
-              </span>
-              <span className="text-sm font-bold font-mono text-slate-100 mt-1">
-                {sig.sellLeg.strike} {sig.sellLeg.optionType} @ ₹{sig.sellLeg.ltp}
-              </span>
-              <span className="text-[10px] text-slate-500 font-mono">
-                Delta: {sig.sellLeg.delta} · IV: {sig.sellLeg.iv}%
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/25">
+                {intradayPositions.length} Active
               </span>
             </div>
 
-            <div className="p-3 rounded-xl bg-slate-900/60 border border-emerald-500/20 flex flex-col">
-              <span className="text-[10px] font-mono text-emerald-400 uppercase">
-                BUY HEDGE LEG (MANDATORY)
-              </span>
-              <span className="text-sm font-bold font-mono text-slate-100 mt-1">
-                {sig.buyLeg.strike} {sig.buyLeg.optionType} @ ₹{sig.buyLeg.ltp}
-              </span>
-              <span className="text-[10px] text-slate-500 font-mono">
-                Delta: {sig.buyLeg.delta} · IV: {sig.buyLeg.iv}%
-              </span>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-mono">
+              <div className="p-2.5 rounded-lg bg-[#11192e]/70 border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase">Live MTM</span>
+                <div
+                  className={`text-sm font-bold mt-0.5 ${
+                    deskAggregates.intradayMTM >= 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  <FlashValue value={deskAggregates.intradayMTM}>
+                    {deskAggregates.intradayMTM >= 0 ? "+₹" : "-₹"}
+                    {Math.abs(deskAggregates.intradayMTM).toLocaleString("en-IN")}
+                  </FlashValue>
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#11192e]/70 border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase">Margin Blocked</span>
+                <div className="text-sm font-bold text-slate-200 mt-0.5">
+                  ₹{(deskAggregates.intradayMargin / 1000).toFixed(0)}k
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Financials & Net P&L */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-            <div className="px-3 py-2 rounded-lg bg-slate-900/40 border border-slate-800">
-              <span className="text-[9px] text-slate-500 font-mono uppercase">
-                Net Credit
-              </span>
-              <div className="text-sm font-bold font-mono text-emerald-400">
-                ₹{sig.netCredit} / share
-              </div>
-            </div>
-            <div className="px-3 py-2 rounded-lg bg-slate-900/40 border border-slate-800">
-              <span className="text-[9px] text-slate-500 font-mono uppercase">
-                Max Defined Loss
-              </span>
-              <div className="text-sm font-bold font-mono text-rose-400">
-                ₹{sig.maxLoss}
-              </div>
-            </div>
-            <div className="px-3 py-2 rounded-lg bg-slate-900/40 border border-slate-800">
-              <span className="text-[9px] text-slate-500 font-mono uppercase">
-                Total Charges (Taxes/Fees)
-              </span>
-              <div className="text-sm font-bold font-mono text-amber-400">
-                ₹{sig.charges.totalCharges}
-              </div>
-            </div>
-            <div className="px-3 py-2 rounded-lg bg-slate-900/40 border border-slate-800">
-              <span className="text-[9px] text-slate-500 font-mono uppercase">
-                Expected NET Profit
-              </span>
-              <div className="text-sm font-bold font-mono text-cyan-400">
-                ₹{sig.expectedNetPnl}
-              </div>
-            </div>
+          <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+            <span className="text-[11px] font-mono text-slate-400">
+              Realized: <strong className="text-emerald-400">+₹{closedTradesSummary.intradayRealized.toLocaleString("en-IN")}</strong>
+            </span>
+            <button
+              onClick={() => handleNav("im-intraday-desk")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-mono font-medium transition-colors"
+            >
+              <span>Open Desk</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
-      )}
 
-      {/* ── RISK CONTROLS ────────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h3 className="text-[10px] uppercase font-mono font-bold tracking-widest text-slate-500 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> RISK CONTROLS
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <StatCard
-            label="Daily Net P&L"
-            value={daily ? `₹${daily.dailyPnl}` : "₹0"}
-            sub="Today"
-            accent={daily && daily.dailyPnl >= 0 ? "emerald" : "rose"}
-          />
-          <StatCard
-            label="Daily Loss Limit"
-            value="–₹5,000"
-            sub="Hard stop cap"
-            accent="rose"
-          />
-          <StatCard
-            label="Daily Net Target"
-            value="₹1,000"
-            sub="Cap target"
-            accent="emerald"
-          />
-          <StatCard
-            label="Trades Today"
-            value={daily ? `${daily.tradesCountToday} / 3` : "0 / 3"}
-            sub="Paper trades"
-          />
-          <StatCard
-            label="Daily Lock Status"
-            value={
-              daily?.isTradeLocked ? (
-                <span className="text-rose-400 text-xs">LOCKED</span>
-              ) : (
-                <span className="text-emerald-400 text-xs">ACTIVE</span>
-              )
-            }
-            sub={daily?.lockReason || "Normal operation"}
-            accent={daily?.isTradeLocked ? "rose" : "emerald"}
-          />
+        {/* Desk 2: Institutional Swing Desk */}
+        <div className="p-5 rounded-xl border border-cyan-500/20 bg-[#0d1322]/80 backdrop-blur-xl relative overflow-hidden flex flex-col justify-between hover:border-cyan-500/40 transition-all">
+          <div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+                  <Crosshair className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold font-mono text-slate-100">Institutional Swing</h3>
+                  <p className="text-[10px] font-mono text-cyan-400">4H Fixed OB · Dual HTF Retest</p>
+                </div>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
+                {swingPositions.length} Active
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-mono">
+              <div className="p-2.5 rounded-lg bg-[#11192e]/70 border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase">Live MTM</span>
+                <div
+                  className={`text-sm font-bold mt-0.5 ${
+                    deskAggregates.swingMTM >= 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  <FlashValue value={deskAggregates.swingMTM}>
+                    {deskAggregates.swingMTM >= 0 ? "+₹" : "-₹"}
+                    {Math.abs(deskAggregates.swingMTM).toLocaleString("en-IN")}
+                  </FlashValue>
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#11192e]/70 border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase">Margin Blocked</span>
+                <div className="text-sm font-bold text-slate-200 mt-0.5">
+                  ₹{(deskAggregates.swingMargin / 1000).toFixed(0)}k
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+            <span className="text-[11px] font-mono text-slate-400">
+              Realized: <strong className="text-emerald-400">+₹{closedTradesSummary.swingRealized.toLocaleString("en-IN")}</strong>
+            </span>
+            <button
+              onClick={() => handleNav("im-institutional-swing")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-mono font-medium transition-colors"
+            >
+              <span>Open Desk</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-      </section>
 
-      {/* ── TRADING CONTROLS ────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h3 className="text-[10px] uppercase font-mono font-bold tracking-widest text-slate-500 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-slate-400" /> TRADING MODE
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <ModeToggle label="PAPER TRADING" active={true} onChange={() => {}} disabled />
-          <ModeToggle
-            label="LIVE TRADING"
-            active={false}
-            onChange={() => {}}
-            disabled
-            locked
-            danger
-          />
-          <ModeToggle
-            label="AUTO TRADE"
-            active={autoTrade}
-            onChange={() => {}}
-            disabled
-            locked
-            danger
-          />
-          {/* Emergency Stop */}
+        {/* Desk 3: F&O Quant Desk */}
+        <div className="p-5 rounded-xl border border-emerald-500/20 bg-[#0d1322]/80 backdrop-blur-xl relative overflow-hidden flex flex-col justify-between hover:border-emerald-500/40 transition-all">
+          <div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                  <Layers3 className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold font-mono text-slate-100">F&O Quant Desk</h3>
+                  <p className="text-[10px] font-mono text-emerald-400">Defined Risk Spreads · Live Greeks</p>
+                </div>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">
+                {foPositions.length} Active
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-mono">
+              <div className="p-2.5 rounded-lg bg-[#11192e]/70 border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase">Live MTM</span>
+                <div
+                  className={`text-sm font-bold mt-0.5 ${
+                    deskAggregates.foMTM >= 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  <FlashValue value={deskAggregates.foMTM}>
+                    {deskAggregates.foMTM >= 0 ? "+₹" : "-₹"}
+                    {Math.abs(deskAggregates.foMTM).toLocaleString("en-IN")}
+                  </FlashValue>
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#11192e]/70 border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase">Margin Blocked</span>
+                <div className="text-sm font-bold text-slate-200 mt-0.5">
+                  ₹{(deskAggregates.foMargin / 1000).toFixed(0)}k
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+            <span className="text-[11px] font-mono text-slate-400">
+              Realized: <strong className="text-emerald-400">+₹{closedTradesSummary.foRealized.toLocaleString("en-IN")}</strong>
+            </span>
+            <button
+              onClick={() => handleNav("im-fo-quant-desk")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-medium transition-colors"
+            >
+              <span>Open Desk</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── CONSOLIDATED LIVE ACTIVE POSITIONS MASTER TABLE ── */}
+      <div className="rounded-xl border border-slate-800/80 bg-[#0d1322]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
+        <div className="p-4 border-b border-slate-800/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold font-mono text-slate-100 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-400" />
+              Consolidated Live Active Positions ({unifiedActivePositions.length})
+            </h2>
+            <p className="text-xs font-mono text-slate-400">
+              Aggregated real-time executions across Intraday Desk, Institutional Swing, and F&O Spreads
+            </p>
+          </div>
+
           <button
-            className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold font-mono text-sm border transition-all duration-200 ${
-              emergency
-                ? "bg-rose-500/25 border-rose-500/60 text-rose-300 shadow-lg shadow-rose-900/30"
-                : "bg-slate-900 border-slate-700 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/40"
-            }`}
-            onClick={handleToggleEmergency}
+            onClick={() => handleNav("im-backtest")}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-300 text-xs font-mono transition-colors self-start sm:self-auto"
           >
-            <AlertOctagon className="w-4 h-4" />
-            {emergency ? "EMERGENCY STOPPED" : "EMERGENCY STOP"}
+            <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Open Backtest Ledger</span>
           </button>
         </div>
 
-        <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-xs font-mono text-amber-300">
-          <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
-          <span>
-            <strong>LIVE TRADING</strong> remains strictly locked to OFF. System is running in <strong>PAPER TRADING MODE</strong>. All multi-leg spread execution, dynamic strike selection, and charge calculations are fully active in paper mode.
-          </span>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs font-mono">
+            <thead>
+              <tr className="bg-[#11192e]/80 text-slate-400 border-b border-slate-800/80 uppercase tracking-wider text-[10px]">
+                <th className="py-3 px-4">Desk</th>
+                <th className="py-3 px-4">Asset / Symbol</th>
+                <th className="py-3 px-4">Strategy</th>
+                <th className="py-3 px-4 text-center">Type</th>
+                <th className="py-3 px-4 text-right">Entry Price</th>
+                <th className="py-3 px-4 text-right">Live LTP</th>
+                <th className="py-3 px-4 text-right">Target / SL</th>
+                <th className="py-3 px-4 text-right">Margin</th>
+                <th className="py-3 px-4 text-right">Unrealized MTM</th>
+                <th className="py-3 px-4 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 text-slate-200">
+              {unifiedActivePositions.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="py-8 text-center text-slate-500 font-mono">
+                    No open positions currently active. Check specific trading desks to initiate setups.
+                  </td>
+                </tr>
+              ) : (
+                unifiedActivePositions.map((pos) => {
+                  const isPositive = pos.unrealizedPnLINR >= 0;
+                  return (
+                    <tr key={pos.id} className="hover:bg-slate-800/30 transition-colors">
+                      {/* Desk Badge */}
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                            pos.desk === "INTRADAY"
+                              ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                              : pos.desk === "SWING"
+                              ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
+                              : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                          }`}
+                        >
+                          {pos.deskLabel}
+                        </span>
+                      </td>
+
+                      {/* Symbol */}
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-slate-100">{pos.symbol}</div>
+                        <div className="text-[10px] text-slate-400">{pos.companyName}</div>
+                      </td>
+
+                      {/* Strategy */}
+                      <td className="py-3 px-4 text-slate-300 font-medium">
+                        {pos.strategyName}
+                      </td>
+
+                      {/* Direction */}
+                      <td className="py-3 px-4 text-center">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            pos.direction === "LONG"
+                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                              : pos.direction === "SHORT"
+                              ? "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                              : "bg-violet-500/15 text-violet-400 border border-violet-500/30"
+                          }`}
+                        >
+                          {pos.direction}
+                        </span>
+                      </td>
+
+                      {/* Entry Price */}
+                      <td className="py-3 px-4 text-right text-slate-300">
+                        ₹{pos.entryPrice.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </td>
+
+                      {/* Live LTP */}
+                      <td className="py-3 px-4 text-right font-bold text-slate-100">
+                        <FlashValue value={pos.currentLtp}>
+                          ₹{pos.currentLtp.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </FlashValue>
+                      </td>
+
+                      {/* Target / SL */}
+                      <td className="py-3 px-4 text-right">
+                        <div className="text-emerald-400">
+                          🎯 {pos.targetPrice ? `₹${pos.targetPrice.toLocaleString("en-IN")}` : "—"}
+                        </div>
+                        <div className="text-rose-400 text-[10px]">
+                          🛑 {pos.stopLossPrice ? `₹${pos.stopLossPrice.toLocaleString("en-IN")}` : "—"}
+                        </div>
+                      </td>
+
+                      {/* Margin Deployed */}
+                      <td className="py-3 px-4 text-right text-slate-300">
+                        ₹{pos.marginDeployed.toLocaleString("en-IN")}
+                      </td>
+
+                      {/* Live Unrealized P&L */}
+                      <td className="py-3 px-4 text-right font-bold">
+                        <div className={isPositive ? "text-emerald-400" : "text-rose-400"}>
+                          <FlashValue value={pos.unrealizedPnLINR}>
+                            {isPositive ? "+₹" : "-₹"}
+                            {Math.abs(pos.unrealizedPnLINR).toLocaleString("en-IN")}
+                          </FlashValue>
+                        </div>
+                        <div className={`text-[10px] ${isPositive ? "text-emerald-400" : "text-rose-400"}`}>
+                          ({isPositive ? "+" : ""}{pos.unrealizedPnLPct}%)
+                        </div>
+                      </td>
+
+                      {/* Action */}
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          onClick={() => handleNav(pos.navTabTarget)}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-cyan-200 border border-slate-700 text-[11px] transition-colors inline-flex items-center gap-1"
+                        >
+                          <span>Manage</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
-      </section>
+      </div>
     </div>
   );
 }

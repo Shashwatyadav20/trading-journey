@@ -22,6 +22,7 @@ import IMOptionChain from "../indian-market/IMOptionChain";
 import IMStrategy from "../indian-market/IMStrategy";
 import IMPositions from "../indian-market/IMPositions";
 import IMBacktestView from "../indian-market/IMBacktestView";
+import BacktestLedgerView from "../indian-market/BacktestLedgerView";
 import IMPostPhase40OperationsDashboard from "../indian-market/IMPostPhase40OperationsDashboard";
 import IMSwingTradingView from "../indian-market/IMSwingTradingView"; // Legacy / Standard Swing
 import FOQuantDeskView from "../indian-market/fo/FOQuantDeskView"; // Dedicated Isolated F&O Quant Desk
@@ -169,7 +170,7 @@ function MainContent() {
           <div {...show("monthly-review")}><MonthlyReviewView /></div>
 
           {/* ── Indian Market views ───────────────────── */}
-          <div {...show("im-overview")}><IMOverviewView /></div>
+          <div {...show("im-overview")}><IMOverviewView onSelectTab={setActiveTab} /></div>
           <div {...show("im-intraday-desk")}><IntradayDeskView /></div>
           <div {...show("im-institutional-swing")}><IMSwingTradingView /></div>
           <div {...show("im-fo-quant-desk")}><FOQuantDeskView /></div>
@@ -179,7 +180,7 @@ function MainContent() {
           <div {...show("im-option-chain")}><IMOptionChain /></div>
           <div {...show("im-strategy")}><IMStrategy /></div>
           <div {...show("im-positions")}><IMPositions /></div>
-          <div {...show("im-backtest")}><IMBacktestView /></div>
+          <div {...show("im-backtest")}><BacktestLedgerView onSelectTab={setActiveTab} /></div>
 
           {/* Settings is shared across both modes */}
           <div {...show("settings")}><SettingsView /></div>

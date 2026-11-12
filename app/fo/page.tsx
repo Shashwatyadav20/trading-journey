@@ -6,3 +6,4 @@ import IndianFOQuantDeskPage from "@/app/indian/fo/page";
 export default function FOPage() {
   return <IndianFOQuantDeskPage />;
 }
+
