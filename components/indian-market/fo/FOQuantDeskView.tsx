@@ -38,11 +38,14 @@ import {
   FO_PORTFOLIO_DEFAULT_CAPITAL,
   calculateSpreadPayoffAndMargin,
 } from "@/lib/indian/foQuantEngine";
+import { useLiveFoTicker } from "@/hooks/useLiveFoTicker";
+import FOLiveCommandCenter, { FlashValue } from "./FOLiveCommandCenter";
 
 const STORAGE_KEY_FO_ACTIVE_SPREADS = "nse_fo_quant_active_spreads_v1";
 const STORAGE_KEY_FO_CLOSED_HISTORY = "nse_fo_quant_closed_history_v1";
 
 type FODeskSubTab =
+  | "LIVE_COMMAND_CENTER"
   | "SPREAD_SCANNER"
   | "OPTION_CHAIN"
   | "PAYOFF_SIMULATOR"
@@ -55,7 +58,7 @@ function getTodayISTDateKey(): string {
 }
 
 export default function FOQuantDeskView() {
-  const [subTab, setSubTab] = useState<FODeskSubTab>("SPREAD_SCANNER");
+  const [subTab, setSubTab] = useState<FODeskSubTab>("LIVE_COMMAND_CENTER");
   const [setups, setSetups] = useState<FOScannerSetup[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [feedSource, setFeedSource] = useState<string>(
@@ -279,6 +282,14 @@ export default function FOQuantDeskView() {
     [activePositions]
   );
 
+  // 1.5s real-time F&O tick engine (Black-Scholes re-pricing anchored to NSE feed)
+  const liveTicker = useLiveFoTicker({
+    setups,
+    positions: activePositions,
+    intervalMs: 1500,
+    enabled: autoRefreshEnabled,
+  });
+
   const currentMarginUsedINR = useMemo(
     () => activePositions.reduce((acc, p) => acc + p.marginBlockedINR, 0),
     [activePositions]
@@ -416,18 +427,13 @@ export default function FOQuantDeskView() {
 
   const handleSquareOffPosition = useCallback(
     (pos: ActiveFOSpreadPosition) => {
-      const todayKey = getTodayISTDateKey();
-      const pnlINR =
-        pos.entryDateKey === todayKey
-          ? 0
-          : Math.round(
-              (pos.currentSpotPrice - pos.entrySpotPrice) *
-                pos.totalQuantity *
-                0.35
-            );
+      // Realize the exact live Black-Scholes spread P&L at the moment of square-off
+      const liveTick = liveTicker.positionTicks[pos.positionId];
+      const pnlINR = liveTick ? liveTick.unrealizedPnLINR : 0;
 
       const closedPos: ActiveFOSpreadPosition = {
         ...pos,
+        currentSpotPrice: liveTick?.spot ?? pos.currentSpotPrice,
         status: "MANUAL_EXIT",
         exitTimestamp: new Date().toISOString(),
         realizedPnLINR: pnlINR,
@@ -439,7 +445,7 @@ export default function FOQuantDeskView() {
       setClosedHistory((prev) => [closedPos, ...prev]);
       showToast(`Squared off ${pos.cleanSymbol} ${pos.strategyName}.`);
     },
-    [showToast]
+    [showToast, liveTicker.positionTicks]
   );
 
   const filteredClosedHistory = useMemo(() => {
@@ -657,8 +663,23 @@ export default function FOQuantDeskView() {
         </div>
       </div>
 
-      {/* 4-Tab F&O Sub-Navigation Bar */}
+      {/* 5-Tab F&O Sub-Navigation Bar */}
       <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl bg-[#0d1322]/90 backdrop-blur-xl border border-slate-800/80 shadow-xl">
+        <button
+          onClick={() => setSubTab("LIVE_COMMAND_CENTER")}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+            subTab === "LIVE_COMMAND_CENTER"
+              ? "bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white shadow-md shadow-emerald-500/25"
+              : "text-slate-400 hover:text-slate-100 hover:bg-slate-900"
+          }`}
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+          </span>
+          <span>0. Live Command Center</span>
+        </button>
+
         <button
           onClick={() => setSubTab("SPREAD_SCANNER")}
           className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
@@ -711,6 +732,17 @@ export default function FOQuantDeskView() {
           <span>4. Active F&amp;O Spreads &amp; Ledger ({activePositions.length})</span>
         </button>
       </div>
+
+      {/* Sub-Tab 0: Live F&O Command Center (1.5s ticking) */}
+      {subTab === "LIVE_COMMAND_CENTER" && (
+        <FOLiveCommandCenter
+          setups={setups}
+          activeSetup={activeSetup}
+          positions={activePositions}
+          ticker={liveTicker}
+          onSelectSymbol={setSelectedSymbol}
+        />
+      )}
 
       {/* Sub-Tab 1: F&O Purple Box & Spread Scanner */}
       {subTab === "SPREAD_SCANNER" && (
@@ -877,13 +909,10 @@ export default function FOQuantDeskView() {
                       <tbody className="divide-y divide-slate-800/60">
                         {activePositions.map((pos) => {
                           const isSameDay = pos.entryDateKey === getTodayISTDateKey();
-                          const unrealizedPnLINR = isSameDay
-                            ? 0
-                            : Math.round(
-                                (pos.currentSpotPrice - pos.entrySpotPrice) *
-                                  pos.totalQuantity *
-                                  0.35
-                              );
+                          const liveTick = liveTicker.positionTicks[pos.positionId];
+                          const unrealizedPnLINR = liveTick?.unrealizedPnLINR ?? 0;
+                          const liveRoiPct = liveTick?.roiOnMarginPct ?? 0;
+                          const liveSpot = liveTick?.spot ?? pos.currentSpotPrice;
 
                           return (
                             <tr key={pos.positionId} className="hover:bg-slate-900/40">
@@ -939,7 +968,10 @@ export default function FOQuantDeskView() {
                                   Entry: <strong>₹{pos.entrySpotPrice.toLocaleString("en-IN")}</strong>
                                 </div>
                                 <div className="text-cyan-300 text-[11px] mt-0.5 font-bold">
-                                  LTP: ₹{pos.currentSpotPrice.toLocaleString("en-IN")}
+                                  LTP:{" "}
+                                  <FlashValue value={liveSpot}>
+                                    ₹{liveSpot.toLocaleString("en-IN")}
+                                  </FlashValue>
                                 </div>
                                 <div className="text-[10px] text-slate-400 mt-0.5">
                                   VAL ₹{pos.valSupportFloor} ↔ VAH ₹{pos.vahResistanceCeiling}
@@ -980,17 +1012,19 @@ export default function FOQuantDeskView() {
                               </td>
 
                               <td className="py-3.5 px-3">
-                                <div
+                                <FlashValue
+                                  value={unrealizedPnLINR}
                                   className={`text-sm font-extrabold ${
                                     unrealizedPnLINR >= 0 ? "text-emerald-400" : "text-rose-400"
                                   }`}
                                 >
                                   {unrealizedPnLINR >= 0 ? "+" : ""}₹
-                                  {unrealizedPnLINR.toLocaleString("en-IN")} (0.00%)
-                                </div>
+                                  {unrealizedPnLINR.toLocaleString("en-IN")} ({liveRoiPct >= 0 ? "+" : ""}
+                                  {liveRoiPct.toFixed(2)}%)
+                                </FlashValue>
                                 {isSameDay && (
-                                  <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[9px]">
-                                    Same-Day Freeze Locked
+                                  <span className="block w-fit mt-0.5 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[9px]">
+                                    Entry Frozen · Live MTM
                                   </span>
                                 )}
                               </td>
