@@ -18,6 +18,7 @@ import {
   Zap,
   Shield,
   Search,
+  Filter,
 } from "lucide-react";
 import { evaluateActiveTradeSmartShield } from "../../lib/indian/intradayEngine";
 import { useAiNewsReversalWorker } from "../../hooks/useAiNewsReversalWorker";
@@ -148,6 +149,7 @@ interface ActivePortfolioTrade {
   quantity: number;
   executionTime: string;
   exitTime?: string;
+  exitPrice?: number;
   status:
     | "ACTIVE"
     | "TARGET_HIT"
@@ -186,7 +188,19 @@ export default function IMSwingTradingView() {
   const [autoExecuteEnabled, setAutoExecuteEnabled] = useState<boolean>(false);
   const [autoTrades, setAutoTrades] = useState<ActivePortfolioTrade[]>([]);
   const [backtestHistory, setBacktestHistory] = useState<ActivePortfolioTrade[]>([]);
+  const [backtestFilter, setBacktestFilter] = useState<"ALL" | "TARGET" | "SL" | "SHIELD">("ALL");
   const [selectedExitAuditTrade, setSelectedExitAuditTrade] = useState<ClosedTradeExitAuditData | null>(null);
+
+  const filteredBacktestHistory = useMemo(() => {
+    return backtestHistory.filter((tr) => {
+      if (backtestFilter === "ALL") return true;
+      const status = String(tr.status || "");
+      if (backtestFilter === "TARGET") return status.includes("TARGET");
+      if (backtestFilter === "SL") return status.includes("STOP_LOSS") || status.includes("TSL") || status.includes("SL");
+      if (backtestFilter === "SHIELD") return status.includes("NEWS") || status.includes("REVERSAL") || status.includes("EMERGENCY");
+      return true;
+    });
+  }, [backtestHistory, backtestFilter]);
   const [isStorageHydrated, setIsStorageHydrated] = useState<boolean>(false);
   const [portfolioNotice, setPortfolioNotice] = useState<string | null>(null);
   const [selectedTradeModal, setSelectedTradeModal] = useState<ActivePortfolioTrade | null>(null);
@@ -1506,94 +1520,159 @@ export default function IMSwingTradingView() {
       {/* BACKTEST TAB */}
       {mainTab === "BACKTEST_HISTORY" && (
         <div className="p-5 rounded-2xl bg-[#0d1322] border border-emerald-500/30 space-y-4 shadow-2xl">
-          <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-slate-800">
             <div>
               <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <History className="w-4 h-4 text-emerald-400" />
                 Closed Trades Backtest Archive &amp; Audit Log ({backtestHistory.length})
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Click any closed trade row (e.g., POLYCAB, PGEL, SUNPHARMA) to inspect the interactive Exit Audit Modal detailing exact exit rationale and scraped news.
+                Click any closed trade row (e.g., POLYCAB, PGEL, SUNPHARMA) to inspect the interactive Exit Audit Modal detailing exact exit rationale, Target &amp; SL hit mechanics, and scraped news.
               </p>
+            </div>
+
+            {/* Quick Filter Pills */}
+            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              <span className="text-[10px] text-slate-500 uppercase font-bold flex items-center gap-1 mr-1">
+                <Filter className="w-3 h-3" /> Filter:
+              </span>
+              {(["ALL", "TARGET", "SL", "SHIELD"] as const).map((mode) => {
+                const count =
+                  mode === "ALL"
+                    ? backtestHistory.length
+                    : mode === "TARGET"
+                    ? backtestHistory.filter((t) => String(t.status || "").includes("TARGET")).length
+                    : mode === "SL"
+                    ? backtestHistory.filter((t) => {
+                        const s = String(t.status || "");
+                        return s.includes("STOP_LOSS") || s.includes("TSL") || s.includes("SL");
+                      }).length
+                    : backtestHistory.filter((t) => {
+                        const s = String(t.status || "");
+                        return s.includes("NEWS") || s.includes("REVERSAL") || s.includes("EMERGENCY");
+                      }).length;
+
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => setBacktestFilter(mode)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                      backtestFilter === mode
+                        ? "bg-cyan-500/25 text-cyan-300 border-cyan-500/50 shadow-sm"
+                        : "bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200"
+                    }`}
+                  >
+                    {mode === "ALL"
+                      ? `Show All (${count})`
+                      : mode === "TARGET"
+                      ? `🎯 Target Hits (${count})`
+                      : mode === "SL"
+                      ? `🛑 SL / Trailing (${count})`
+                      : `🚨 Shield Exits (${count})`}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           <div className="space-y-2.5">
-            {backtestHistory.map((tr) => {
-              const cleanSym = String(tr.cleanSymbol || tr.symbol || "")
-                .toUpperCase()
-                .replace(/\.NS$/i, "")
-                .replace(/\.BO$/i, "");
-              const isNewsExit = String(tr.status || "").includes("NEWS");
-              const isReversalExit = String(tr.status || "").includes("REVERSAL");
-              const isTarget = String(tr.status || "").includes("TARGET");
+            {filteredBacktestHistory.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                No closed trades found matching the selected filter ({backtestFilter}).
+              </div>
+            ) : (
+              filteredBacktestHistory.map((tr) => {
+                const cleanSym = String(tr.cleanSymbol || tr.symbol || "")
+                  .toUpperCase()
+                  .replace(/\.NS$/i, "")
+                  .replace(/\.BO$/i, "");
+                const isNewsExit = String(tr.status || "").includes("NEWS");
+                const isReversalExit = String(tr.status || "").includes("REVERSAL");
+                const isTarget = String(tr.status || "").includes("TARGET");
 
-              return (
-                <div
-                  key={tr.tradeId}
-                  onClick={() => setSelectedExitAuditTrade(tr as any)}
-                  className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-cyan-500/40 hover:bg-cyan-500/5 transition cursor-pointer flex items-center justify-between flex-wrap gap-3 group"
-                >
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase border ${
-                        isNewsExit
-                          ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
-                          : isReversalExit
-                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-                          : isTarget
-                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                          : "bg-slate-800 text-slate-300 border-slate-700"
-                      }`}
-                    >
-                      {String(tr.status || "CLOSED").replace(/_/g, " ")}
-                    </span>
-                    <div>
-                      <div className="font-bold text-slate-100 text-sm flex items-center gap-1.5">
-                        <span>{cleanSym}</span>
-                        <span className="text-[10px] text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                          🔍 Audit
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        {tr.strategyUsed} · Entry ₹{tr.entryPrice} → Exit ₹{tr.currentMarketPrice || tr.currentSimulatedPrice}
-                      </div>
-                    </div>
-                  </div>
+                const targetPrice = tr.targetPrice || Number((tr.entryPrice * 1.07).toFixed(2));
+                const stopLossPrice = tr.stopLossPrice || Number((tr.entryPrice * 0.968).toFixed(2));
+                const exitPrice = tr.exitPrice || tr.currentMarketPrice || tr.currentSimulatedPrice;
 
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div
-                        className={`text-sm font-bold ${
-                          tr.pnlAmount >= 0 ? "text-emerald-400" : "text-rose-400"
+                return (
+                  <div
+                    key={tr.tradeId}
+                    onClick={() => setSelectedExitAuditTrade(tr as any)}
+                    className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-cyan-500/40 hover:bg-cyan-500/5 transition cursor-pointer flex items-center justify-between flex-wrap gap-3 group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase border ${
+                          isNewsExit
+                            ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                            : isReversalExit
+                            ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                            : isTarget
+                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                            : "bg-slate-800 text-slate-300 border-slate-700"
                         }`}
                       >
-                        {tr.pnlAmount >= 0 ? "+" : ""}₹{tr.pnlAmount.toLocaleString("en-IN")}
-                      </div>
-                      <div
-                        className={`text-[10px] font-bold ${
-                          tr.pnlPercent >= 0 ? "text-emerald-400" : "text-rose-400"
-                        }`}
-                      >
-                        {tr.pnlPercent >= 0 ? "+" : ""}
-                        {tr.pnlPercent}%
+                        {String(tr.status || "CLOSED").replace(/_/g, " ")}
+                      </span>
+                      <div>
+                        <div className="font-bold text-slate-100 text-sm flex items-center gap-1.5">
+                          <span>{cleanSym}</span>
+                          <span className="text-[10px] text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                            🔍 Audit
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-2 flex-wrap mt-1">
+                          <span className="text-violet-300 font-semibold">{tr.strategyUsed}</span>
+                          <span className="text-slate-600">·</span>
+                          <span>Entry: <strong className="text-cyan-300">₹{tr.entryPrice}</strong></span>
+                          <span className="text-slate-600">·</span>
+                          <span className="text-emerald-400 font-bold flex items-center gap-0.5">
+                            🎯 Target: ₹{targetPrice}
+                          </span>
+                          <span className="text-slate-600">·</span>
+                          <span className="text-rose-400 font-bold flex items-center gap-0.5">
+                            🛑 SL: ₹{stopLossPrice}
+                          </span>
+                          <span className="text-slate-600">→</span>
+                          <span>Exit: <strong className="text-white">₹{exitPrice}</strong></span>
+                        </div>
                       </div>
                     </div>
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedExitAuditTrade(tr as any);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition shadow-sm group-hover:scale-105"
-                    >
-                      <Search className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>🔍 View Exit Audit Log</span>
-                    </button>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <div
+                          className={`text-sm font-bold ${
+                            tr.pnlAmount >= 0 ? "text-emerald-400" : "text-rose-400"
+                          }`}
+                        >
+                          {tr.pnlAmount >= 0 ? "+" : ""}₹{tr.pnlAmount.toLocaleString("en-IN")}
+                        </div>
+                        <div
+                          className={`text-[10px] font-bold ${
+                            tr.pnlPercent >= 0 ? "text-emerald-400" : "text-rose-400"
+                          }`}
+                        >
+                          {tr.pnlPercent >= 0 ? "+" : ""}
+                          {tr.pnlPercent}%
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedExitAuditTrade(tr as any);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition shadow-sm group-hover:scale-105"
+                      >
+                        <Search className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>🔍 View Exit Audit Log</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
       )}

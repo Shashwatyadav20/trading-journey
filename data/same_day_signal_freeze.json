@@ -1,71 +1,48 @@
 {
-  "TRENT_2026-11-10": {
-    "key": "TRENT_2026-11-10",
-    "symbol": "TRENT",
-    "dateKey": "2026-11-10",
-    "lockedAtIso": "2026-11-10T03:35:58.430Z",
-    "entryPrice": 3119.2,
-    "stopLossPrice": 3019.39,
-    "target1Price": 3337.54,
-    "target2Price": 3493.5,
-    "referenceLevel": 3130,
-    "referenceLabel": "VAH_BOX_CEILING",
-    "executionMode": "MODE_B_CEILING_BREAKOUT",
-    "primaryStrategy": "TRENDLINE_5D_RANGE_DOJI",
-    "matchedStrategies": [
-      "TRENDLINE_5D_RANGE_DOJI"
-    ],
-    "boxFloorVAL": 2990,
-    "boxCeilingVAH": 3130,
-    "boxMidPOC": 3060,
-    "boxWidthPct": 4.68,
-    "supportTouches": 3,
-    "resistanceTouches": 2
-  },
-  "PGEL_2026-11-10": {
-    "key": "PGEL_2026-11-10",
-    "symbol": "PGEL",
-    "dateKey": "2026-11-10",
-    "lockedAtIso": "2026-11-10T03:35:58.537Z",
-    "entryPrice": 564,
-    "stopLossPrice": 545.95,
-    "target1Price": 603.48,
-    "target2Price": 631.68,
-    "referenceLevel": 555.4,
-    "referenceLabel": "VAH_BOX_CEILING",
-    "executionMode": "MODE_B_CEILING_BREAKOUT",
-    "primaryStrategy": "TRENDLINE_5D_RANGE_DOJI",
-    "matchedStrategies": [
-      "TRENDLINE_5D_RANGE_DOJI"
-    ],
-    "boxFloorVAL": 528.5,
-    "boxCeilingVAH": 555.4,
-    "boxMidPOC": 541.95,
-    "boxWidthPct": 5.09,
-    "supportTouches": 3,
-    "resistanceTouches": 2
-  },
-  "TESTFREEZE_2026-11-10": {
-    "key": "TESTFREEZE_2026-11-10",
-    "symbol": "TESTFREEZE",
-    "dateKey": "2026-11-10",
-    "lockedAtIso": "2026-11-10T09:11:25.818Z",
-    "entryPrice": 500,
-    "stopLossPrice": 480,
-    "target1Price": 535,
-    "target2Price": 560,
-    "referenceLevel": 498,
+  "ASTRAMICRO_2026-11-12": {
+    "key": "ASTRAMICRO_2026-11-12",
+    "symbol": "ASTRAMICRO",
+    "dateKey": "2026-11-12",
+    "lockedAtIso": "2026-11-12T06:38:34.925Z",
+    "entryPrice": 1756.3,
+    "stopLossPrice": 1700.1,
+    "target1Price": 1879.24,
+    "target2Price": 1967.06,
+    "referenceLevel": 1726,
     "referenceLabel": "VAH_BOX_CEILING",
     "executionMode": "MODE_B_CEILING_BREAKOUT",
     "primaryStrategy": "PURPLE_BOX_CEILING_BREAKOUT",
     "matchedStrategies": [
       "PURPLE_BOX_CEILING_BREAKOUT"
     ],
-    "boxFloorVAL": 460,
-    "boxCeilingVAH": 498,
-    "boxMidPOC": 479,
-    "boxWidthPct": 8.26,
+    "boxFloorVAL": 1473,
+    "boxCeilingVAH": 1726,
+    "boxMidPOC": 1599.5,
+    "boxWidthPct": 17.18,
+    "supportTouches": 8,
+    "resistanceTouches": 8
+  },
+  "DATAPATTNS_2026-11-12": {
+    "key": "DATAPATTNS_2026-11-12",
+    "symbol": "DATAPATTNS",
+    "dateKey": "2026-11-12",
+    "lockedAtIso": "2026-11-12T07:00:28.678Z",
+    "entryPrice": 4243.7,
+    "stopLossPrice": 4107.9,
+    "target1Price": 4540.76,
+    "target2Price": 4752.94,
+    "referenceLevel": 4180.1,
+    "referenceLabel": "VAH_BOX_CEILING",
+    "executionMode": "MODE_B_CEILING_BREAKOUT",
+    "primaryStrategy": "PURPLE_BOX_CEILING_BREAKOUT",
+    "matchedStrategies": [
+      "PURPLE_BOX_CEILING_BREAKOUT"
+    ],
+    "boxFloorVAL": 3639.2,
+    "boxCeilingVAH": 4180.1,
+    "boxMidPOC": 3909.65,
+    "boxWidthPct": 14.86,
     "supportTouches": 4,
-    "resistanceTouches": 3
+    "resistanceTouches": 11
   }
 }

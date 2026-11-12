@@ -16,18 +16,23 @@ import {
   Zap,
   Radio,
   Clock,
+  History,
+  Search,
+  Filter,
 } from "lucide-react";
-import type {
-  FOScannerSetup,
-  FOInstrumentType,
-  FOMarketStructureRegime,
-  FOStrategyCode,
-  FOSpreadLeg,
-  ActiveFOSpreadPosition,
+import {
+  type FOScannerSetup,
+  type FOInstrumentType,
+  type FOMarketStructureRegime,
+  type FOStrategyCode,
+  type FOSpreadLeg,
+  type ActiveFOSpreadPosition,
+  DEFAULT_FO_CLOSED_SEEDS,
 } from "./types";
 import FOPurpleBoxSpreadScanner from "./FOPurpleBoxSpreadScanner";
 import FOOptionChainAnalytics from "./FOOptionChainAnalytics";
 import FOSpreadPayoffSimulator from "./FOSpreadPayoffSimulator";
+import IMTradeExitAuditModal, { ClosedTradeExitAuditData } from "../IMTradeExitAuditModal";
 import {
   FO_UNIVERSE,
   FO_PORTFOLIO_DEFAULT_CAPITAL,
@@ -74,6 +79,9 @@ export default function FOQuantDeskView() {
   // Isolated F&O Positions & History State
   const [activePositions, setActivePositions] = useState<ActiveFOSpreadPosition[]>([]);
   const [closedHistory, setClosedHistory] = useState<ActiveFOSpreadPosition[]>([]);
+  const [foLedgerView, setFoLedgerView] = useState<"ACTIVE" | "EXITED_BACKTEST">("ACTIVE");
+  const [closedFilter, setClosedFilter] = useState<"ALL" | "TARGET_HIT" | "SL_HIT" | "MANUAL_EXIT">("ALL");
+  const [selectedExitAuditTrade, setSelectedExitAuditTrade] = useState<ClosedTradeExitAuditData | null>(null);
   const [hydrated, setHydrated] = useState<boolean>(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
@@ -90,6 +98,7 @@ export default function FOQuantDeskView() {
       if (e.key === "Escape") {
         setIsChainModalOpen(false);
         setIsPayoffModalOpen(false);
+        setSelectedExitAuditTrade(null);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -107,7 +116,13 @@ export default function FOQuantDeskView() {
       const rawClosed = localStorage.getItem(STORAGE_KEY_FO_CLOSED_HISTORY);
       if (rawClosed) {
         const parsed = JSON.parse(rawClosed);
-        if (Array.isArray(parsed)) setClosedHistory(parsed);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setClosedHistory(parsed);
+        } else {
+          setClosedHistory(DEFAULT_FO_CLOSED_SEEDS);
+        }
+      } else {
+        setClosedHistory(DEFAULT_FO_CLOSED_SEEDS);
       }
     } catch {
       // ignore storage errors
@@ -152,29 +167,62 @@ export default function FOQuantDeskView() {
           );
           if (data.lockedDateKey) setLockedDateKey(data.lockedDateKey);
 
-          // Synchronize currentSpotPrice for multi-day positions while strictly preserving Same-Day Entry Freeze
+          // Synchronize currentSpotPrice for multi-day positions & monitor Target / Stop Loss hits
           const todayKey = data.lockedDateKey || getTodayISTDateKey();
           const spotMap = new Map<string, number>();
           data.setups.forEach((s: FOScannerSetup) => {
             spotMap.set(s.cleanSymbol, s.spotPrice);
           });
 
-          setActivePositions((prev) =>
-            prev.map((pos) => {
+          setActivePositions((prev) => {
+            const nextActive: ActiveFOSpreadPosition[] = [];
+            const newlyClosed: ActiveFOSpreadPosition[] = [];
+
+            prev.forEach((pos) => {
               if (pos.entryDateKey === todayKey) {
-                return {
+                nextActive.push({
                   ...pos,
                   currentSpotPrice: pos.entrySpotPrice,
                   currentNetPremiumPerUnit: pos.netEntryPremiumPerUnit,
-                };
+                });
+                return;
               }
+
               const liveSpot = spotMap.get(pos.cleanSymbol) ?? pos.currentSpotPrice;
-              return {
-                ...pos,
-                currentSpotPrice: liveSpot,
-              };
-            })
-          );
+              const updatedPos = { ...pos, currentSpotPrice: liveSpot };
+
+              // Check if Target Spot level is reached
+              if (pos.targetSpotLevel && liveSpot >= pos.targetSpotLevel) {
+                const profitINR = pos.maxProfitINR > 0 ? pos.maxProfitINR : Math.round(pos.totalQuantity * 20);
+                newlyClosed.push({
+                  ...updatedPos,
+                  status: "TARGET_HIT",
+                  exitTimestamp: new Date().toISOString(),
+                  realizedPnLINR: profitINR,
+                });
+              } else if (pos.stopLossSpotLevel && liveSpot <= pos.stopLossSpotLevel) {
+                // Check if Stop Loss Spot level is breached
+                const lossINR = pos.maxLossINR > 0 ? -Math.round(pos.maxLossINR * 0.75) : -Math.round(pos.totalQuantity * 15);
+                newlyClosed.push({
+                  ...updatedPos,
+                  status: "SL_HIT",
+                  exitTimestamp: new Date().toISOString(),
+                  realizedPnLINR: lossINR,
+                });
+              } else {
+                nextActive.push(updatedPos);
+              }
+            });
+
+            if (newlyClosed.length > 0) {
+              setClosedHistory((old) => [...newlyClosed, ...old]);
+              showToast(
+                `🎯 F&O Auto-Exit: ${newlyClosed.map((c) => `${c.cleanSymbol} (${c.status.replace(/_/g, " ")})`).join(", ")} moved to Backtest Archive!`
+              );
+            }
+
+            return nextActive;
+          });
         }
       }
     } catch {
@@ -393,6 +441,72 @@ export default function FOQuantDeskView() {
     },
     [showToast]
   );
+
+  const filteredClosedHistory = useMemo(() => {
+    return closedHistory.filter((item) => {
+      if (closedFilter === "ALL") return true;
+      return item.status === closedFilter;
+    });
+  }, [closedHistory, closedFilter]);
+
+  const mapFOPositionToAuditData = useCallback((pos: ActiveFOSpreadPosition): ClosedTradeExitAuditData => {
+    const isTarget = pos.status === "TARGET_HIT";
+    const isSL = pos.status === "SL_HIT";
+    const pnl = pos.realizedPnLINR ?? 0;
+    const pnlPct = Number(((pnl / Math.max(1, pos.marginBlockedINR)) * 100).toFixed(2));
+
+    return {
+      tradeId: pos.positionId,
+      symbol: pos.symbol,
+      cleanSymbol: pos.cleanSymbol,
+      companyName: pos.companyName,
+      strategyUsed: `🟣 F&O ${pos.strategyName}`,
+      direction: pos.isNetCredit ? "SHORT" : "LONG",
+      entryPrice: pos.entrySpotPrice,
+      exitPrice: pos.currentSpotPrice,
+      currentMarketPrice: pos.currentSpotPrice,
+      currentSimulatedPrice: pos.currentSpotPrice,
+      targetPrice: pos.targetSpotLevel,
+      stopLossPrice: pos.stopLossSpotLevel,
+      quantity: pos.totalQuantity,
+      allocatedCapital: pos.marginBlockedINR,
+      pnlAmount: pnl,
+      pnlPercent: pnlPct,
+      status: pos.status,
+      auditTag: pos.status,
+      exitReason: isTarget
+        ? `🎯 F&O Target Spot ₹${pos.targetSpotLevel.toLocaleString("en-IN")} Achieved! Multi-leg spread decayed favorably to capture full net premium.`
+        : isSL
+        ? `🛑 F&O Stop Loss Spot ₹${pos.stopLossSpotLevel.toLocaleString("en-IN")} Breached below support floor. Closed to strictly cap risk.`
+        : `Manual square-off executed at current spot ₹${pos.currentSpotPrice.toLocaleString("en-IN")}.`,
+      executionTime: pos.entryTimestamp ? new Date(pos.entryTimestamp).toLocaleTimeString("en-IN") : "09:20:00 IST",
+      exitTime: pos.exitTimestamp ? new Date(pos.exitTimestamp).toLocaleTimeString("en-IN") : "15:20:00 IST",
+      lockedReferenceLevel: pos.valSupportFloor,
+      lockedReferenceLabel: "VAL_SUPPORT_FLOOR",
+      exitHeadline: `${pos.cleanSymbol} ${pos.strategyName}: ${pos.status.replace(/_/g, " ")} executed at ₹${pos.currentSpotPrice.toLocaleString("en-IN")}`,
+      exitPublisher: "NSE F&O Derivatives Stream",
+      exitSentimentScore: isTarget ? 52 : isSL ? -48 : 0,
+      volumeSpikeMultiplier: isTarget ? 1.6 : isSL ? 2.8 : 1.2,
+      targetProgressPct: isTarget ? 100 : isSL ? 0 : 50,
+      upperWickRejectionPct: isSL ? 55 : 18,
+      auditTrail: [
+        {
+          timestamp: pos.entryTimestamp ? new Date(pos.entryTimestamp).toLocaleTimeString("en-IN") : "09:20:00 IST",
+          action: "F&O_SPREAD_DEPLOYED",
+          details: `Deployed ${pos.lotsDeployed} lot(s) (${pos.totalQuantity} units) of ${pos.strategyName} with ₹${pos.marginBlockedINR.toLocaleString("en-IN")} hedged margin.`,
+        },
+        {
+          timestamp: pos.exitTimestamp ? new Date(pos.exitTimestamp).toLocaleTimeString("en-IN") : "15:20:00 IST",
+          action: pos.status,
+          details: isTarget
+            ? `Spot ₹${pos.currentSpotPrice} hit target ₹${pos.targetSpotLevel}. Net Realized +₹${pnl.toLocaleString("en-IN")} transferred to closed ledger.`
+            : isSL
+            ? `Spot ₹${pos.currentSpotPrice} broke SL ₹${pos.stopLossSpotLevel}. Risk capped at ₹${pnl.toLocaleString("en-IN")}.`
+            : `Position squared off manually at ₹${pos.currentSpotPrice}. Realized ₹${pnl.toLocaleString("en-IN")}.`,
+        },
+      ],
+    };
+  }, []);
 
   return (
     <div className="space-y-5 font-mono text-slate-100">
@@ -652,170 +766,436 @@ export default function FOQuantDeskView() {
       {subTab === "ACTIVE_POSITIONS" && (
         <div className="space-y-4">
           <div className="bg-[#0d1322]/90 backdrop-blur-xl border border-slate-800/80 rounded-2xl overflow-hidden shadow-2xl">
-            <div className="px-5 py-3.5 border-b border-slate-800 bg-slate-950/60 flex flex-wrap items-center justify-between gap-2">
+            {/* View Switcher Header: Active vs Show All Exit Trades in Backtest */}
+            <div className="px-5 py-3.5 border-b border-slate-800 bg-slate-950/60 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <Briefcase className="w-4 h-4 text-fuchsia-400" />
-                <h3 className="text-sm font-bold text-slate-100">
-                  ACTIVE MULTI-LEG F&amp;O SPREAD POSITIONS ({activePositions.length})
-                </h3>
-              </div>
-              <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-                <Lock className="w-3.5 h-3.5" />
-                Same-Day Execution locks Spot &amp; Net Premium at ₹0 (0%) Initial P&amp;L
-              </span>
-            </div>
-
-            {activePositions.length === 0 ? (
-              <div className="p-10 text-center space-y-3">
-                <p className="text-sm text-slate-400">
-                  No active F&amp;O multi-leg spreads deployed yet.
-                </p>
                 <button
-                  onClick={() => setSubTab("SPREAD_SCANNER")}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-cyan-600 text-white text-xs font-bold cursor-pointer"
+                  onClick={() => setFoLedgerView("ACTIVE")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    foLedgerView === "ACTIVE"
+                      ? "bg-fuchsia-600/30 text-fuchsia-200 border border-fuchsia-500/60 shadow-lg shadow-fuchsia-500/10"
+                      : "text-slate-400 hover:text-white bg-slate-900 border border-slate-800"
+                  }`}
                 >
-                  Browse F&amp;O Purple Box Spread Scanner
+                  <Briefcase className="w-3.5 h-3.5 text-fuchsia-400" />
+                  <span>Active Multi-Leg Spreads ({activePositions.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setFoLedgerView("EXITED_BACKTEST")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    foLedgerView === "EXITED_BACKTEST"
+                      ? "bg-cyan-600/30 text-cyan-200 border border-cyan-500/60 shadow-lg shadow-cyan-500/10"
+                      : "text-slate-400 hover:text-white bg-slate-900 border border-slate-800"
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Show All Exit Trades in Backtest ({closedHistory.length})</span>
                 </button>
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-800 bg-slate-950/80 text-[10px] uppercase text-slate-400">
-                      <th className="py-3 px-4">Underlying / Strategy</th>
-                      <th className="py-3 px-3">Color-Coded Multi-Leg Strikes</th>
-                      <th className="py-3 px-3">Lots &amp; Quantity</th>
-                      <th className="py-3 px-3">Entry Spot / Current</th>
-                      <th className="py-3 px-3">Breakeven / PoP %</th>
-                      <th className="py-3 px-3">Hedged Margin</th>
-                      <th className="py-3 px-3">Live Spread P&amp;L</th>
-                      <th className="py-3 px-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {activePositions.map((pos) => {
-                      const isSameDay = pos.entryDateKey === getTodayISTDateKey();
-                      const unrealizedPnLINR = isSameDay
-                        ? 0
-                        : Math.round(
-                            (pos.currentSpotPrice - pos.entrySpotPrice) *
-                              pos.totalQuantity *
-                              0.35
+
+              {foLedgerView === "ACTIVE" ? (
+                <span className="text-[11px] text-emerald-400 flex items-center gap-1">
+                  <Lock className="w-3.5 h-3.5" />
+                  Same-Day Execution locks Spot &amp; Net Premium at ₹0 (0%) Initial P&amp;L
+                </span>
+              ) : (
+                <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold flex items-center gap-1 mr-1">
+                    <Filter className="w-3 h-3" /> Filter:
+                  </span>
+                  {(["ALL", "TARGET_HIT", "SL_HIT", "MANUAL_EXIT"] as const).map((mode) => {
+                    const count =
+                      mode === "ALL"
+                        ? closedHistory.length
+                        : closedHistory.filter((c) => c.status === mode).length;
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => setClosedFilter(mode)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                          closedFilter === mode
+                            ? "bg-cyan-500/25 text-cyan-300 border-cyan-500/50 shadow-sm"
+                            : "bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200"
+                        }`}
+                      >
+                        {mode === "ALL"
+                          ? `All (${count})`
+                          : mode === "TARGET_HIT"
+                          ? `🎯 Target Hits (${count})`
+                          : mode === "SL_HIT"
+                          ? `🛑 SL Hits (${count})`
+                          : `⚡ Manual (${count})`}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* TAB VIEW 1: ACTIVE MULTI-LEG SPREADS */}
+            {foLedgerView === "ACTIVE" && (
+              <>
+                {activePositions.length === 0 ? (
+                  <div className="p-10 text-center space-y-3">
+                    <p className="text-sm text-slate-400">
+                      No active F&amp;O multi-leg spreads deployed yet.
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => setSubTab("SPREAD_SCANNER")}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-fuchsia-600 to-cyan-600 text-white text-xs font-bold cursor-pointer"
+                      >
+                        Browse F&amp;O Purple Box Spread Scanner
+                      </button>
+                      {closedHistory.length > 0 && (
+                        <button
+                          onClick={() => setFoLedgerView("EXITED_BACKTEST")}
+                          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-800 text-xs font-bold cursor-pointer"
+                        >
+                          View Backtest Exit Ledger ({closedHistory.length})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-950/80 text-[10px] uppercase text-slate-400">
+                          <th className="py-3 px-4">Underlying / Strategy</th>
+                          <th className="py-3 px-3">Color-Coded Multi-Leg Strikes</th>
+                          <th className="py-3 px-3">Lots &amp; Quantity</th>
+                          <th className="py-3 px-3">Entry Spot / Current</th>
+                          <th className="py-3 px-3">🎯 Target &amp; 🛑 SL Spot</th>
+                          <th className="py-3 px-3">Breakeven / PoP %</th>
+                          <th className="py-3 px-3">Hedged Margin</th>
+                          <th className="py-3 px-3">Live Spread P&amp;L</th>
+                          <th className="py-3 px-4 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {activePositions.map((pos) => {
+                          const isSameDay = pos.entryDateKey === getTodayISTDateKey();
+                          const unrealizedPnLINR = isSameDay
+                            ? 0
+                            : Math.round(
+                                (pos.currentSpotPrice - pos.entrySpotPrice) *
+                                  pos.totalQuantity *
+                                  0.35
+                              );
+
+                          return (
+                            <tr key={pos.positionId} className="hover:bg-slate-900/40">
+                              <td className="py-3.5 px-4">
+                                <div className="font-extrabold text-white text-sm">
+                                  {pos.cleanSymbol}{" "}
+                                  <span className="text-[10px] text-fuchsia-300 font-normal">
+                                    ({pos.expiryDate})
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-cyan-300 font-bold mt-0.5">
+                                  {pos.strategyName}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-0.5">
+                                  Locked Date: {pos.entryDateKey}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="space-y-1">
+                                  {pos.legs.map((leg) => {
+                                    const isBuy = leg.action === "BUY";
+                                    return (
+                                      <div
+                                        key={leg.legId}
+                                        className={`px-2 py-0.5 rounded-lg border text-[10px] flex items-center justify-between gap-2 ${
+                                          isBuy
+                                            ? "bg-emerald-950/25 border-emerald-500/40 text-emerald-300"
+                                            : "bg-rose-950/25 border-rose-500/40 text-rose-300"
+                                        }`}
+                                      >
+                                        <span className="font-extrabold">
+                                          {leg.action} {leg.lots}x {leg.strike} {leg.right}
+                                        </span>
+                                        <span className="text-white font-bold">₹{leg.premium}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="font-bold text-slate-100">
+                                  {pos.lotsDeployed} Lot{pos.lotsDeployed > 1 ? "s" : ""}
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  {pos.totalQuantity} Shares (Lot {pos.lotSize})
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="text-slate-200">
+                                  Entry: <strong>₹{pos.entrySpotPrice.toLocaleString("en-IN")}</strong>
+                                </div>
+                                <div className="text-cyan-300 text-[11px] mt-0.5 font-bold">
+                                  LTP: ₹{pos.currentSpotPrice.toLocaleString("en-IN")}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  VAL ₹{pos.valSupportFloor} ↔ VAH ₹{pos.vahResistanceCeiling}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="text-emerald-400 font-extrabold flex items-center gap-1">
+                                  <span>🎯 ₹{pos.targetSpotLevel?.toLocaleString("en-IN")}</span>
+                                </div>
+                                <div className="text-rose-400 font-extrabold flex items-center gap-1 mt-0.5">
+                                  <span>🛑 ₹{pos.stopLossSpotLevel?.toLocaleString("en-IN")}</span>
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-0.5">
+                                  1:2.4 R:R Floor
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="text-amber-300 font-semibold">
+                                  ₹{pos.lowerBreakeven.toLocaleString("en-IN")}
+                                  {pos.upperBreakeven
+                                    ? ` – ₹${pos.upperBreakeven.toLocaleString("en-IN")}`
+                                    : ""}
+                                </div>
+                                <div className="text-[10px] text-emerald-400 mt-0.5">
+                                  PoP: {pos.probabilityOfProfitPct}%
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="font-bold text-slate-100">
+                                  ₹{pos.marginBlockedINR.toLocaleString("en-IN")}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  Max Profit: +₹{pos.maxProfitINR.toLocaleString("en-IN")}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div
+                                  className={`text-sm font-extrabold ${
+                                    unrealizedPnLINR >= 0 ? "text-emerald-400" : "text-rose-400"
+                                  }`}
+                                >
+                                  {unrealizedPnLINR >= 0 ? "+" : ""}₹
+                                  {unrealizedPnLINR.toLocaleString("en-IN")} (0.00%)
+                                </div>
+                                {isSameDay && (
+                                  <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[9px]">
+                                    Same-Day Freeze Locked
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-4 text-right">
+                                <button
+                                  onClick={() => handleSquareOffPosition(pos)}
+                                  className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  <span>Square Off</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* TAB VIEW 2: SHOW ALL EXIT TRADES IN BACKTEST ARCHIVE */}
+            {foLedgerView === "EXITED_BACKTEST" && (
+              <>
+                {filteredClosedHistory.length === 0 ? (
+                  <div className="p-10 text-center space-y-3">
+                    <p className="text-sm text-slate-400">
+                      No exited F&amp;O trades matching the selected filter ({closedFilter}).
+                    </p>
+                    <button
+                      onClick={() => setClosedFilter("ALL")}
+                      className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-800 text-xs font-bold cursor-pointer"
+                    >
+                      Clear Filter (Show All)
+                    </button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-950/80 text-[10px] uppercase text-slate-400">
+                          <th className="py-3 px-4">Underlying / Strategy</th>
+                          <th className="py-3 px-3">Multi-Leg Strikes</th>
+                          <th className="py-3 px-3">Lots &amp; Quantity</th>
+                          <th className="py-3 px-3">Entry → Exit Spot</th>
+                          <th className="py-3 px-3">🎯 Target Spot</th>
+                          <th className="py-3 px-3">🛑 Stop Loss Spot</th>
+                          <th className="py-3 px-3">Exit Status &amp; Reason</th>
+                          <th className="py-3 px-3">Realized Net P&amp;L</th>
+                          <th className="py-3 px-4 text-right">Audit</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {filteredClosedHistory.map((pos) => {
+                          const isTarget = pos.status === "TARGET_HIT";
+                          const isSL = pos.status === "SL_HIT";
+                          const pnl = pos.realizedPnLINR ?? 0;
+                          const pnlPct = Number(
+                            ((pnl / Math.max(1, pos.marginBlockedINR)) * 100).toFixed(2)
                           );
 
-                      return (
-                        <tr key={pos.positionId} className="hover:bg-slate-900/40">
-                          <td className="py-3.5 px-4">
-                            <div className="font-extrabold text-white text-sm">
-                              {pos.cleanSymbol}{" "}
-                              <span className="text-[10px] text-fuchsia-300 font-normal">
-                                ({pos.expiryDate})
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-cyan-300 font-bold mt-0.5">
-                              {pos.strategyName}
-                            </div>
-                            <div className="text-[10px] text-slate-500 mt-0.5">
-                              Locked Date: {pos.entryDateKey}
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-3">
-                            <div className="space-y-1">
-                              {pos.legs.map((leg) => {
-                                const isBuy = leg.action === "BUY";
-                                return (
-                                  <div
-                                    key={leg.legId}
-                                    className={`px-2 py-0.5 rounded-lg border text-[10px] flex items-center justify-between gap-2 ${
-                                      isBuy
-                                        ? "bg-emerald-950/25 border-emerald-500/40 text-emerald-300"
-                                        : "bg-rose-950/25 border-rose-500/40 text-rose-300"
-                                    }`}
-                                  >
-                                    <span className="font-extrabold">
-                                      {leg.action} {leg.lots}x {leg.strike} {leg.right}
-                                    </span>
-                                    <span className="text-white font-bold">₹{leg.premium}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-3">
-                            <div className="font-bold text-slate-100">
-                              {pos.lotsDeployed} Lot{pos.lotsDeployed > 1 ? "s" : ""}
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              {pos.totalQuantity} Shares (Lot {pos.lotSize})
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-3">
-                            <div className="text-slate-200">
-                              Entry: <strong>₹{pos.entrySpotPrice.toLocaleString("en-IN")}</strong>
-                            </div>
-                            <div className="text-cyan-300 text-[11px] mt-0.5">
-                              LTP: ₹{pos.currentSpotPrice.toLocaleString("en-IN")}
-                            </div>
-                            <div className="text-[10px] text-slate-400 mt-0.5">
-                              VAL ₹{pos.valSupportFloor} ↔ VAH ₹{pos.vahResistanceCeiling}
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-3">
-                            <div className="text-amber-300 font-semibold">
-                              ₹{pos.lowerBreakeven.toLocaleString("en-IN")}
-                              {pos.upperBreakeven
-                                ? ` – ₹${pos.upperBreakeven.toLocaleString("en-IN")}`
-                                : ""}
-                            </div>
-                            <div className="text-[10px] text-emerald-400 mt-0.5">
-                              PoP: {pos.probabilityOfProfitPct}%
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-3">
-                            <div className="font-bold text-slate-100">
-                              ₹{pos.marginBlockedINR.toLocaleString("en-IN")}
-                            </div>
-                            <div className="text-[10px] text-slate-400 mt-0.5">
-                              Max Profit: +₹{pos.maxProfitINR.toLocaleString("en-IN")}
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-3">
-                            <div
-                              className={`text-sm font-extrabold ${
-                                unrealizedPnLINR >= 0 ? "text-emerald-400" : "text-rose-400"
-                              }`}
+                          return (
+                            <tr
+                              key={pos.positionId}
+                              onClick={() => setSelectedExitAuditTrade(mapFOPositionToAuditData(pos))}
+                              className="hover:bg-cyan-950/20 cursor-pointer transition-colors group"
                             >
-                              {unrealizedPnLINR >= 0 ? "+" : ""}₹
-                              {unrealizedPnLINR.toLocaleString("en-IN")} (0.00%)
-                            </div>
-                            {isSameDay && (
-                              <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[9px]">
-                                Same-Day Freeze Locked
-                              </span>
-                            )}
-                          </td>
+                              <td className="py-3.5 px-4">
+                                <div className="font-extrabold text-white text-sm flex items-center gap-1.5">
+                                  <span>{pos.cleanSymbol}</span>
+                                  <span className="text-[10px] text-fuchsia-300 font-normal">
+                                    ({pos.expiryDate})
+                                  </span>
+                                  <span className="text-[10px] text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    🔍 Audit
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-cyan-300 font-bold mt-0.5">
+                                  {pos.strategyName}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-0.5">
+                                  ID: {pos.positionId}
+                                </div>
+                              </td>
 
-                          <td className="py-3.5 px-4 text-right">
-                            <button
-                              onClick={() => handleSquareOffPosition(pos)}
-                              className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              <span>Square Off</span>
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                              <td className="py-3.5 px-3">
+                                <div className="space-y-1">
+                                  {pos.legs.map((leg) => {
+                                    const isBuy = leg.action === "BUY";
+                                    return (
+                                      <div
+                                        key={leg.legId}
+                                        className={`px-2 py-0.5 rounded-lg border text-[10px] flex items-center justify-between gap-2 ${
+                                          isBuy
+                                            ? "bg-emerald-950/25 border-emerald-500/40 text-emerald-300"
+                                            : "bg-rose-950/25 border-rose-500/40 text-rose-300"
+                                        }`}
+                                      >
+                                        <span className="font-bold">
+                                          {leg.action} {leg.lots}x {leg.strike} {leg.right}
+                                        </span>
+                                        <span className="text-white">₹{leg.premium}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="font-bold text-slate-100">
+                                  {pos.lotsDeployed} Lot{pos.lotsDeployed > 1 ? "s" : ""}
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  {pos.totalQuantity} Shares
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="text-slate-300 font-bold">
+                                  ₹{pos.entrySpotPrice.toLocaleString("en-IN")} →{" "}
+                                  <span className="text-white">
+                                    ₹{pos.currentSpotPrice.toLocaleString("en-IN")}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-0.5">
+                                  Out:{" "}
+                                  {pos.exitTimestamp
+                                    ? new Date(pos.exitTimestamp).toLocaleTimeString("en-IN")
+                                    : "Market Close"}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="text-emerald-400 font-black text-xs flex items-center gap-1">
+                                  <span>🎯 ₹{pos.targetSpotLevel?.toLocaleString("en-IN")}</span>
+                                </div>
+                                <span className="text-[9px] text-emerald-500/80 mt-0.5 block">
+                                  VAH Resistance
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="text-rose-400 font-black text-xs flex items-center gap-1">
+                                  <span>🛑 ₹{pos.stopLossSpotLevel?.toLocaleString("en-IN")}</span>
+                                </div>
+                                <span className="text-[9px] text-rose-500/80 mt-0.5 block">
+                                  VAL Floor Buffer
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
+                                    isTarget
+                                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                                      : isSL
+                                      ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                                      : "bg-slate-800 text-slate-300 border-slate-700"
+                                  }`}
+                                >
+                                  {isTarget ? "🎯 " : isSL ? "🛑 " : "⚡ "}
+                                  {pos.status.replace(/_/g, " ")}
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div
+                                  className={`text-sm font-black ${
+                                    pnl >= 0 ? "text-emerald-400" : "text-rose-400"
+                                  }`}
+                                >
+                                  {pnl >= 0 ? "+" : ""}₹{pnl.toLocaleString("en-IN")}
+                                </div>
+                                <div
+                                  className={`text-[10px] font-bold ${
+                                    pnl >= 0 ? "text-emerald-400" : "text-rose-400"
+                                  }`}
+                                >
+                                  {pnlPct >= 0 ? "+" : ""}
+                                  {pnlPct}% ROI
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-4 text-right">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedExitAuditTrade(mapFOPositionToAuditData(pos));
+                                  }}
+                                  className="px-3 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition shadow-sm group-hover:scale-105"
+                                >
+                                  <Search className="w-3.5 h-3.5 text-cyan-400" />
+                                  <span>🔍 View Exit Audit Log</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -968,6 +1348,16 @@ export default function FOQuantDeskView() {
             />
           </div>
         </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════════
+          MODAL C: F&O TRADE EXIT AUDIT MODAL (Interactive Rationale & Microstructure)
+         ═══════════════════════════════════════════════════════════════════════════ */}
+      {selectedExitAuditTrade && (
+        <IMTradeExitAuditModal
+          trade={selectedExitAuditTrade}
+          onClose={() => setSelectedExitAuditTrade(null)}
+        />
       )}
     </div>
   );

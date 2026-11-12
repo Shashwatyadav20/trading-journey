@@ -622,6 +622,7 @@ export default function IMBacktestView() {
                   <th className="p-2">Entry Time</th>
                   <th className="p-2">Exit Time</th>
                   <th className="p-2">Strikes (Sell / Buy)</th>
+                  <th className="p-2">🎯 Target / 🛑 SL</th>
                   <th className="p-2">Charges</th>
                   <th className="p-2">Exit Reason</th>
                   <th className="p-2">Net P&L</th>
@@ -630,7 +631,7 @@ export default function IMBacktestView() {
               <tbody>
                 {trades.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-4 text-center text-slate-500">
+                    <td colSpan={9} className="p-4 text-center text-slate-500">
                       No executed trades recorded in current simulation.
                     </td>
                   </tr>
@@ -642,6 +643,14 @@ export default function IMBacktestView() {
                       <td className="p-2 text-slate-400">{t.entryTime?.substring(0, 16)}</td>
                       <td className="p-2 text-slate-400">{t.exitTime?.substring(0, 16) || "N/A"}</td>
                       <td className="p-2">{t.sellLeg?.strike} / {t.buyLeg?.strike}</td>
+                      <td className="p-2">
+                        <div className="text-emerald-400 font-bold text-[11px] flex items-center gap-1">
+                          <span>🎯 {t.targetSpread ?? t.targetPrice ? `₹${t.targetSpread ?? t.targetPrice}` : "Max Decay"}</span>
+                        </div>
+                        <div className="text-rose-400 font-bold text-[10px] flex items-center gap-1 mt-0.5">
+                          <span>🛑 {t.stopLossSpread ?? t.stopLossPrice ? `₹${t.stopLossSpread ?? t.stopLossPrice}` : "Spread Cap"}</span>
+                        </div>
+                      </td>
                       <td className="p-2 text-amber-400">₹{t.totalCharges}</td>
                       <td className="p-2 text-slate-300">{t.exitReason || "OPEN"}</td>
                       <td className={`p-2 font-bold ${(t.realizedNetPnl || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>

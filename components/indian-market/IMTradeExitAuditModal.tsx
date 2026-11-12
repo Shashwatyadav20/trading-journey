@@ -59,6 +59,16 @@ export default function IMTradeExitAuditModal({
     (trade.exitPrice ?? trade.currentMarketPrice ?? trade.currentSimulatedPrice ?? trade.entryPrice).toFixed(2)
   );
   const entryPrice = Number(trade.entryPrice.toFixed(2));
+  const targetPrice = Number(
+    (trade.targetPrice ?? Number((entryPrice * 1.07).toFixed(2))).toFixed(2)
+  );
+  const stopLossPrice = Number(
+    (trade.stopLossPrice ?? Number((entryPrice * 0.968).toFixed(2))).toFixed(2)
+  );
+  const riskPerUnit = Math.max(0.5, Math.abs(entryPrice - stopLossPrice));
+  const rewardPerUnit = Math.max(0.5, Math.abs(targetPrice - entryPrice));
+  const rewardRiskRatio = Number((rewardPerUnit / riskPerUnit).toFixed(1));
+
   const isProfit = trade.pnlAmount >= 0;
   const isLong = (trade.direction || "LONG") === "LONG";
   const qty = trade.quantity ?? (trade.allocatedCapital ? Math.floor(trade.allocatedCapital / entryPrice) : 100);
@@ -102,6 +112,9 @@ export default function IMTradeExitAuditModal({
         strategy: trade.strategyUsed,
         entryPrice,
         exitPrice,
+        targetPrice,
+        stopLossPrice,
+        rewardRiskRatio,
         pnlAmount: trade.pnlAmount,
         pnlPercent: trade.pnlPercent,
         statusTag,
@@ -201,8 +214,8 @@ export default function IMTradeExitAuditModal({
           </div>
         </div>
 
-        {/* 4 Core Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {/* 5 Core Summary Cards (With Explicit Target & Stop Loss) */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Entry → Exit Price</span>
             <div className="flex items-center gap-1.5 mt-1 font-bold text-sm">
@@ -215,6 +228,20 @@ export default function IMTradeExitAuditModal({
                 Ref: ₹{trade.lockedReferenceLevel}
               </span>
             )}
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-slate-900/90 border border-emerald-500/25">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block flex items-center justify-between">
+              <span>🎯 Target &amp; 🛑 SL</span>
+              <span className="text-cyan-400 font-bold">1:{rewardRiskRatio} RR</span>
+            </span>
+            <div className="flex items-center justify-between mt-1 text-xs">
+              <span className="text-emerald-400 font-extrabold">🎯 ₹{targetPrice}</span>
+              <span className="text-rose-400 font-extrabold">🛑 ₹{stopLossPrice}</span>
+            </div>
+            <div className="text-[9px] text-slate-400 mt-1 truncate">
+              {isTarget ? "100% Target Met" : isTsl ? "TSL Defended" : "Controlled Risk"}
+            </div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
