@@ -27,6 +27,7 @@ import IMPostPhase40OperationsDashboard from "../indian-market/IMPostPhase40Oper
 import IMSwingTradingView from "../indian-market/IMSwingTradingView"; // Legacy / Standard Swing
 import FOQuantDeskView from "../indian-market/fo/FOQuantDeskView"; // Dedicated Isolated F&O Quant Desk
 import IntradayDeskView from "../indian-market/intraday/IntradayDeskView"; // Dedicated Isolated Intraday Desk
+import AIResearchCommandCenter from "../ai/AIResearchCommandCenter";
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 import { TradeProvider, useTrades } from "../../context/TradeContext";
@@ -186,6 +187,9 @@ function MainContent() {
           <div {...show("settings")}><SettingsView /></div>
 
         </main>
+
+        {/* Global AI Research & Company Intelligence Copilot Drawer */}
+        {marketMode === "indian" && <AIResearchCommandCenter />}
 
         {/* Status Footer */}
         <footer className="py-3 px-6 border-t border-slate-800/60 bg-[#0d1322]/50 text-center text-xs font-mono text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">

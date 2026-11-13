@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { NavTabId } from "../layout/Sidebar";
 import { FlashValue } from "./fo/FOLiveCommandCenter";
+import { openAIResearchPanel } from "../ai/AIResearchCommandCenter";
 import { checkNseMarketHoursIST, type NseMarketStatus } from "@/hooks/useLiveFoTicker";
 import { LEDGER_SYNC_EVENT } from "@/lib/indian/ledgerSync";
 import { ActiveFOSpreadPosition } from "./fo/types";
@@ -470,6 +471,12 @@ export default function IMOverviewView({
             )}
           </div>
           <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
+            <button
+              onClick={() => openAIResearchPanel("RELIANCE")}
+              className="px-2.5 py-0.5 rounded border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-[10px] font-mono font-bold transition-colors cursor-pointer"
+            >
+              ✨ AI Research
+            </button>
             <span className="flex items-center gap-1">
               <Clock className="w-3.5 h-3.5 text-cyan-400" />
               {marketStatus.istDayName} {lastTickTime}
