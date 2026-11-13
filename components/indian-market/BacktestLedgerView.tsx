@@ -29,9 +29,11 @@ import {
   formatCalendarDateKey,
   normalizeDateKey,
   emitLedgerSyncEvent,
+  isVerifiedUserExecution,
+  isTimestampWithinNseMarketHoursIST,
 } from "@/lib/indian/ledgerSync";
 
-// Re-export _v3 storage keys for consumers & verification tests
+// Re-export _v3 storage keys & validators for consumers & verification tests
 export {
   STORAGE_KEY_INTRADAY_HISTORY,
   STORAGE_KEY_SWING_HISTORY,
@@ -39,6 +41,8 @@ export {
   normalizeDateKey,
   getISTDateKey,
   formatCalendarDateKey,
+  isVerifiedUserExecution,
+  isTimestampWithinNseMarketHoursIST,
 };
 
 // All legacy keys that may hold cached synthetic/seed/auto-executed trades
@@ -61,26 +65,8 @@ export const LEGACY_POLLUTED_STORAGE_KEYS = [
   "nse_fo_quant_closed_history_v2",
 ];
 
-// Prefixes used by historical mock seeds or auto-execution engines
-const SYNTHETIC_ID_PREFIXES = [
-  "AUDIT-",
-  "FO-EXIT-",
-  "AUTO-",
-  "INTRA-ACT-",
-  "SWING-ACT-",
-  "FO-ACT-",
-];
-
 export function isGenuineUserTrade(item: any): boolean {
-  if (!item || typeof item !== "object") return false;
-  const id = String(item.tradeId || item.positionId || item.id || "").toUpperCase();
-  if (!id) return false;
-  for (const prefix of SYNTHETIC_ID_PREFIXES) {
-    if (id.startsWith(prefix)) return false;
-  }
-  const entry = Number(item.entryPrice ?? item.entrySpotPrice ?? 0);
-  if (!Number.isFinite(entry) || entry <= 0) return false;
-  return true;
+  return isVerifiedUserExecution(item);
 }
 
 /**

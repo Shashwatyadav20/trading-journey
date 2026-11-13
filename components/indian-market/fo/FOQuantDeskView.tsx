@@ -130,6 +130,7 @@ export default function FOQuantDeskView() {
             parsed.filter(
               (p: any) =>
                 p &&
+                p.userExecuted === true &&
                 !String(p.positionId || "").startsWith("FO-EXIT-") &&
                 !String(p.positionId || "").startsWith("FO-ACT-")
             )
@@ -144,6 +145,7 @@ export default function FOQuantDeskView() {
             parsed.filter(
               (p: any) =>
                 p &&
+                p.userExecuted === true &&
                 !String(p.positionId || "").startsWith("FO-EXIT-") &&
                 !String(p.positionId || "").startsWith("FO-ACT-")
             )
@@ -207,12 +209,13 @@ export default function FOQuantDeskView() {
           setActivePositions((prev) => {
             const nextActive: ActiveFOSpreadPosition[] = [];
             const newlyClosed: ActiveFOSpreadPosition[] = [];
+            const isMarketOpen = checkNseMarketHoursIST().isOpen;
 
             prev.forEach((pos) => {
-              if (pos.entryDateKey === todayKey) {
+              if (pos.entryDateKey === todayKey || !isMarketOpen) {
                 nextActive.push({
                   ...pos,
-                  currentSpotPrice: pos.entrySpotPrice,
+                  currentSpotPrice: pos.entryDateKey === todayKey ? pos.entrySpotPrice : (spotMap.get(pos.cleanSymbol) ?? pos.currentSpotPrice),
                   currentNetPremiumPerUnit: pos.netEntryPremiumPerUnit,
                 });
                 return;
@@ -386,7 +389,8 @@ export default function FOQuantDeskView() {
         stopLossSpotLevel: Number((setup.purpleBox.valSupportFloor * 0.985).toFixed(2)),
         targetSpotLevel: Number((setup.purpleBox.vahResistanceCeiling * 1.02).toFixed(2)),
         status: "ACTIVE",
-      };
+        userExecuted: true,
+      } as ActiveFOSpreadPosition & { userExecuted: boolean };
 
       setActivePositions((prev) => {
         const next = [newPosition, ...prev];
@@ -454,7 +458,8 @@ export default function FOQuantDeskView() {
         stopLossSpotLevel: Number((setup.purpleBox.valSupportFloor * 0.985).toFixed(2)),
         targetSpotLevel: Number((setup.purpleBox.vahResistanceCeiling * 1.02).toFixed(2)),
         status: "ACTIVE",
-      };
+        userExecuted: true,
+      } as ActiveFOSpreadPosition & { userExecuted: boolean };
 
       setActivePositions((prev) => {
         const next = [

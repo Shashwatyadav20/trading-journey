@@ -121,6 +121,7 @@ const genuineIntraday = {
   lockedDateKey: "2026-11-12",
   executionTime: "09:32:15 IST",
   exitTime: "11:45:00 IST",
+  userExecuted: true,
 };
 
 const genuineSwing = {
@@ -142,6 +143,7 @@ const genuineSwing = {
   lockedDateKey: "2026-11-12",
   executionTime: "10:15:00 IST",
   exitTime: "14:10:00 IST",
+  userExecuted: true,
 };
 
 const genuineFO = {
@@ -160,8 +162,9 @@ const genuineFO = {
   isNetCredit: true,
   status: "MANUAL_EXIT",
   entryDateKey: "2026-11-12",
-  entryTimestamp: "2026-11-12T09:25:00.000Z",
-  exitTimestamp: "2026-11-12T13:40:00.000Z",
+  entryTimestamp: "2026-11-12T04:05:00.000Z", // 09:35 IST
+  exitTimestamp: "2026-11-12T08:10:00.000Z",  // 13:40 IST
+  userExecuted: true,
 };
 
 assert.strictEqual(isGenuineUserTrade(genuineIntraday), true, "Genuine intraday trade accepted");
@@ -211,6 +214,7 @@ const simIntradayExit = {
   dateKey: targetDateKey,
   executionTime: "09:46:00 IST",
   exitTime: "13:15:00 IST",
+  userExecuted: true,
 };
 
 // 2. Institutional Swing 4H OB Manual Square-Off (+₹12,250)
@@ -232,6 +236,7 @@ const simSwingExit = {
   dateKey: targetDateKey,
   executionTime: "10:05:00 IST",
   exitTime: "14:40:00 IST",
+  userExecuted: true,
 };
 
 // 3. F&O Quant Desk Spread Stop-Loss Hit (-₹2,750)
@@ -252,8 +257,9 @@ const simFoExit = {
   status: "SL_HIT",
   dateKey: targetDateKey,
   entryDateKey: "2026-11-12",
-  entryTimestamp: "2026-11-12T10:15:00.000Z",
-  exitTimestamp: "2026-11-13T08:50:00.000Z",
+  entryTimestamp: "2026-11-12T04:45:00.000Z", // 10:15 IST
+  exitTimestamp: "2026-11-13T08:50:00.000Z",  // 14:20 IST
+  userExecuted: true,
 };
 
 // Write synchronously and also test duplicate write idempotency
@@ -281,6 +287,61 @@ assert.strictEqual(
 console.log(
   `  ✓ PASS: Multi-desk execution cycle synced & verified for ${targetDateKey}: Total = +₹${dayAudit!.totalPnL.toLocaleString("en-IN")} (3 trades, 0 duplicates).`
 );
+
+// ---------------------------------------------------------------------------
+// TEST 6: Market-Hours Gating & Automatic Purge of Unverified Residue
+// ---------------------------------------------------------------------------
+console.log("\nTest 6: Rejecting off-hours & unverified test residue automatically...");
+localStorage.clear();
+
+const preMarketUnverifiedFO = {
+  positionId: "FO-POS-NIFTY-1763003000",
+  symbol: "^NSEI",
+  cleanSymbol: "NIFTY",
+  companyName: "Nifty 50 Index",
+  strategyName: "Hedged Iron Condor",
+  entrySpotPrice: 24350,
+  currentSpotPrice: 24420,
+  totalQuantity: 50,
+  marginBlockedINR: 85000,
+  realizedPnLINR: 209052,
+  status: "TARGET_HIT",
+  entryDateKey: "2026-11-13",
+  // 08:38 AM IST (03:08 UTC) - before 09:15 AM IST market open & missing userExecuted
+  entryTimestamp: "2026-11-13T03:08:00.000Z",
+  exitTimestamp: "2026-11-13T03:08:30.000Z",
+};
+
+const afterHoursUserFO = {
+  ...preMarketUnverifiedFO,
+  positionId: "FO-POS-BANKNIFTY-1763003001",
+  userExecuted: true,
+  // 16:05 IST (10:35 UTC) - after 15:30 IST close
+  entryTimestamp: "2026-11-13T10:35:00.000Z",
+  exitTimestamp: "2026-11-13T10:36:00.000Z",
+};
+
+const weekendUserTrade = {
+  tradeId: "INTRA-RELIANCE-1763003002",
+  symbol: "RELIANCE.NS",
+  cleanSymbol: "RELIANCE",
+  entryPrice: 1280,
+  quantity: 10,
+  pnlAmount: 500,
+  userExecuted: true,
+  // Saturday Nov 14, 2026 11:00 IST (05:30 UTC)
+  executionTime: "2026-11-14T05:30:00.000Z",
+  exitTime: "2026-11-14T06:00:00.000Z",
+};
+
+localStorage.setItem(STORAGE_KEY_FO_HISTORY, JSON.stringify([preMarketUnverifiedFO, afterHoursUserFO]));
+localStorage.setItem(STORAGE_KEY_INTRADAY_HISTORY, JSON.stringify([weekendUserTrade]));
+
+const gatedLedger = parseAllDeskTrades();
+assert.strictEqual(gatedLedger.length, 0, "All unverified, pre-market, after-hours, and weekend trades purged");
+assert.strictEqual(localStorage.getItem(STORAGE_KEY_FO_HISTORY), null, "Unverified F&O test residue wiped from storage");
+assert.strictEqual(localStorage.getItem(STORAGE_KEY_INTRADAY_HISTORY), null, "Weekend intraday residue wiped from storage");
+console.log("  ✓ PASS: Off-hours & unverified test residue automatically purged (₹0.00, 0 Executions).");
 
 console.log("\n================================================================================");
 console.log("ALL TESTS PASSED! Legacy cache purged & _v3 real-data integrity verified.");

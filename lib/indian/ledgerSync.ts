@@ -94,6 +94,118 @@ export function getTradeUniqueId(item: any): string {
   return String(item.tradeId || item.positionId || item.id || "").trim();
 }
 
+const SYNTHETIC_ID_PREFIXES = [
+  "AUDIT-",
+  "FO-EXIT-",
+  "AUTO-",
+  "INTRA-ACT-",
+  "SWING-ACT-",
+  "FO-ACT-",
+  "TEST-",
+  "SIM-",
+  "MOCK-",
+  "SEED-",
+];
+
+/**
+ * Validates that a trade timestamp falls strictly within genuine NSE regular
+ * market hours in IST: Monday–Friday, 09:15 AM to 03:30 PM IST (555–930 mins).
+ */
+export function isTimestampWithinNseMarketHoursIST(
+  tsInput?: string | number | Date
+): boolean {
+  if (tsInput === undefined || tsInput === null || tsInput === "") return false;
+
+  if (tsInput instanceof Date || typeof tsInput === "number") {
+    const ms = tsInput instanceof Date ? tsInput.getTime() : tsInput;
+    if (!Number.isFinite(ms)) return false;
+    const ist = new Date(ms + 330 * 60 * 1000);
+    const day = ist.getUTCDay();
+    if (day === 0 || day === 6) return false;
+    const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+    return mins >= 555 && mins <= 930;
+  }
+
+  const raw = String(tsInput).trim();
+  if (!raw) return false;
+
+  // 1. Indian locale format: "13/11/2026, 9:45:00 am" or "13/11/2026, 14:30:15"
+  const inLocale = raw.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?/i
+  );
+  if (inLocale) {
+    const day = Number(inLocale[1]);
+    const month = Number(inLocale[2]);
+    const year = Number(inLocale[3]);
+    let hour = Number(inLocale[4]);
+    const minute = Number(inLocale[5]);
+    const meridiem = (inLocale[7] || "").toLowerCase();
+    if (meridiem === "pm" && hour < 12) hour += 12;
+    if (meridiem === "am" && hour === 12) hour = 0;
+
+    // Check weekday using UTC calendar math on the IST date
+    const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+    if (dow === 0 || dow === 6) return false;
+    const mins = hour * 60 + minute;
+    return mins >= 555 && mins <= 930;
+  }
+
+  // 2. Time-only format: "09:46:00 IST" or "14:40:00 pm"
+  const timeOnly = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\s*(?:IST)?$/i);
+  if (timeOnly) {
+    let hour = Number(timeOnly[1]);
+    const minute = Number(timeOnly[2]);
+    const meridiem = (timeOnly[4] || "").toLowerCase();
+    if (meridiem === "pm" && hour < 12) hour += 12;
+    if (meridiem === "am" && hour === 12) hour = 0;
+    const mins = hour * 60 + minute;
+    return mins >= 555 && mins <= 930;
+  }
+
+  // 3. Standard ISO / RFC timestamp (e.g., "2026-11-13T04:00:00.000Z")
+  const parsed = Date.parse(raw);
+  if (!Number.isNaN(parsed)) {
+    const ist = new Date(parsed + 330 * 60 * 1000);
+    const day = ist.getUTCDay();
+    if (day === 0 || day === 6) return false;
+    const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+    return mins >= 555 && mins <= 930;
+  }
+
+  return false;
+}
+
+/**
+ * Strict real-data gatekeeper for BacktestLedgerView and all desks:
+ * - Must not be a synthetic/test/auto-seed ID
+ * - Must carry explicit `userExecuted === true` (purges unverified test residue)
+ * - Must have valid positive entry price
+ * - Must have an execution or exit timestamp within NSE market hours (09:15–15:30 IST)
+ */
+export function isVerifiedUserExecution(item: any): boolean {
+  if (!item || typeof item !== "object") return false;
+  const id = getTradeUniqueId(item).toUpperCase();
+  if (!id) return false;
+  for (const prefix of SYNTHETIC_ID_PREFIXES) {
+    if (id.startsWith(prefix)) return false;
+  }
+
+  if (item.userExecuted !== true) return false;
+
+  const entry = Number(item.entryPrice ?? item.entrySpotPrice ?? 0);
+  if (!Number.isFinite(entry) || entry <= 0) return false;
+
+  const tsCandidates = [
+    item.exitTimestamp,
+    item.entryTimestamp,
+    item.exitTime,
+    item.executionTime,
+  ].filter(Boolean);
+
+  if (tsCandidates.length === 0) return false;
+  return tsCandidates.some((ts) => isTimestampWithinNseMarketHoursIST(ts));
+}
+
 export function emitLedgerSyncEvent(
   desk: LedgerDeskSource,
   key?: string
@@ -187,3 +299,4 @@ export function writeHistoryTradesSync<T>(
     console.error(`[ledgerSync] Failed to write history ${storageKey}:`, err);
   }
 }
+

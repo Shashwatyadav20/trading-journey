@@ -264,7 +264,7 @@ export default function IMSwingTradingView() {
       }
       const parsedH = readPersistedTrades<ActivePortfolioTrade>(STORAGE_KEY_BACKTEST_HISTORY, LEGACY_HISTORY_KEYS);
       if (parsedH && parsedH.length > 0) {
-        setBacktestHistory(parsedH);
+        setBacktestHistory(parsedH.filter((t: any) => t && t.userExecuted === true));
       } else {
         setBacktestHistory([]);
       }
@@ -648,7 +648,8 @@ export default function IMSwingTradingView() {
       pnlPercent: 0,
       lastLtpSyncAt: syncStamp,
       isLiveTick: true,
-    };
+      userExecuted: true,
+    } as ActivePortfolioTrade & { userExecuted: boolean };
 
     const nextActive = [newTrade, ...autoTrades];
     autoTradesRef.current = nextActive;
@@ -714,7 +715,8 @@ export default function IMSwingTradingView() {
         orderBlockQuality: alert.quality,
         confidenceTag: alert.confidenceTag,
       },
-    };
+      userExecuted: true,
+    } as ActivePortfolioTrade & { userExecuted: boolean };
 
     const updated = [newTrade, ...autoTrades];
     autoTradesRef.current = updated;

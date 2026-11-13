@@ -120,7 +120,11 @@ export default function IntradayDeskView() {
         const parsed = JSON.parse(savedActive);
         if (Array.isArray(parsed)) {
           const clean = parsed.filter(
-            (t: any) => t && !String(t.tradeId || "").startsWith("AUDIT-") && !String(t.tradeId || "").startsWith("AUTO-")
+            (t: any) =>
+              t &&
+              t.userExecuted === true &&
+              !String(t.tradeId || "").startsWith("AUDIT-") &&
+              !String(t.tradeId || "").startsWith("AUTO-")
           );
           setActiveTrades(clean);
           activeTradesRef.current = clean;
@@ -131,7 +135,11 @@ export default function IntradayDeskView() {
         const parsedH = JSON.parse(savedHistory);
         if (Array.isArray(parsedH)) {
           const cleanH = parsedH.filter(
-            (t: any) => t && !String(t.tradeId || "").startsWith("AUDIT-") && !String(t.tradeId || "").startsWith("AUTO-")
+            (t: any) =>
+              t &&
+              t.userExecuted === true &&
+              !String(t.tradeId || "").startsWith("AUDIT-") &&
+              !String(t.tradeId || "").startsWith("AUTO-")
           );
           setHistoryTrades(cleanH);
           historyTradesRef.current = cleanH;
@@ -560,7 +568,8 @@ export default function IntradayDeskView() {
       orbHigh915_945: op.orbHigh915_945,
       orbLow915_945: op.orbLow915_945,
       vwap5m: op.vwap5m,
-    };
+      userExecuted: true,
+    } as ActiveIntradayTrade & { userExecuted: boolean };
 
     const nextList = [newTrade, ...activeTrades];
     activeTradesRef.current = nextList;
