@@ -31,9 +31,14 @@ import {
   DEFAULT_NSE_SMC_SYMBOLS,
   evaluateSingleStock4HRetest,
 } from "../../lib/indian/institutionalSwingEngine";
+import {
+  STORAGE_KEY_SWING_ACTIVE as STORAGE_KEY_ACTIVE_TRADES,
+  STORAGE_KEY_SWING_HISTORY as STORAGE_KEY_BACKTEST_HISTORY,
+  appendSettledTradesSync,
+  writeActiveTradesSync,
+  getISTDateKey,
+} from "../../lib/indian/ledgerSync";
 
-const STORAGE_KEY_ACTIVE_TRADES = "nse_swing_active_trades_v3";
-const STORAGE_KEY_BACKTEST_HISTORY = "nse_swing_backtest_history_v3";
 const STORAGE_KEY_DAILY_SIGNAL_LOCK = "nse_swing_daily_signal_lock_v3";
 const LEGACY_ACTIVE_KEYS: string[] = [];
 const LEGACY_HISTORY_KEYS: string[] = [];
@@ -560,7 +565,7 @@ export default function IMSwingTradingView() {
       const finalActive = [...newlyAutoEntered, ...updatedActive];
       autoTradesRef.current = finalActive;
       setAutoTrades(finalActive);
-      localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(finalActive));
+      writeActiveTradesSync(STORAGE_KEY_ACTIVE_TRADES, finalActive, "SWING");
 
       if (selectedTradeModal) {
         const refreshed = finalActive.find((t) => t.tradeId === selectedTradeModal.tradeId);
@@ -568,11 +573,18 @@ export default function IMSwingTradingView() {
       }
 
       if (newlyCompleted.length > 0) {
-        setBacktestHistory((prev) => {
-          const finalHist = [...newlyCompleted, ...prev];
-          localStorage.setItem(STORAGE_KEY_BACKTEST_HISTORY, JSON.stringify(finalHist));
-          return finalHist;
-        });
+        const todayDateKey = getISTDateKey();
+        const stampedCompleted = newlyCompleted.map((t) => ({
+          ...t,
+          exitPrice: t.currentMarketPrice ?? t.entryPrice,
+          dateKey: todayDateKey,
+        }));
+        const finalHist = appendSettledTradesSync(
+          STORAGE_KEY_BACKTEST_HISTORY,
+          stampedCompleted,
+          "SWING"
+        );
+        setBacktestHistory(finalHist);
         setPortfolioNotice(
           `🎯 Auto-Closed: ${newlyCompleted.map((t) => `${t.cleanSymbol} (${t.status})`).join(", ")} moved to Backtest History!`
         );
@@ -896,9 +908,11 @@ export default function IMSwingTradingView() {
     const diff = (finalPrice - targetTrade.entryPrice) * targetTrade.quantity;
     const pct = Number((((finalPrice - targetTrade.entryPrice) / targetTrade.entryPrice) * 100).toFixed(2));
 
-    const resolved: ActivePortfolioTrade = {
+    const resolved: ActivePortfolioTrade & { exitPrice?: number; dateKey?: string } = {
       ...targetTrade,
       currentMarketPrice: finalPrice,
+      exitPrice: finalPrice,
+      dateKey: getISTDateKey(),
       status: outcome === "TARGET" ? "TARGET_HIT" : "STOP_LOSS_HIT",
       exitTime: new Date().toLocaleString("en-IN"),
       pnlAmount: Math.round(diff),
@@ -906,11 +920,15 @@ export default function IMSwingTradingView() {
     };
 
     const rem = autoTrades.filter((t) => t.tradeId !== tradeId);
-    const hist = [resolved, ...backtestHistory];
+    autoTradesRef.current = rem;
     setAutoTrades(rem);
+    writeActiveTradesSync(STORAGE_KEY_ACTIVE_TRADES, rem, "SWING");
+    const hist = appendSettledTradesSync(
+      STORAGE_KEY_BACKTEST_HISTORY,
+      [resolved],
+      "SWING"
+    );
     setBacktestHistory(hist);
-    localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(rem));
-    localStorage.setItem(STORAGE_KEY_BACKTEST_HISTORY, JSON.stringify(hist));
     if (selectedTradeModal?.tradeId === tradeId) setSelectedTradeModal(null);
   };
 
@@ -928,11 +946,13 @@ export default function IMSwingTradingView() {
     const diff = (exactLiveLtp - targetTrade.entryPrice) * targetTrade.quantity;
     const pct = Number((((exactLiveLtp - targetTrade.entryPrice) / targetTrade.entryPrice) * 100).toFixed(2));
 
-    const squaredOff: ActivePortfolioTrade = {
+    const squaredOff: ActivePortfolioTrade & { exitPrice?: number; dateKey?: string } = {
       ...targetTrade,
       cleanSymbol: cleanSym,
       currentMarketPrice: exactLiveLtp,
       currentSimulatedPrice: exactLiveLtp,
+      exitPrice: exactLiveLtp,
+      dateKey: getISTDateKey(),
       status: "MANUAL_EMERGENCY_EXIT",
       exitTime: new Date().toLocaleString("en-IN"),
       pnlAmount: Math.round(diff),
@@ -940,12 +960,15 @@ export default function IMSwingTradingView() {
     };
 
     const rem = autoTrades.filter((t) => t.tradeId !== tradeId);
-    const hist = [squaredOff, ...backtestHistory];
     autoTradesRef.current = rem;
     setAutoTrades(rem);
+    writeActiveTradesSync(STORAGE_KEY_ACTIVE_TRADES, rem, "SWING");
+    const hist = appendSettledTradesSync(
+      STORAGE_KEY_BACKTEST_HISTORY,
+      [squaredOff],
+      "SWING"
+    );
     setBacktestHistory(hist);
-    localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(rem));
-    localStorage.setItem(STORAGE_KEY_BACKTEST_HISTORY, JSON.stringify(hist));
     if (selectedTradeModal?.tradeId === tradeId) setSelectedTradeModal(null);
     setPortfolioNotice(
       `⚡ Emergency Exit Complete: ${cleanSym} squared off at Live LTP ₹${exactLiveLtp} (${diff >= 0 ? "+" : ""}₹${Math.round(diff).toLocaleString("en-IN")} / ${pct >= 0 ? "+" : ""}${pct}%), archived to Backtest History & capital freed!`
@@ -976,11 +999,13 @@ export default function IMSwingTradingView() {
         const diff = (exactLiveLtp - targetTrade.entryPrice) * targetTrade.quantity;
         const pct = Number((((exactLiveLtp - targetTrade.entryPrice) / targetTrade.entryPrice) * 100).toFixed(2));
 
-        const exitedTrade: ActivePortfolioTrade = {
+        const exitedTrade: ActivePortfolioTrade & { exitPrice?: number; dateKey?: string } = {
           ...targetTrade,
           cleanSymbol: cleanSym,
           currentMarketPrice: exactLiveLtp,
           currentSimulatedPrice: exactLiveLtp,
+          exitPrice: exactLiveLtp,
+          dateKey: getISTDateKey(),
           status: "NEWS_TRIGGER_EXIT",
           exitTime: exitStamp,
           pnlAmount: Math.round(diff),
@@ -989,14 +1014,14 @@ export default function IMSwingTradingView() {
 
         const rem = prev.filter((t) => t.tradeId !== targetTrade.tradeId);
         autoTradesRef.current = rem;
-        localStorage.setItem(STORAGE_KEY_ACTIVE_TRADES, JSON.stringify(rem));
+        writeActiveTradesSync(STORAGE_KEY_ACTIVE_TRADES, rem, "SWING");
 
-        setBacktestHistory((histPrev) => {
-          if (histPrev.some((h) => h.tradeId === exitedTrade.tradeId)) return histPrev;
-          const nextHist = [exitedTrade, ...histPrev];
-          localStorage.setItem(STORAGE_KEY_BACKTEST_HISTORY, JSON.stringify(nextHist));
-          return nextHist;
-        });
+        const nextHist = appendSettledTradesSync(
+          STORAGE_KEY_BACKTEST_HISTORY,
+          [exitedTrade],
+          "SWING"
+        );
+        setBacktestHistory(nextHist);
 
         setPortfolioNotice(
           `🚨 AI Sentiment Shield Auto-Exit [NEWS_TRIGGER_EXIT]: ${cleanSym} closed at ₹${exactLiveLtp} (${diff >= 0 ? "+" : ""}₹${Math.round(diff).toLocaleString("en-IN")}) — ${report.exitReason || report.topHeadline}`

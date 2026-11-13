@@ -33,9 +33,14 @@ import {
 import { useAiNewsReversalWorker } from "../../../hooks/useAiNewsReversalWorker";
 import IMTradeExitAuditModal, { ClosedTradeExitAuditData } from "../IMTradeExitAuditModal";
 import { DEFAULT_CLOSED_TRADE_AUDIT_SEEDS } from "../../../lib/indian/backtestSeeds";
-
-const STORAGE_KEY_INTRADAY_ACTIVE = "nse_intraday_active_trades_v3";
-const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v3";
+import {
+  STORAGE_KEY_INTRADAY_ACTIVE,
+  STORAGE_KEY_INTRADAY_HISTORY,
+  appendSettledTradesSync,
+  writeActiveTradesSync,
+  writeHistoryTradesSync,
+  getISTDateKey,
+} from "../../../lib/indian/ledgerSync";
 
 export interface ActiveIntradayTrade {
   tradeId: string;
@@ -179,6 +184,7 @@ export default function IntradayDeskView() {
 
       const syncStamp = new Date().toLocaleTimeString("en-IN", { hour12: false });
       const nowFullIst = new Date().toLocaleString("en-IN");
+      const todayDateKey = getISTDateKey();
 
       const stillActive: ActiveIntradayTrade[] = [];
       const newlyClosed: ActiveIntradayTrade[] = [];
@@ -250,11 +256,13 @@ export default function IntradayDeskView() {
         if (is315SquareOffTriggered) {
           newlyClosed.push({
             ...updatedTrade,
+            exitPrice: liveLtp,
+            dateKey: todayDateKey,
             status: "AUTO_SQUARE_OFF_315PM",
             auditTag: "AUTO_SQUARE_OFF_315PM",
             exitReason: `🕒 Mandatory 3:15 PM IST Intraday Auto-Square-Off executed automatically at Live LTP ₹${liveLtp}.`,
             exitTime: nowFullIst,
-          });
+          } as ActiveIntradayTrade);
           return;
         }
 
@@ -262,11 +270,13 @@ export default function IntradayDeskView() {
         if (shield.shouldAutoExit && shield.autoExitTag) {
           newlyClosed.push({
             ...updatedTrade,
+            exitPrice: liveLtp,
+            dateKey: todayDateKey,
             status: shield.autoExitTag,
             auditTag: shield.autoExitTag,
             exitReason: shield.autoExitReason || `Smart Shield Auto-Exit (${shield.autoExitTag}) at ₹${liveLtp}`,
             exitTime: nowFullIst,
-          });
+          } as ActiveIntradayTrade);
           return;
         }
 
@@ -275,11 +285,13 @@ export default function IntradayDeskView() {
         if (isTargetHit) {
           newlyClosed.push({
             ...updatedTrade,
+            exitPrice: liveLtp,
+            dateKey: todayDateKey,
             status: "TARGET_HIT",
             auditTag: "TARGET_HIT",
             exitReason: `Intraday Target ₹${tr.targetPrice} achieved at Live LTP ₹${liveLtp}.`,
             exitTime: nowFullIst,
-          });
+          } as ActiveIntradayTrade);
           return;
         }
 
@@ -289,13 +301,15 @@ export default function IntradayDeskView() {
           const tag: SmartExitAuditTag = shield.isTslCostLocked ? "TSL_COST_BREAKEVEN_EXIT" : "STOP_LOSS_HIT";
           newlyClosed.push({
             ...updatedTrade,
+            exitPrice: liveLtp,
+            dateKey: todayDateKey,
             status: tag,
             auditTag: tag,
             exitReason: shield.isTslCostLocked
               ? `Protected Breakeven Stop (TSL to Cost ₹${effectiveStop}) triggered at ₹${liveLtp}. Principal 100% preserved.`
               : `Intraday Stop-Loss ₹${effectiveStop} hit at ₹${liveLtp}.`,
             exitTime: nowFullIst,
-          });
+          } as ActiveIntradayTrade);
           return;
         }
 
@@ -365,13 +379,16 @@ export default function IntradayDeskView() {
       const finalActive = [...newlyAutoActivated, ...stillActive];
       activeTradesRef.current = finalActive;
       setActiveTrades(finalActive);
+      writeActiveTradesSync(STORAGE_KEY_INTRADAY_ACTIVE, finalActive, "INTRADAY");
 
       if (newlyClosed.length > 0) {
-        setHistoryTrades((prev) => {
-          const updatedH = [...newlyClosed, ...prev];
-          historyTradesRef.current = updatedH;
-          return updatedH;
-        });
+        const mergedHistory = appendSettledTradesSync(
+          STORAGE_KEY_INTRADAY_HISTORY,
+          newlyClosed,
+          "INTRADAY"
+        );
+        historyTradesRef.current = mergedHistory;
+        setHistoryTrades(mergedHistory);
         const is315Batch = newlyClosed.some((c) => c.auditTag === "AUTO_SQUARE_OFF_315PM");
         setDeskNotice(
           is315Batch
@@ -578,6 +595,8 @@ export default function IntradayDeskView() {
     const closedTrade: ActiveIntradayTrade = {
       ...target,
       currentMarketPrice: liveLtp,
+      exitPrice: liveLtp,
+      dateKey: getISTDateKey(),
       pnlAmount,
       pnlPercent,
       status: customTag,
@@ -588,12 +607,19 @@ export default function IntradayDeskView() {
           pnlAmount >= 0 ? "+" : ""
         }₹${pnlAmount.toLocaleString("en-IN")} (${pnlPercent >= 0 ? "+" : ""}${pnlPercent}%).`,
       exitTime: nowFullIst,
-    };
+    } as ActiveIntradayTrade;
 
     const remaining = activeTrades.filter((t) => t.tradeId !== tradeId);
     activeTradesRef.current = remaining;
     setActiveTrades(remaining);
-    setHistoryTrades((prev) => [closedTrade, ...prev]);
+    writeActiveTradesSync(STORAGE_KEY_INTRADAY_ACTIVE, remaining, "INTRADAY");
+    const mergedHistory = appendSettledTradesSync(
+      STORAGE_KEY_INTRADAY_HISTORY,
+      [closedTrade],
+      "INTRADAY"
+    );
+    historyTradesRef.current = mergedHistory;
+    setHistoryTrades(mergedHistory);
     setDeskNotice(
       `⚡ Square-Off Complete: ${cleanSym} closed at Live LTP ₹${liveLtp} [${customTag}] (${
         pnlAmount >= 0 ? "+" : ""
@@ -617,18 +643,27 @@ export default function IntradayDeskView() {
       return {
         ...t,
         currentMarketPrice: liveLtp,
+        exitPrice: liveLtp,
+        dateKey: getISTDateKey(),
         pnlAmount,
         pnlPercent,
         status: "MANUAL_EMERGENCY_EXIT",
         auditTag: "MANUAL_EMERGENCY_EXIT",
         exitReason: `⚡ Desk-Wide Emergency Square-Off at Live LTP ₹${liveLtp}.`,
         exitTime: nowFullIst,
-      };
+      } as ActiveIntradayTrade;
     });
 
     activeTradesRef.current = [];
     setActiveTrades([]);
-    setHistoryTrades((prev) => [...closedBatch, ...prev]);
+    writeActiveTradesSync(STORAGE_KEY_INTRADAY_ACTIVE, [], "INTRADAY");
+    const mergedHistory = appendSettledTradesSync(
+      STORAGE_KEY_INTRADAY_HISTORY,
+      closedBatch,
+      "INTRADAY"
+    );
+    historyTradesRef.current = mergedHistory;
+    setHistoryTrades(mergedHistory);
     setDeskNotice(`⚡ Squared off all ${closedBatch.length} active intraday positions at live market price!`);
   };
 

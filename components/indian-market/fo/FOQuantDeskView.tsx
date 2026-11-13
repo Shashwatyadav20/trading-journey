@@ -40,9 +40,13 @@ import {
 } from "@/lib/indian/foQuantEngine";
 import { useLiveFoTicker, checkNseMarketHoursIST } from "@/hooks/useLiveFoTicker";
 import FOLiveCommandCenter, { FlashValue } from "./FOLiveCommandCenter";
-
-const STORAGE_KEY_FO_ACTIVE_SPREADS = "nse_fo_quant_active_spreads_v3";
-const STORAGE_KEY_FO_CLOSED_HISTORY = "nse_fo_quant_closed_history_v3";
+import {
+  STORAGE_KEY_FO_ACTIVE as STORAGE_KEY_FO_ACTIVE_SPREADS,
+  STORAGE_KEY_FO_HISTORY as STORAGE_KEY_FO_CLOSED_HISTORY,
+  appendSettledTradesSync,
+  writeActiveTradesSync,
+  getISTDateKey,
+} from "@/lib/indian/ledgerSync";
 
 type FODeskSubTab =
   | "LIVE_COMMAND_CENTER"
@@ -241,11 +245,22 @@ export default function FOQuantDeskView() {
             });
 
             if (newlyClosed.length > 0) {
-              setClosedHistory((old) => [...newlyClosed, ...old]);
+              const exitDateKey = getISTDateKey();
+              const stampedClosed = newlyClosed.map((c) => ({
+                ...c,
+                dateKey: exitDateKey,
+              }));
+              const mergedClosed = appendSettledTradesSync(
+                STORAGE_KEY_FO_CLOSED_HISTORY,
+                stampedClosed,
+                "FO"
+              );
+              setClosedHistory(mergedClosed);
               showToast(
                 `🎯 F&O Auto-Exit: ${newlyClosed.map((c) => `${c.cleanSymbol} (${c.status.replace(/_/g, " ")})`).join(", ")} moved to Backtest Archive!`
               );
             }
+            writeActiveTradesSync(STORAGE_KEY_FO_ACTIVE_SPREADS, nextActive, "FO");
 
             return nextActive;
           });
@@ -373,7 +388,11 @@ export default function FOQuantDeskView() {
         status: "ACTIVE",
       };
 
-      setActivePositions((prev) => [newPosition, ...prev]);
+      setActivePositions((prev) => {
+        const next = [newPosition, ...prev];
+        writeActiveTradesSync(STORAGE_KEY_FO_ACTIVE_SPREADS, next, "FO");
+        return next;
+      });
       showToast(
         `Deployed ${setup.cleanSymbol} ${setup.strategyName} (Same-Day Price Frozen at ₹${setup.spotPrice.toLocaleString("en-IN")})`
       );
@@ -437,10 +456,14 @@ export default function FOQuantDeskView() {
         status: "ACTIVE",
       };
 
-      setActivePositions((prev) => [
-        newPosition,
-        ...prev.filter((p) => p.cleanSymbol !== setup.cleanSymbol),
-      ]);
+      setActivePositions((prev) => {
+        const next = [
+          newPosition,
+          ...prev.filter((p) => p.cleanSymbol !== setup.cleanSymbol),
+        ];
+        writeActiveTradesSync(STORAGE_KEY_FO_ACTIVE_SPREADS, next, "FO");
+        return next;
+      });
       setIsPayoffModalOpen(false);
       setSubTab("ACTIVE_POSITIONS");
       showToast(
@@ -456,18 +479,26 @@ export default function FOQuantDeskView() {
       const liveTick = liveTicker.positionTicks[pos.positionId];
       const pnlINR = liveTick ? liveTick.unrealizedPnLINR : 0;
 
-      const closedPos: ActiveFOSpreadPosition = {
+      const closedPos: ActiveFOSpreadPosition & { dateKey?: string } = {
         ...pos,
         currentSpotPrice: liveTick?.spot ?? pos.currentSpotPrice,
         status: "MANUAL_EXIT",
         exitTimestamp: new Date().toISOString(),
+        dateKey: getISTDateKey(),
         realizedPnLINR: pnlINR,
       };
 
-      setActivePositions((prev) =>
-        prev.filter((p) => p.positionId !== pos.positionId)
+      setActivePositions((prev) => {
+        const next = prev.filter((p) => p.positionId !== pos.positionId);
+        writeActiveTradesSync(STORAGE_KEY_FO_ACTIVE_SPREADS, next, "FO");
+        return next;
+      });
+      const mergedClosed = appendSettledTradesSync(
+        STORAGE_KEY_FO_CLOSED_HISTORY,
+        [closedPos],
+        "FO"
       );
-      setClosedHistory((prev) => [closedPos, ...prev]);
+      setClosedHistory(mergedClosed);
       showToast(`Squared off ${pos.cleanSymbol} ${pos.strategyName}.`);
     },
     [showToast, liveTicker.positionTicks]

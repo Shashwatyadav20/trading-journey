@@ -18,6 +18,7 @@ import {
 import { NavTabId } from "../layout/Sidebar";
 import { FlashValue } from "./fo/FOLiveCommandCenter";
 import { checkNseMarketHoursIST, type NseMarketStatus } from "@/hooks/useLiveFoTicker";
+import { LEDGER_SYNC_EVENT } from "@/lib/indian/ledgerSync";
 import { ActiveFOSpreadPosition } from "./fo/types";
 import {
   isGenuineUserTrade,
@@ -220,7 +221,11 @@ export default function IMOverviewView({
   useEffect(() => {
     loadTerminalData();
     window.addEventListener("storage", loadTerminalData);
-    return () => window.removeEventListener("storage", loadTerminalData);
+    window.addEventListener(LEDGER_SYNC_EVENT, loadTerminalData);
+    return () => {
+      window.removeEventListener("storage", loadTerminalData);
+      window.removeEventListener(LEDGER_SYNC_EVENT, loadTerminalData);
+    };
   }, [loadTerminalData]);
 
   // Real-Time Live Ticking Engine (Strictly Gated by NSE Regular Market Hours: Mon-Fri 09:15-15:30 IST)

@@ -17,11 +17,29 @@ import {
   Trash2,
 } from "lucide-react";
 import IMTradeExitAuditModal, { ClosedTradeExitAuditData } from "./IMTradeExitAuditModal";
+import {
+  STORAGE_KEY_INTRADAY_ACTIVE,
+  STORAGE_KEY_INTRADAY_HISTORY,
+  STORAGE_KEY_SWING_ACTIVE,
+  STORAGE_KEY_SWING_HISTORY,
+  STORAGE_KEY_FO_ACTIVE,
+  STORAGE_KEY_FO_HISTORY,
+  LEDGER_SYNC_EVENT,
+  getISTDateKey,
+  formatCalendarDateKey,
+  normalizeDateKey,
+  emitLedgerSyncEvent,
+} from "@/lib/indian/ledgerSync";
 
-// Fresh _v3 LocalStorage Keys for Closed History across all desks (Zero Legacy Fallback)
-export const STORAGE_KEY_INTRADAY_HISTORY = "nse_intraday_history_trades_v3";
-export const STORAGE_KEY_SWING_HISTORY = "nse_swing_backtest_history_v3";
-export const STORAGE_KEY_FO_HISTORY = "nse_fo_quant_closed_history_v3";
+// Re-export _v3 storage keys for consumers & verification tests
+export {
+  STORAGE_KEY_INTRADAY_HISTORY,
+  STORAGE_KEY_SWING_HISTORY,
+  STORAGE_KEY_FO_HISTORY,
+  normalizeDateKey,
+  getISTDateKey,
+  formatCalendarDateKey,
+};
 
 // All legacy keys that may hold cached synthetic/seed/auto-executed trades
 export const LEGACY_POLLUTED_STORAGE_KEYS = [
@@ -85,9 +103,9 @@ export function purgeLegacyAndSyntheticStorage(): void {
     STORAGE_KEY_INTRADAY_HISTORY,
     STORAGE_KEY_SWING_HISTORY,
     STORAGE_KEY_FO_HISTORY,
-    "nse_intraday_active_trades_v3",
-    "nse_swing_active_trades_v3",
-    "nse_fo_quant_active_spreads_v3",
+    STORAGE_KEY_INTRADAY_ACTIVE,
+    STORAGE_KEY_SWING_ACTIVE,
+    STORAGE_KEY_FO_ACTIVE,
   ];
 
   for (const key of v3Keys) {
@@ -167,33 +185,8 @@ const DESK_CONFIG: Record<
   },
 };
 
-export function normalizeDateKey(rawDate?: string): string {
-  if (!rawDate) {
-    return new Date().toISOString().slice(0, 10);
-  }
-  const trimmed = rawDate.trim();
-  // If already YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return trimmed;
-  }
-  // Check Indian locale DD/MM/YYYY format (e.g., "12/11/2026, 5:10:00 pm")
-  const ddmmyyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (ddmmyyyy) {
-    const day = ddmmyyyy[1].padStart(2, "0");
-    const month = ddmmyyyy[2].padStart(2, "0");
-    const year = ddmmyyyy[3];
-    return `${year}-${month}-${day}`;
-  }
-  // Try parsing ISO or standard date string
-  const parsed = Date.parse(trimmed);
-  if (!Number.isNaN(parsed)) {
-    return new Date(parsed).toISOString().slice(0, 10);
-  }
-  return new Date().toISOString().slice(0, 10);
-}
-
 // Convert heterogeneous desk trade objects into UnifiedLedgerTrade format
-// Pure zero-mock parser: only reads _v3 keys and filters via isGenuineUserTrade
+// Pure zero-mock parser: only reads _v3 keys, filters via isGenuineUserTrade, and deduplicates by tradeId
 export function parseAllDeskTrades(): UnifiedLedgerTrade[] {
   if (typeof window === "undefined" || typeof localStorage === "undefined") {
     return [];
@@ -203,6 +196,13 @@ export function parseAllDeskTrades(): UnifiedLedgerTrade[] {
   purgeLegacyAndSyntheticStorage();
 
   const unified: UnifiedLedgerTrade[] = [];
+  const seenTradeIds = new Set<string>();
+
+  const pushUnique = (trade: UnifiedLedgerTrade) => {
+    if (seenTradeIds.has(trade.tradeId)) return;
+    seenTradeIds.add(trade.tradeId);
+    unified.push(trade);
+  };
 
   // 1. INTRADAY DESK TRADES (_v3 only)
   try {
@@ -213,10 +213,26 @@ export function parseAllDeskTrades(): UnifiedLedgerTrade[] {
     intradayList.forEach((t: any, idx: number) => {
       const entry = Number(t.entryPrice || 0);
       const exit = Number(t.exitPrice || t.currentMarketPrice || entry);
-      const cleanSym = String(t.cleanSymbol || t.symbol || "INTRADAY").replace(/\.NS$/i, "").replace(/\.BO$/i, "");
-      const dKey = normalizeDateKey(t.lockedDateKey || t.dateKey || t.exitTime || t.executionTime);
+      const qty = Math.max(1, Number(t.quantity || 1));
+      const direction: "LONG" | "SHORT" = t.direction === "SHORT" ? "SHORT" : "LONG";
+      const capital = Number(t.allocatedCapital || entry * qty);
+      const computedPnl = Math.round(
+        direction === "SHORT" ? (entry - exit) * qty : (exit - entry) * qty
+      );
+      const realizedPnLINR = Number.isFinite(Number(t.pnlAmount ?? t.netPnLINR))
+        ? Number(t.pnlAmount ?? t.netPnLINR)
+        : computedPnl;
+      const computedPct = Number(((realizedPnLINR / Math.max(1, capital)) * 100).toFixed(2));
+      const realizedPnLPct = Number.isFinite(Number(t.pnlPercent ?? t.netPnLPct))
+        ? Number(t.pnlPercent ?? t.netPnLPct)
+        : computedPct;
 
-      unified.push({
+      const cleanSym = String(t.cleanSymbol || t.symbol || "INTRADAY")
+        .replace(/\.NS$/i, "")
+        .replace(/\.BO$/i, "");
+      const dKey = normalizeDateKey(t.dateKey || t.lockedDateKey || t.exitTime || t.executionTime);
+
+      pushUnique({
         tradeId: t.tradeId || `INTRADAY-${cleanSym}-${idx}`,
         desk: "INTRADAY",
         deskLabel: "Intraday Desk (ORB / VWAP)",
@@ -226,16 +242,16 @@ export function parseAllDeskTrades(): UnifiedLedgerTrade[] {
         dateKey: dKey,
         executionTime: t.executionTime || "09:15:00 IST",
         exitTime: t.exitTime || "15:15:00 IST",
-        direction: t.direction || "LONG",
+        direction,
         strategyTag: t.strategyUsed || "⚡ 9:15-9:45 ORB Breakout",
         entryPrice: entry,
         exitPrice: exit,
         targetPrice: t.targetPrice,
         stopLossPrice: t.stopLossPrice,
-        quantity: t.quantity || 1,
-        allocatedCapital: t.allocatedCapital || entry * (t.quantity || 1),
-        realizedPnLINR: Number(t.pnlAmount ?? t.netPnLINR ?? 0),
-        realizedPnLPct: Number(t.pnlPercent ?? t.netPnLPct ?? 0),
+        quantity: qty,
+        allocatedCapital: capital,
+        realizedPnLINR,
+        realizedPnLPct,
         status: t.status || "SETTLED",
         auditTag: t.auditTag || t.status,
         exitReason: t.exitReason,
@@ -260,10 +276,31 @@ export function parseAllDeskTrades(): UnifiedLedgerTrade[] {
     swingList.forEach((t: any, idx: number) => {
       const entry = Number(t.entryPrice || 0);
       const exit = Number(t.exitPrice || t.currentPrice || t.currentMarketPrice || entry);
-      const cleanSym = String(t.cleanSymbol || t.symbol || "SWING").replace(/\.NS$/i, "").replace(/\.BO$/i, "");
-      const dKey = normalizeDateKey(t.lockedDateKey || t.dateKey || t.exitDate || t.entryDate || t.exitTime);
+      const qty = Math.max(1, Number(t.quantity || 1));
+      const direction: "LONG" | "SHORT" = t.direction === "SHORT" ? "SHORT" : "LONG";
+      const capital = Number(t.allocatedCapital || entry * qty);
+      const computedPnl = Math.round(
+        direction === "SHORT" ? (entry - exit) * qty : (exit - entry) * qty
+      );
+      const rawSwingPnl = t.realizedPnL ?? t.pnlAmount ?? t.realizedPnLINR;
+      const realizedPnLINR =
+        rawSwingPnl !== undefined && rawSwingPnl !== null && Number.isFinite(Number(rawSwingPnl))
+          ? Number(rawSwingPnl)
+          : computedPnl;
+      const rawSwingPct = t.realizedPnLPct ?? t.pnlPercent;
+      const realizedPnLPct =
+        rawSwingPct !== undefined && rawSwingPct !== null && Number.isFinite(Number(rawSwingPct))
+          ? Number(rawSwingPct)
+          : Number(((realizedPnLINR / Math.max(1, capital)) * 100).toFixed(2));
 
-      unified.push({
+      const cleanSym = String(t.cleanSymbol || t.symbol || "SWING")
+        .replace(/\.NS$/i, "")
+        .replace(/\.BO$/i, "");
+      const dKey = normalizeDateKey(
+        t.dateKey || t.lockedDateKey || t.exitDate || t.exitTime || t.entryDate
+      );
+
+      pushUnique({
         tradeId: t.tradeId || t.id || `SWING-${cleanSym}-${idx}`,
         desk: "SWING",
         deskLabel: "Institutional Swing (4H OB)",
@@ -273,16 +310,16 @@ export function parseAllDeskTrades(): UnifiedLedgerTrade[] {
         dateKey: dKey,
         executionTime: t.executionTime || (t.entryDate ? `${t.entryDate} 09:30 IST` : "09:30:00 IST"),
         exitTime: t.exitTime || (t.exitDate ? `${t.exitDate} 15:00 IST` : "15:00:00 IST"),
-        direction: t.direction || "LONG",
+        direction,
         strategyTag: t.strategyUsed || t.strategy || "🟣 4H Order Block Retest",
         entryPrice: entry,
         exitPrice: exit,
         targetPrice: t.targetPrice,
         stopLossPrice: t.stopLossPrice,
-        quantity: t.quantity || 1,
-        allocatedCapital: t.allocatedCapital || entry * (t.quantity || 1),
-        realizedPnLINR: Number(t.realizedPnL ?? t.pnlAmount ?? t.realizedPnLINR ?? 0),
-        realizedPnLPct: Number(t.realizedPnLPct ?? t.pnlPercent ?? 0),
+        quantity: qty,
+        allocatedCapital: capital,
+        realizedPnLINR,
+        realizedPnLPct,
         status: t.status || "SETTLED",
         auditTag: t.auditTag || t.status,
         exitReason: t.exitReason,
@@ -305,12 +342,14 @@ export function parseAllDeskTrades(): UnifiedLedgerTrade[] {
     const foList = Array.isArray(parsed) ? parsed.filter(isGenuineUserTrade) : [];
 
     foList.forEach((pos: any, idx: number) => {
-      const dKey = normalizeDateKey(pos.entryDateKey || pos.exitTimestamp || pos.entryTimestamp);
+      const dKey = normalizeDateKey(
+        pos.dateKey || pos.exitTimestamp || pos.entryDateKey || pos.entryTimestamp
+      );
       const pnl = Number(pos.realizedPnLINR ?? 0);
       const margin = Math.max(1, Number(pos.marginBlockedINR || 0));
       const pnlPct = Number(((pnl / margin) * 100).toFixed(2));
 
-      unified.push({
+      pushUnique({
         tradeId: pos.positionId || `FO-${pos.cleanSymbol}-${idx}`,
         desk: "FO",
         deskLabel: "F&O Quant Desk (Hedged Spreads)",
@@ -353,6 +392,61 @@ export function parseAllDeskTrades(): UnifiedLedgerTrade[] {
   return unified.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 }
 
+export interface DailyLedgerStats {
+  totalPnL: number;
+  tradesCount: number;
+  winsCount: number;
+  intradayPnL: number;
+  intradayCount: number;
+  swingPnL: number;
+  swingCount: number;
+  foPnL: number;
+  foCount: number;
+}
+
+/**
+ * Pure daily P&L aggregator used by the Calendar Heatmap and Daily Breakdown.
+ * Guarantees exact mathematical parity between calendar totals and trade rows.
+ */
+export function aggregateDailyStats(
+  trades: UnifiedLedgerTrade[]
+): Map<string, DailyLedgerStats> {
+  const map = new Map<string, DailyLedgerStats>();
+
+  trades.forEach((t) => {
+    const existing = map.get(t.dateKey) || {
+      totalPnL: 0,
+      tradesCount: 0,
+      winsCount: 0,
+      intradayPnL: 0,
+      intradayCount: 0,
+      swingPnL: 0,
+      swingCount: 0,
+      foPnL: 0,
+      foCount: 0,
+    };
+
+    existing.totalPnL += t.realizedPnLINR;
+    existing.tradesCount += 1;
+    if (t.realizedPnLINR > 0) existing.winsCount += 1;
+
+    if (t.desk === "INTRADAY") {
+      existing.intradayPnL += t.realizedPnLINR;
+      existing.intradayCount += 1;
+    } else if (t.desk === "SWING") {
+      existing.swingPnL += t.realizedPnLINR;
+      existing.swingCount += 1;
+    } else if (t.desk === "FO") {
+      existing.foPnL += t.realizedPnLINR;
+      existing.foCount += 1;
+    }
+
+    map.set(t.dateKey, existing);
+  });
+
+  return map;
+}
+
 export default function BacktestLedgerView({
   onSelectTab,
 }: {
@@ -361,11 +455,11 @@ export default function BacktestLedgerView({
   const [trades, setTrades] = useState<UnifiedLedgerTrade[]>([]);
   const [selectedExitAuditTrade, setSelectedExitAuditTrade] = useState<ClosedTradeExitAuditData | null>(null);
 
-  // Calendar State: Default to current year & month
+  // Calendar State: Default to current IST year & month
   const today = useMemo(() => new Date(), []);
   const [currentYear, setCurrentYear] = useState<number>(() => today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState<number>(() => today.getMonth());
-  const [selectedDateKey, setSelectedDateKey] = useState<string>(() => today.toISOString().slice(0, 10));
+  const [selectedDateKey, setSelectedDateKey] = useState<string>(() => getISTDateKey());
   const [filterDesk, setFilterDesk] = useState<"ALL" | DeskType>("ALL");
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -381,7 +475,11 @@ export default function BacktestLedgerView({
   useEffect(() => {
     loadTrades();
     window.addEventListener("storage", loadTrades);
-    return () => window.removeEventListener("storage", loadTrades);
+    window.addEventListener(LEDGER_SYNC_EVENT, loadTrades);
+    return () => {
+      window.removeEventListener("storage", loadTrades);
+      window.removeEventListener(LEDGER_SYNC_EVENT, loadTrades);
+    };
   }, [loadTrades]);
 
   const handleResetAllHistory = () => {
@@ -390,59 +488,12 @@ export default function BacktestLedgerView({
     localStorage.removeItem(STORAGE_KEY_INTRADAY_HISTORY);
     localStorage.removeItem(STORAGE_KEY_SWING_HISTORY);
     localStorage.removeItem(STORAGE_KEY_FO_HISTORY);
+    emitLedgerSyncEvent("ALL");
     setTrades([]);
   };
 
   // Aggregate daily statistics for the calendar heatmap
-  const dailyStatsMap = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        totalPnL: number;
-        tradesCount: number;
-        winsCount: number;
-        intradayPnL: number;
-        intradayCount: number;
-        swingPnL: number;
-        swingCount: number;
-        foPnL: number;
-        foCount: number;
-      }
-    >();
-
-    trades.forEach((t) => {
-      const existing = map.get(t.dateKey) || {
-        totalPnL: 0,
-        tradesCount: 0,
-        winsCount: 0,
-        intradayPnL: 0,
-        intradayCount: 0,
-        swingPnL: 0,
-        swingCount: 0,
-        foPnL: 0,
-        foCount: 0,
-      };
-
-      existing.totalPnL += t.realizedPnLINR;
-      existing.tradesCount += 1;
-      if (t.realizedPnLINR > 0) existing.winsCount += 1;
-
-      if (t.desk === "INTRADAY") {
-        existing.intradayPnL += t.realizedPnLINR;
-        existing.intradayCount += 1;
-      } else if (t.desk === "SWING") {
-        existing.swingPnL += t.realizedPnLINR;
-        existing.swingCount += 1;
-      } else if (t.desk === "FO") {
-        existing.foPnL += t.realizedPnLINR;
-        existing.foCount += 1;
-      }
-
-      map.set(t.dateKey, existing);
-    });
-
-    return map;
-  }, [trades]);
+  const dailyStatsMap = useMemo(() => aggregateDailyStats(trades), [trades]);
 
   // Calendar Grid builder for the current month
   const calendarGrid = useMemo(() => {
@@ -457,22 +508,14 @@ export default function BacktestLedgerView({
       dayNumber: number;
       dateKey: string;
       isCurrentMonth: boolean;
-      stats?: {
-        totalPnL: number;
-        tradesCount: number;
-        winsCount: number;
-        intradayCount: number;
-        swingCount: number;
-        foCount: number;
-      };
+      stats?: DailyLedgerStats;
     }> = [];
 
     // Leading padding from previous month
     const prevMonthLastDate = new Date(currentYear, currentMonth, 0).getDate();
     for (let i = startDayIndex - 1; i >= 0; i--) {
       const pDay = prevMonthLastDate - i;
-      const prevD = new Date(currentYear, currentMonth - 1, pDay);
-      const dKey = prevD.toISOString().slice(0, 10);
+      const dKey = formatCalendarDateKey(currentYear, currentMonth - 1, pDay);
       cells.push({
         dayNumber: pDay,
         dateKey: dKey,
@@ -483,8 +526,7 @@ export default function BacktestLedgerView({
 
     // Days of current month
     for (let day = 1; day <= totalDays; day++) {
-      const curD = new Date(currentYear, currentMonth, day);
-      const dKey = curD.toISOString().slice(0, 10);
+      const dKey = formatCalendarDateKey(currentYear, currentMonth, day);
       cells.push({
         dayNumber: day,
         dateKey: dKey,
@@ -498,8 +540,7 @@ export default function BacktestLedgerView({
     if (remainder !== 0) {
       const nextNeeded = 7 - remainder;
       for (let day = 1; day <= nextNeeded; day++) {
-        const nextD = new Date(currentYear, currentMonth + 1, day);
-        const dKey = nextD.toISOString().slice(0, 10);
+        const dKey = formatCalendarDateKey(currentYear, currentMonth + 1, day);
         cells.push({
           dayNumber: day,
           dateKey: dKey,

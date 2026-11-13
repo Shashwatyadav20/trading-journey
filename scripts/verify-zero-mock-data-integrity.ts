@@ -16,7 +16,10 @@ import {
   STORAGE_KEY_INTRADAY_HISTORY,
   STORAGE_KEY_SWING_HISTORY,
   STORAGE_KEY_FO_HISTORY,
+  aggregateDailyStats,
+  formatCalendarDateKey,
 } from "../components/indian-market/BacktestLedgerView";
+import { appendSettledTradesSync } from "../lib/indian/ledgerSync";
 
 // Mock localStorage in Node.js environment
 const mockStorage: Record<string, string> = {};
@@ -174,6 +177,110 @@ assert.strictEqual(verifiedLedger.length, 3, "All 3 genuine user-executed trades
 const totalNetPnL = verifiedLedger.reduce((sum, t) => sum + t.realizedPnLINR, 0);
 assert.strictEqual(totalNetPnL, 3000, "Consolidated net P&L equals +₹3,000 (+2000 - 3000 + 4000)");
 console.log("  ✓ PASS: Genuine _v3 user executions preserved and aggregated accurately (+₹3,000 across 3 trades).");
+
+// ---------------------------------------------------------------------------
+// TEST 5: Multi-Desk Synchronous Execution-to-Ledger Simulation & Daily Audit
+// ---------------------------------------------------------------------------
+console.log("\nTest 5: Simulating live multi-desk trade closures via appendSettledTradesSync()...");
+localStorage.clear();
+
+const targetDateKey = "2026-11-13";
+// Verify calendar date key helper does not shift backward in IST
+assert.strictEqual(
+  formatCalendarDateKey(2026, 10, 13),
+  targetDateKey,
+  "Calendar cell key for Nov 13, 2026 formats accurately as 2026-11-13"
+);
+
+// 1. Intraday Desk Target Hit (+₹4,500)
+const simIntradayExit = {
+  tradeId: "INTRA-HDFCBANK-1763010001",
+  symbol: "HDFCBANK.NS",
+  cleanSymbol: "HDFCBANK",
+  companyName: "HDFC Bank Ltd",
+  direction: "LONG",
+  strategyUsed: "⚡ 9:15-9:45 ORB Breakout",
+  entryPrice: 1780,
+  exitPrice: 1810,
+  currentMarketPrice: 1810,
+  quantity: 150,
+  allocatedCapital: 267000,
+  pnlAmount: 4500,
+  pnlPercent: 1.69,
+  status: "TARGET_HIT",
+  dateKey: targetDateKey,
+  executionTime: "09:46:00 IST",
+  exitTime: "13:15:00 IST",
+};
+
+// 2. Institutional Swing 4H OB Manual Square-Off (+₹12,250)
+const simSwingExit = {
+  tradeId: "SWING-RELIANCE-1763010002",
+  symbol: "RELIANCE.NS",
+  cleanSymbol: "RELIANCE",
+  companyName: "Reliance Industries Ltd",
+  direction: "LONG",
+  strategyUsed: "🟣 4H Bullish OB Retest",
+  entryPrice: 1280,
+  exitPrice: 1315,
+  currentMarketPrice: 1315,
+  quantity: 350,
+  allocatedCapital: 448000,
+  pnlAmount: 12250,
+  pnlPercent: 2.73,
+  status: "MANUAL_EMERGENCY_EXIT",
+  dateKey: targetDateKey,
+  executionTime: "10:05:00 IST",
+  exitTime: "14:40:00 IST",
+};
+
+// 3. F&O Quant Desk Spread Stop-Loss Hit (-₹2,750)
+const simFoExit = {
+  positionId: "FO-SIM-BANKNIFTY-1763010003",
+  symbol: "^NSEBANK",
+  cleanSymbol: "BANKNIFTY",
+  companyName: "Bank Nifty Index",
+  strategyName: "Hedged Iron Condor",
+  entrySpotPrice: 52100,
+  currentSpotPrice: 51650,
+  targetSpotLevel: 52400,
+  stopLossSpotLevel: 51700,
+  totalQuantity: 30,
+  marginBlockedINR: 110000,
+  realizedPnLINR: -2750,
+  isNetCredit: true,
+  status: "SL_HIT",
+  dateKey: targetDateKey,
+  entryDateKey: "2026-11-12",
+  entryTimestamp: "2026-11-12T10:15:00.000Z",
+  exitTimestamp: "2026-11-13T08:50:00.000Z",
+};
+
+// Write synchronously and also test duplicate write idempotency
+appendSettledTradesSync(STORAGE_KEY_INTRADAY_HISTORY, [simIntradayExit], "INTRADAY");
+appendSettledTradesSync(STORAGE_KEY_INTRADAY_HISTORY, [simIntradayExit], "INTRADAY"); // duplicate guard
+appendSettledTradesSync(STORAGE_KEY_SWING_HISTORY, [simSwingExit], "SWING");
+appendSettledTradesSync(STORAGE_KEY_FO_HISTORY, [simFoExit], "FO");
+
+const syncedTrades = parseAllDeskTrades();
+assert.strictEqual(syncedTrades.length, 3, "Deduplicated ledger contains exactly 3 settled trades");
+
+const dailyStats = aggregateDailyStats(syncedTrades);
+const dayAudit = dailyStats.get(targetDateKey);
+assert(dayAudit !== undefined, `Daily stats map contains entry for ${targetDateKey}`);
+assert.strictEqual(dayAudit!.tradesCount, 3, "Daily trade count equals 3");
+assert.strictEqual(dayAudit!.winsCount, 2, "Daily win count equals 2");
+assert.strictEqual(dayAudit!.intradayPnL, 4500, "Intraday daily P&L equals +₹4,500");
+assert.strictEqual(dayAudit!.swingPnL, 12250, "Swing daily P&L equals +₹12,250");
+assert.strictEqual(dayAudit!.foPnL, -2750, "F&O daily P&L equals -₹2,750");
+assert.strictEqual(
+  dayAudit!.totalPnL,
+  4500 + 12250 - 2750,
+  "Daily calendar total P&L equals exact sum +₹14,000"
+);
+console.log(
+  `  ✓ PASS: Multi-desk execution cycle synced & verified for ${targetDateKey}: Total = +₹${dayAudit!.totalPnL.toLocaleString("en-IN")} (3 trades, 0 duplicates).`
+);
 
 console.log("\n================================================================================");
 console.log("ALL TESTS PASSED! Legacy cache purged & _v3 real-data integrity verified.");
