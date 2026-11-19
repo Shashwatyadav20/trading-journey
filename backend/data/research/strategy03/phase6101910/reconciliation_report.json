@@ -1,0 +1,31 @@
+{
+  "reconciledAt": "2026-11-18T07:56:06.652Z",
+  "persistenceStatus": "LOCAL_ONLY",
+  "remoteTablesAvailable": false,
+  "localCounts": {
+    "runs": 1,
+    "states": 300,
+    "alerts": 579,
+    "pendingWal": 0
+  },
+  "remoteCounts": {
+    "runs": null,
+    "states": null,
+    "alerts": null
+  },
+  "missingInRemote": {
+    "runIds": [
+      "mon_run_20261118_0915"
+    ],
+    "transitionKeysCount": 300,
+    "alertEventIdsCount": 579
+  },
+  "syncedDuringReconciliation": {
+    "runs": 0,
+    "states": 0,
+    "alerts": 0
+  },
+  "inSync": false,
+  "blockerCode": "PGRST205",
+  "blockerMessage": "Could not find the table 'public.strategy03_monitoring_runs' in the schema cache"
+}

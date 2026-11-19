@@ -1,0 +1,193 @@
+{
+  "generatedAtIso": "2026-11-18T07:21:03.000Z",
+  "methodology": {
+    "prospectiveOnly": true,
+    "backdatedSignalGeneration": false,
+    "lookaheadBias": false,
+    "timeframe": "4H_COMPLETED_NSE_SESSION_BLOCKS_ONLY",
+    "trackedCohorts": [
+      "SHORT_HIGH_QUALITY",
+      "MEDIUM_CLEAN",
+      "LONG_CLEAN"
+    ],
+    "outcomeHorizonsBlocks": [
+      5,
+      10,
+      20
+    ]
+  },
+  "persistence": {
+    "persistenceStatus": "LOCAL_ONLY",
+    "remoteTablesAvailable": false,
+    "snapshotsSavedLocally": 83,
+    "outcomesSavedLocally": 83,
+    "pendingWalCount": 0,
+    "blockerCode": "PGRST205",
+    "blockerMessage": "Could not find the table 'public.strategy03_monitoring_runs' in the schema cache"
+  },
+  "capturedSignalsTotal": 83,
+  "duplicateRewritesPrevented": 10,
+  "cohortStatistics": {
+    "SHORT_HIGH_QUALITY": {
+      "cohort": "SHORT_HIGH_QUALITY",
+      "totalSignals": 16,
+      "maturedSignalsWithPostSignalBars": 0,
+      "pendingProspectiveSignalsZeroBars": 16,
+      "breakoutCount": 0,
+      "invalidationBeforeBreakoutCount": 0,
+      "untriggeredCount": 16,
+      "breakoutRatePct": 0,
+      "breakoutRate95Ci": {
+        "lowerPct": 0,
+        "upperPct": 19.36,
+        "confidenceLevel": 0.95
+      },
+      "invalidationRatePct": 0,
+      "invalidationRate95Ci": {
+        "lowerPct": 0,
+        "upperPct": 19.36,
+        "confidenceLevel": 0.95
+      },
+      "untriggeredRatePct": 100,
+      "untriggeredRate95Ci": {
+        "lowerPct": 80.64,
+        "upperPct": 100,
+        "confidenceLevel": 0.95
+      },
+      "medianBlocksToBreakout": null,
+      "medianHoursToBreakout": null,
+      "meanMfePct": 0,
+      "medianMfePct": 0,
+      "meanMaePct": 0,
+      "medianMaePct": 0,
+      "horizon5BReachedCount": 0,
+      "horizon10BReachedCount": 0,
+      "horizon20BReachedCount": 0,
+      "sampleSufficiencyVerdict": "INSUFFICIENT_SAMPLE_FOR_SIGNIFICANCE",
+      "statisticalDisclaimer": "INSUFFICIENT_PROSPECTIVE_SAMPLE (20-block matured=0/30 required): Do not claim profitability or statistical significance."
+    },
+    "MEDIUM_CLEAN": {
+      "cohort": "MEDIUM_CLEAN",
+      "totalSignals": 49,
+      "maturedSignalsWithPostSignalBars": 0,
+      "pendingProspectiveSignalsZeroBars": 49,
+      "breakoutCount": 0,
+      "invalidationBeforeBreakoutCount": 0,
+      "untriggeredCount": 49,
+      "breakoutRatePct": 0,
+      "breakoutRate95Ci": {
+        "lowerPct": 0,
+        "upperPct": 7.27,
+        "confidenceLevel": 0.95
+      },
+      "invalidationRatePct": 0,
+      "invalidationRate95Ci": {
+        "lowerPct": 0,
+        "upperPct": 7.27,
+        "confidenceLevel": 0.95
+      },
+      "untriggeredRatePct": 100,
+      "untriggeredRate95Ci": {
+        "lowerPct": 92.73,
+        "upperPct": 100,
+        "confidenceLevel": 0.95
+      },
+      "medianBlocksToBreakout": null,
+      "medianHoursToBreakout": null,
+      "meanMfePct": 0,
+      "medianMfePct": 0,
+      "meanMaePct": 0,
+      "medianMaePct": 0,
+      "horizon5BReachedCount": 0,
+      "horizon10BReachedCount": 0,
+      "horizon20BReachedCount": 0,
+      "sampleSufficiencyVerdict": "INSUFFICIENT_SAMPLE_FOR_SIGNIFICANCE",
+      "statisticalDisclaimer": "INSUFFICIENT_PROSPECTIVE_SAMPLE (20-block matured=0/30 required): Do not claim profitability or statistical significance."
+    },
+    "LONG_CLEAN": {
+      "cohort": "LONG_CLEAN",
+      "totalSignals": 18,
+      "maturedSignalsWithPostSignalBars": 0,
+      "pendingProspectiveSignalsZeroBars": 18,
+      "breakoutCount": 0,
+      "invalidationBeforeBreakoutCount": 0,
+      "untriggeredCount": 18,
+      "breakoutRatePct": 0,
+      "breakoutRate95Ci": {
+        "lowerPct": 0,
+        "upperPct": 17.59,
+        "confidenceLevel": 0.95
+      },
+      "invalidationRatePct": 0,
+      "invalidationRate95Ci": {
+        "lowerPct": 0,
+        "upperPct": 17.59,
+        "confidenceLevel": 0.95
+      },
+      "untriggeredRatePct": 100,
+      "untriggeredRate95Ci": {
+        "lowerPct": 82.41,
+        "upperPct": 100,
+        "confidenceLevel": 0.95
+      },
+      "medianBlocksToBreakout": null,
+      "medianHoursToBreakout": null,
+      "meanMfePct": 0,
+      "medianMfePct": 0,
+      "meanMaePct": 0,
+      "medianMaePct": 0,
+      "horizon5BReachedCount": 0,
+      "horizon10BReachedCount": 0,
+      "horizon20BReachedCount": 0,
+      "sampleSufficiencyVerdict": "INSUFFICIENT_SAMPLE_FOR_SIGNIFICANCE",
+      "statisticalDisclaimer": "INSUFFICIENT_PROSPECTIVE_SAMPLE (20-block matured=0/30 required): Do not claim profitability or statistical significance."
+    },
+    "ALL_TRACKED_COHORTS": {
+      "cohort": "ALL_TRACKED_COHORTS",
+      "totalSignals": 83,
+      "maturedSignalsWithPostSignalBars": 0,
+      "pendingProspectiveSignalsZeroBars": 83,
+      "breakoutCount": 0,
+      "invalidationBeforeBreakoutCount": 0,
+      "untriggeredCount": 83,
+      "breakoutRatePct": 0,
+      "breakoutRate95Ci": {
+        "lowerPct": 0,
+        "upperPct": 4.42,
+        "confidenceLevel": 0.95
+      },
+      "invalidationRatePct": 0,
+      "invalidationRate95Ci": {
+        "lowerPct": 0,
+        "upperPct": 4.42,
+        "confidenceLevel": 0.95
+      },
+      "untriggeredRatePct": 100,
+      "untriggeredRate95Ci": {
+        "lowerPct": 95.58,
+        "upperPct": 100,
+        "confidenceLevel": 0.95
+      },
+      "medianBlocksToBreakout": null,
+      "medianHoursToBreakout": null,
+      "meanMfePct": 0,
+      "medianMfePct": 0,
+      "meanMaePct": 0,
+      "medianMaePct": 0,
+      "horizon5BReachedCount": 0,
+      "horizon10BReachedCount": 0,
+      "horizon20BReachedCount": 0,
+      "sampleSufficiencyVerdict": "INSUFFICIENT_SAMPLE_FOR_SIGNIFICANCE",
+      "statisticalDisclaimer": "INSUFFICIENT_PROSPECTIVE_SAMPLE (20-block matured=0/30 required): Do not claim profitability or statistical significance."
+    }
+  },
+  "safetyLocks": {
+    "STRATEGY_01": false,
+    "STRATEGY_02": false,
+    "STRATEGY_03": false,
+    "LIVE_TRADING": false,
+    "BROKER_EXECUTION_ENABLED": false,
+    "paperIsolationEnabled": false,
+    "experimentalPaperTradesCount": 0
+  }
+}

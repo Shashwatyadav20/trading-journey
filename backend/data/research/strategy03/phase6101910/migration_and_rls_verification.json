@@ -1,0 +1,70 @@
+{
+  "migrationAudit": {
+    "migrationFile": "backend/supabase/migrations/20261118_strategy03_4h_monitoring.sql",
+    "sqlReviewed": true,
+    "tablesDefinedInSql": [
+      "strategy03_monitoring_runs",
+      "strategy03_candidate_state_history",
+      "strategy03_monitoring_alerts"
+    ],
+    "rlsEnabledInSql": true,
+    "remoteMigrationApplied": false,
+    "persistenceMode": "LOCAL_ONLY",
+    "exactBlocker": {
+      "blockerType": "MISSING_DDL_CONNECTION_AND_MANAGEMENT_PAT",
+      "postgrestTableError": "PGRST205: Could not find the table 'public.strategy03_monitoring_runs' in the schema cache",
+      "rpcExecSqlError": "PGRST202: Could not find the function public.exec_sql(sql) in the schema cache",
+      "hasDirectPostgresUrlOrPat": false,
+      "explanation": "Only SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SERVICE_ROLE_KEY (PostgREST HTTP API keys) are present in the environment. PostgREST does not permit raw DDL execution, public.exec_sql is not installed (PGRST202), and no DATABASE_URL / SUPABASE_DB_URL / SUPABASE_ACCESS_TOKEN is configured. Per Phase 6.10.19.10 Section 1 rules, migration success is NOT claimed and the system remains in LOCAL_ONLY mode."
+    }
+  },
+  "remoteTableVerification": [
+    {
+      "table": "strategy03_monitoring_runs",
+      "existsRemotely": false,
+      "errorCode": "PGRST205",
+      "errorMessage": "Could not find the table 'public.strategy03_monitoring_runs' in the schema cache"
+    },
+    {
+      "table": "strategy03_candidate_state_history",
+      "existsRemotely": false,
+      "errorCode": "PGRST205",
+      "errorMessage": "Could not find the table 'public.strategy03_candidate_state_history' in the schema cache"
+    },
+    {
+      "table": "strategy03_monitoring_alerts",
+      "existsRemotely": false,
+      "errorCode": "PGRST205",
+      "errorMessage": "Could not find the table 'public.strategy03_monitoring_alerts' in the schema cache"
+    }
+  ],
+  "rlsVerification": [
+    {
+      "table": "strategy03_monitoring_runs",
+      "tableExistsRemotely": false,
+      "anonReadBlockedOrEmpty": true,
+      "anonWriteBlocked": true,
+      "anonWriteErrorCode": "PGRST205",
+      "serviceRoleReadAllowed": false,
+      "verdict": "UNVERIFIED_TABLE_NOT_APPLIED_REMOTELY"
+    },
+    {
+      "table": "strategy03_candidate_state_history",
+      "tableExistsRemotely": false,
+      "anonReadBlockedOrEmpty": true,
+      "anonWriteBlocked": true,
+      "anonWriteErrorCode": "PGRST205",
+      "serviceRoleReadAllowed": false,
+      "verdict": "UNVERIFIED_TABLE_NOT_APPLIED_REMOTELY"
+    },
+    {
+      "table": "strategy03_monitoring_alerts",
+      "tableExistsRemotely": false,
+      "anonReadBlockedOrEmpty": true,
+      "anonWriteBlocked": true,
+      "anonWriteErrorCode": "PGRST205",
+      "serviceRoleReadAllowed": false,
+      "verdict": "UNVERIFIED_TABLE_NOT_APPLIED_REMOTELY"
+    }
+  ]
+}

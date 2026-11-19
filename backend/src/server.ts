@@ -16,6 +16,7 @@ import { tradingStateRecovery } from './trading/TradingStateRecovery';
 import './trading/TradingEngine';
 import pineRoutes from './routes/pine';
 import indianTradingRoutes from './routes/indianTrading';
+import strategy03DataRoutes from './routes/strategy03Data';
 import { pineLevelService } from './alerts/PineLevelService';
 import { scanScheduler } from './indian/swing/ScanScheduler';
 
@@ -81,6 +82,7 @@ server.register(tradingRoutes);
 server.register(websocketRoutes);
 server.register(pineRoutes);
 server.register(indianTradingRoutes);
+server.register(strategy03DataRoutes);
 
 // Graceful shutdown
 const closeListeners = ['SIGINT', 'SIGTERM'];
@@ -92,6 +94,16 @@ closeListeners.forEach(signal => {
     try {
       const { dailyScannerScheduler } = await import("./indian/swing/DailyScannerScheduler");
       dailyScannerScheduler.stop();
+    } catch {}
+    try {
+      const { strategy03ShadowService } = await import("./indian/swing/research/strategy03/Strategy03ShadowService");
+      strategy03ShadowService.stop();
+    } catch {}
+    try {
+      const { strategy03FourHourMonitoringService } = await import(
+        "./indian/swing/research/strategy03/prebreakout/Strategy03FourHourMonitoringService"
+      );
+      strategy03FourHourMonitoringService.stop();
     } catch {}
     try {
       await server.close();
@@ -160,6 +172,24 @@ const start = async () => {
       }
     } catch (schedErr) {
       server.log.warn(`[Scheduler] Failed to start Daily Scanner Scheduler: ${schedErr}`);
+    }
+
+    // ─── Step 2e: Register Strategy 03 Read-Only Shadow Scheduler (15:45 IST) ─
+    try {
+      const { strategy03ShadowService } = await import("./indian/swing/research/strategy03/Strategy03ShadowService");
+      strategy03ShadowService.start({ logger: server.log });
+    } catch (s03Err) {
+      server.log.warn(`[Scheduler] Failed to register Strategy03ShadowService: ${s03Err}`);
+    }
+
+    // ─── Step 2f: Bootstrap Strategy 03 4H Session-Block Monitoring Scheduler ─
+    try {
+      const { strategy03FourHourMonitoringService } = await import(
+        "./indian/swing/research/strategy03/prebreakout/Strategy03FourHourMonitoringService"
+      );
+      await strategy03FourHourMonitoringService.start({ logger: server.log });
+    } catch (s034hErr) {
+      server.log.warn(`[Scheduler] Failed to bootstrap Strategy03FourHourMonitoringService: ${s034hErr}`);
     }
 
     // ─── Step 3: Start HTTP server ────────────────────────────────────────────

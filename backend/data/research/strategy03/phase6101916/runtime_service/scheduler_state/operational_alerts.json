@@ -1,0 +1,11 @@
+[
+  {
+    "alertId": "OP_ALERT::DUPLICATE_OR_OVERLAPPING_EXECUTION::s03_4h_cycle_2026-11-18_PM_135M",
+    "alertType": "DUPLICATE_OR_OVERLAPPING_EXECUTION",
+    "cycleId": "s03_4h_cycle_2026-11-18_PM_135M",
+    "timestampIso": "2026-11-18T15:32:04.117Z",
+    "severity": "WARNING",
+    "message": "Duplicate scheduled invocation prevented for already-completed 4H session cycle s03_4h_cycle_2026-11-18_PM_135M.",
+    "readOnly": true
+  }
+]

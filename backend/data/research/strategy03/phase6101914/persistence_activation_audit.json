@@ -1,0 +1,124 @@
+{
+  "evaluatedAtIso": "2026-11-18T14:30:39.000Z",
+  "phase": "6.10.19.14",
+  "migrationInspection": {
+    "migrationFilePath": "D:\\Trading\\my-app\\backend\\supabase\\migrations\\20261118_strategy03_4h_monitoring.sql",
+    "fileExists": true,
+    "requiredTablesVerified": {
+      "strategy03_monitoring_runs": true,
+      "strategy03_candidate_state_history": true,
+      "strategy03_monitoring_alerts": true
+    },
+    "primaryKeysVerified": true,
+    "uniqueIdempotencyKeysVerified": {
+      "run_id_unique": true,
+      "transition_key_unique": true,
+      "event_id_unique": true
+    },
+    "indexesVerified": {
+      "idx_s03_mon_state_sym": true,
+      "idx_s03_mon_alerts_sym": true
+    },
+    "rlsEnabledOnAllThreeTables": true,
+    "serviceRoleWritePoliciesVerified": true,
+    "authenticatedReadOnlyPoliciesVerified": true,
+    "noAnonymousWriteAccessVerified": true,
+    "noSensitiveDataExposureInPolicies": true,
+    "allInspectionChecksPassed": true
+  },
+  "manualSqlExecutionStillRequired": false,
+  "remoteSchemaAvailable": true,
+  "migrationStatus": "APPLIED_AND_VERIFIED",
+  "rlsVerificationStatus": "VERIFIED_REMOTE",
+  "remoteTableChecks": [
+    {
+      "table": "strategy03_monitoring_runs",
+      "recognizedInSchemaCache": true,
+      "serviceRoleSelectOk": true,
+      "anonWriteDenied": true,
+      "anonWriteErrorCode": "42501",
+      "authenticatedSelectAllowed": true,
+      "errorCode": null,
+      "errorMessage": null
+    },
+    {
+      "table": "strategy03_candidate_state_history",
+      "recognizedInSchemaCache": true,
+      "serviceRoleSelectOk": true,
+      "anonWriteDenied": true,
+      "anonWriteErrorCode": "42501",
+      "authenticatedSelectAllowed": true,
+      "errorCode": null,
+      "errorMessage": null
+    },
+    {
+      "table": "strategy03_monitoring_alerts",
+      "recognizedInSchemaCache": true,
+      "serviceRoleSelectOk": true,
+      "anonWriteDenied": true,
+      "anonWriteErrorCode": "42501",
+      "authenticatedSelectAllowed": true,
+      "errorCode": null,
+      "errorMessage": null
+    }
+  ],
+  "controlledPersistenceTest": {
+    "executed": true,
+    "skippedReason": null,
+    "testIdentifierPrefix": "__PHASE6101914_VERIFY_TEST__",
+    "writeAndReadBackExactMatch": true,
+    "idempotentUpsertNoDuplicateVerified": true,
+    "cleanupTestRecordSucceeded": true,
+    "genuineRecordsUntouched": true,
+    "lastSuccessfulRemoteWriteIso": "2026-11-18T14:47:10.591Z",
+    "errorMessage": null
+  },
+  "reconciliationReport": {
+    "reconciledAt": "2026-11-18T14:47:12.238Z",
+    "persistenceStatus": "REMOTE_SYNCED",
+    "remoteTablesAvailable": true,
+    "localCounts": {
+      "runs": 1,
+      "states": 300,
+      "alerts": 579,
+      "pendingWal": 0
+    },
+    "remoteCounts": {
+      "runs": 1,
+      "states": 300,
+      "alerts": 579
+    },
+    "missingInRemote": {
+      "runIds": [],
+      "transitionKeysCount": 0,
+      "alertEventIdsCount": 0
+    },
+    "syncedDuringReconciliation": {
+      "runs": 0,
+      "states": 0,
+      "alerts": 0
+    },
+    "inSync": true,
+    "blockerCode": null,
+    "blockerMessage": null
+  },
+  "lastSuccessfulRemoteWriteIso": "2026-11-18T14:47:10.591Z",
+  "localWalPendingCount": 0,
+  "finalTruthfulPersistenceStatus": "REMOTE_SYNCED",
+  "exactUnresolvedBlocker": null,
+  "manualRemainingAction": null,
+  "priorPhaseImmutability": {
+    "phase6101911Unchanged": true,
+    "phase6101912Unchanged": true,
+    "phase6101913Unchanged": true
+  },
+  "safetyLocks": {
+    "STRATEGY_01": false,
+    "STRATEGY_02": false,
+    "STRATEGY_03": false,
+    "LIVE_TRADING": false,
+    "BROKER_EXECUTION_ENABLED": false,
+    "paperIsolationEnabled": false,
+    "experimentalPaperTradesCount": 0
+  }
+}

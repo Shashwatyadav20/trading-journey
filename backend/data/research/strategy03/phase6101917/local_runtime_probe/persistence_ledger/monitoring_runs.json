@@ -1,0 +1,49 @@
+[
+  {
+    "runId": "mon_run_20261118_0915",
+    "evaluatedAt": "2026-11-18T07:21:03.000Z",
+    "completed4hTimestampIst": "2026-11-18T09:15:00.000+05:30",
+    "candidatesEvaluated": 2403,
+    "stateCounts": {
+      "READY": 83,
+      "FORMING": 1792,
+      "BREAKOUT": 18,
+      "INVALIDATED": 460,
+      "WAIT": 50
+    },
+    "alertsGenerated": 579,
+    "duplicatesPrevented": 50,
+    "duplicatePassCreatedZeroAlerts": true,
+    "remoteTableError": "Could not find the table 'public.strategy03_monitoring_runs' in the schema cache"
+  },
+  {
+    "runId": "s03_4h_cycle_2026-11-18_AM_240M",
+    "evaluatedAt": "2026-11-18T15:17:26.000Z",
+    "completed4hTimestampIst": "2026-11-18T09:15:00.000+05:30",
+    "candidatesEvaluated": 333,
+    "stateCounts": {
+      "READY": 83,
+      "FORMING": 178,
+      "BREAKOUT": 3,
+      "INVALIDATED": 69,
+      "WAIT": 0
+    },
+    "alertsGenerated": 0,
+    "duplicatesPrevented": 83
+  },
+  {
+    "runId": "s03_4h_cycle_2026-11-18_PM_135M",
+    "evaluatedAt": "2026-11-18T15:05:55.000Z",
+    "completed4hTimestampIst": "2026-11-18T09:15:00.000+05:30",
+    "candidatesEvaluated": 333,
+    "stateCounts": {
+      "READY": 83,
+      "FORMING": 178,
+      "BREAKOUT": 3,
+      "INVALIDATED": 69,
+      "WAIT": 0
+    },
+    "alertsGenerated": 0,
+    "duplicatesPrevented": 83
+  }
+]

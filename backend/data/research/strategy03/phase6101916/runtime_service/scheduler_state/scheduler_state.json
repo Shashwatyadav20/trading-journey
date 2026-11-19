@@ -1,0 +1,26 @@
+{
+  "completedCycleIds": [
+    "s03_4h_cycle_2026-11-18_AM_240M",
+    "s03_4h_cycle_2026-11-18_PM_135M"
+  ],
+  "lastScheduledAttemptTimestampIso": "2026-11-19T03:40:31.881Z",
+  "lastSuccessfulCycleId": "s03_4h_cycle_2026-11-18_PM_135M",
+  "lastSuccessfulCompletedAtIso": "2026-11-18T15:05:55.000Z",
+  "lastSuccessfulBlockSlot": "PM_135M",
+  "lastSuccessfulBlockTimestampIst": "2026-11-18T13:15:00.000+05:30",
+  "lastCompletedNse4hBlockProcessedIst": "2026-11-18T09:15:00.000+05:30",
+  "newlyProcessedBarsInLastCycle": 0,
+  "signalsUpdatedInLastCycle": 0,
+  "duplicateCyclesPreventedCount": 13,
+  "overlappingInvocationsPreventedCount": 0,
+  "failedCycleCount": 0,
+  "lastPersistenceStatus": "REMOTE_SYNCED",
+  "lastRemoteTablesAvailable": true,
+  "lastWalPendingCount": 0,
+  "lastReconciliationInSync": true,
+  "lastAuditPassed": true,
+  "lastAuditMismatchCount": 0,
+  "lastAuditWarningRaised": false,
+  "lastCycleHadStaleOrMissingData": false,
+  "lastCycleFailed": false
+}

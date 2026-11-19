@@ -1,0 +1,17 @@
+[
+  {
+    "runId": "mon_run_recovery_1",
+    "evaluatedAt": "2026-11-18T07:21:03.000Z",
+    "completed4hTimestampIst": "2026-11-18T09:15:00.000+05:30",
+    "candidatesEvaluated": 2,
+    "stateCounts": {
+      "READY": 2,
+      "FORMING": 0,
+      "BREAKOUT": 0,
+      "INVALIDATED": 0,
+      "WAIT": 0
+    },
+    "alertsGenerated": 2,
+    "duplicatesPrevented": 0
+  }
+]

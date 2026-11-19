@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-11-17T08:14:15.188Z",
+  "classification": "OBSERVATION_CONTINUES",
+  "schedulerStatus": "OPERATIONAL_READ_ONLY",
+  "successfulObservationSessions": 1,
+  "requiredMinSessions": 90,
+  "failedRuns": 0,
+  "missedSessions": 0,
+  "safetyLocks": {
+    "STRATEGY_01": false,
+    "STRATEGY_02": false,
+    "STRATEGY_03": false,
+    "LIVE_TRADING": false,
+    "BROKER_EXECUTION_ENABLED": false,
+    "Strategy03PaperIsolationConfigEnabled": false,
+    "experimental_paper_trades": 0
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "test1_backendRestartRestoresStates": {
+    "passed": true,
+    "restoredAnandrathiStatus": "READY",
+    "restoredSunpharmaStatus": "READY",
+    "initialPersistStatus": "REMOTE_SYNCED"
+  },
+  "test2_rerunSame4hSnapshotZeroDuplicates": {
+    "passed": true,
+    "alertsBeforeRerun": 2,
+    "alertsAfterRerun": 2
+  },
+  "test3_newCompleted4hCandleLegitimateTransition": {
+    "passed": true,
+    "incompleteCandle2357_30Status": "READY",
+    "completedCandle2355_00Status": "INVALIDATED",
+    "transitionKey": "ANANDRATHI|READY->INVALIDATED|2026-11-18T13:15:00.000+05:30"
+  },
+  "test4_temporaryOutageQueuesInWalWithoutDataLoss": {
+    "passed": true,
+    "statusDuringOutage": "SYNC_PENDING",
+    "pendingWalCountDuringOutage": 2
+  },
+  "test5_recoveryProcessesPendingRecordsSafely": {
+    "passed": true,
+    "statusAfterRecovery": "REMOTE_SYNCED",
+    "pendingWalAfterRecovery": 0,
+    "anandrathiInvalidatedRemoteRowCount": 1
+  },
+  "test6_localJsonAndRemoteDbReconciled": {
+    "passed": true,
+    "localCounts": {
+      "runs": 1,
+      "states": 3,
+      "alerts": 3,
+      "pendingWal": 0
+    },
+    "remoteCounts": {
+      "runs": 1,
+      "states": 3,
+      "alerts": 3
+    },
+    "inSync": true
+  },
+  "test7_rlsPoliciesPreventUnauthorizedReadsAndWrites": {
+    "passed": true,
+    "anonWriteBlockedCode": "42501",
+    "authenticatedWriteBlockedCode": "42501",
+    "anonReadRowCount": 0,
+    "authenticatedReadRowCount": 3
+  }
+}

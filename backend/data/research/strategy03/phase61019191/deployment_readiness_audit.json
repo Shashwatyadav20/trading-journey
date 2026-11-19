@@ -1,0 +1,72 @@
+{
+  "auditedAtIso": "2026-11-19T03:35:18.927Z",
+  "phase": "6.10.19.19.1",
+  "deploymentStatus": "READY_LOCAL_PENDING_GIT_COMMIT_AND_RENDER_DEPLOY",
+  "localChecks": {
+    "runtimeHealthEndpointExistsLocally": true,
+    "serverStep2fBootstrapExists": true,
+    "serverGracefulShutdownExists": true,
+    "schedulerUsesRealCandleLoader": true,
+    "duplicateSchedulerGuardInService": true,
+    "duplicateSchedulerGuardInScheduler": true,
+    "renderBuildScript": "tsc",
+    "renderStartScript": "node dist/backend/src/server.js",
+    "renderMainEntry": "dist/backend/src/server.js"
+  },
+  "liveRenderProbes": {
+    "healthHttpStatus": 200,
+    "runtimeHealthHttpStatus": 404,
+    "isDeployedAndVerified": false
+  },
+  "supabaseReconciliation": {
+    "reconciledAt": "2026-11-19T03:35:18.927Z",
+    "persistenceStatus": "REMOTE_SYNCED",
+    "remoteTablesAvailable": true,
+    "localCounts": {
+      "runs": 3,
+      "states": 333,
+      "alerts": 579,
+      "pendingWal": 0
+    },
+    "remoteCounts": {
+      "runs": 3,
+      "states": 333,
+      "alerts": 579
+    },
+    "missingInRemote": {
+      "runIds": [],
+      "transitionKeysCount": 0,
+      "alertEventIdsCount": 0
+    },
+    "syncedDuringReconciliation": {
+      "runs": 0,
+      "states": 0,
+      "alerts": 0
+    },
+    "inSync": true,
+    "blockerCode": null,
+    "blockerMessage": null
+  },
+  "priorPhaseSha256Checksums": {
+    "p11_snapshots": "bcc9a88a05bafd22e9b7568725aba95a96396d2adf0562401267c248f830fcc7",
+    "p11_outcomes": "f2dcd329815fd5bfc4d7042b19679ee9ef569c2baccd97b9cb3a45bc1b74873c",
+    "p11_stats": "d87d75581b0e4302a3e9eaf8805cde0b643c6905b21b9befa2b98ccffa86f648",
+    "p12_audit": "157dbef90b0f20d7ae244a67b12c44c8dc0c4540762e87aaa1d13cd37834b614",
+    "p13_dashboard": "94594849f695f69351f5ae3518392c5b5d137988cb33fe944bc9b7a4cef38f07",
+    "p14_persistence": "9fdcb7a8b6ad6f8a69a8befcf012e8b44dd5c3df2680e12837ddd8ac178a38ab",
+    "p15_operations": "ba2bc373bad83374a6c17badf3ce151a6dc323627fc10980ff0cd51c5520eed6",
+    "p16_deployment": "5d1975ba44a7e8dbd131bbdea916e1efed5d77d9fa5fbb801f937d233b3688f0",
+    "p17_render": "0a177229847883f7905fb576f40587e919d35207cbf8baf5d0a9cf59696efde5",
+    "p18_maturity": "f6a78b45c0bf1d0d471c9e9400d4c8a8d2ef36166d061fd57ac936b9d6e3941c",
+    "p19_validation": "1bd1da3e9a443a773c94fea8ee8f60c173d6d8d3da645fd94fbe00cace00a934"
+  },
+  "safetyLocks": {
+    "STRATEGY_01": false,
+    "STRATEGY_02": false,
+    "STRATEGY_03": false,
+    "LIVE_TRADING": false,
+    "BROKER_EXECUTION_ENABLED": false,
+    "paperIsolationEnabled": false,
+    "experimentalPaperTradesCount": 0
+  }
+}

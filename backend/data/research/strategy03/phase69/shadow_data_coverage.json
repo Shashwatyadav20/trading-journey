@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-11-17T07:06:51.759Z",
+  "exactPaginatedRowCounts": {
+    "strategy03_financial_facts": 931,
+    "strategy03_institutional_ownership": 1297,
+    "strategy03_corporate_announcements": 2354,
+    "strategy03_delivery_data": 0,
+    "market_universe_equities": 5118,
+    "experimental_paper_trades": 0
+  },
+  "deliveryZeroInvestigation": "deliveryRowsInDb = 0 because Phase 6.1/6.2 collected NSE delivery data to local research JSONs and ran a smoke test without executing a full-universe remote delivery backfill.",
+  "metricCoverage": {
+    "fcfNonNull": 0,
+    "debtNonNull": 42,
+    "cfoNonNull": 386,
+    "ownershipSymbols": 94,
+    "announcementSymbols": 60
+  }
+}

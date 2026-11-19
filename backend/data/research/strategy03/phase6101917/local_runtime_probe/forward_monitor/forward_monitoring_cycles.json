@@ -1,0 +1,216 @@
+[
+  {
+    "cycleId": "s03_4h_cycle_2026-11-18_AM_240M",
+    "evaluatedAtIso": "2026-11-18T15:17:26.000Z",
+    "latestCompletedMonitoringTimestampIst": "2026-11-18T09:15:00.000+05:30",
+    "totalSignalsMonitored": 83,
+    "newlyProcessed4hBarsCount": 0,
+    "signalsUpdatedCount": 0,
+    "duplicatesOrAlreadyProcessedSkippedCount": 0,
+    "rejected1hCount": 0,
+    "rejectedIncompleteCount": 388,
+    "rejectedPreOrAtSignalCount": 12152,
+    "rejectedStaleOrMissingSignalsCount": 0,
+    "newEventsEmitted": [],
+    "auditStatus": {
+      "allIntegrityChecksPassed": true,
+      "candleCalculationMismatchCount": 0,
+      "auditWarningRaised": false,
+      "auditWarningReasons": []
+    },
+    "persistenceStatus": "REMOTE_SYNCED",
+    "remoteTablesAvailable": true,
+    "remoteBlockerCode": null,
+    "remoteBlockerMessage": null,
+    "cohortMaturityStatistics": {
+      "SHORT_HIGH_QUALITY": {
+        "cohort": "SHORT_HIGH_QUALITY",
+        "totalCapturedSignals": 16,
+        "maturityDistribution": {
+          "pendingZeroPostBars": 16,
+          "atLeast1PostBlock": 0,
+          "atLeast5PostBlocks": 0,
+          "atLeast10PostBlocks": 0,
+          "atLeast20PostBlocks": 0
+        },
+        "countsAmongMaturedAtLeast1B": {
+          "denominatorMatured1B": 0,
+          "breakoutCount": 0,
+          "invalidationBeforeBreakoutCount": 0,
+          "untriggeredMaturedCount": 0,
+          "pendingExcludedFromDenominatorCount": 16
+        },
+        "ratesAmongMaturedAtLeast1B": {
+          "denominator": 0,
+          "breakoutRatePct": null,
+          "breakoutRate95Ci": null,
+          "invalidationRatePct": null,
+          "invalidationRate95Ci": null,
+          "untriggeredMaturedRatePct": null,
+          "untriggeredMaturedRate95Ci": null
+        },
+        "ratesAmongMaturedAtLeast20B": {
+          "denominator": 0,
+          "breakoutRatePct": null,
+          "breakoutRate95Ci": null,
+          "invalidationRatePct": null,
+          "invalidationRate95Ci": null,
+          "untriggeredRatePct": null,
+          "untriggeredRate95Ci": null
+        },
+        "medianBlocksToBreakout": null,
+        "medianHoursToBreakout": null,
+        "mfeMaeAmongMaturedAtLeast1B": {
+          "maturedSampleSize": 0,
+          "meanMfePct": null,
+          "medianMfePct": null,
+          "meanMaePct": null,
+          "medianMaePct": null
+        },
+        "sampleSufficiencyVerdict": "INSUFFICIENT_MATURED_SAMPLE_ZERO_POST_BARS",
+        "statisticalAuditNote": "All 16 signals in SHORT_HIGH_QUALITY are at T+0 (0 completed post-signal 4H blocks). Pending T+0 signals are excluded from performance rate denominators and must NOT be interpreted as 100% untriggered performance."
+      },
+      "MEDIUM_CLEAN": {
+        "cohort": "MEDIUM_CLEAN",
+        "totalCapturedSignals": 49,
+        "maturityDistribution": {
+          "pendingZeroPostBars": 49,
+          "atLeast1PostBlock": 0,
+          "atLeast5PostBlocks": 0,
+          "atLeast10PostBlocks": 0,
+          "atLeast20PostBlocks": 0
+        },
+        "countsAmongMaturedAtLeast1B": {
+          "denominatorMatured1B": 0,
+          "breakoutCount": 0,
+          "invalidationBeforeBreakoutCount": 0,
+          "untriggeredMaturedCount": 0,
+          "pendingExcludedFromDenominatorCount": 49
+        },
+        "ratesAmongMaturedAtLeast1B": {
+          "denominator": 0,
+          "breakoutRatePct": null,
+          "breakoutRate95Ci": null,
+          "invalidationRatePct": null,
+          "invalidationRate95Ci": null,
+          "untriggeredMaturedRatePct": null,
+          "untriggeredMaturedRate95Ci": null
+        },
+        "ratesAmongMaturedAtLeast20B": {
+          "denominator": 0,
+          "breakoutRatePct": null,
+          "breakoutRate95Ci": null,
+          "invalidationRatePct": null,
+          "invalidationRate95Ci": null,
+          "untriggeredRatePct": null,
+          "untriggeredRate95Ci": null
+        },
+        "medianBlocksToBreakout": null,
+        "medianHoursToBreakout": null,
+        "mfeMaeAmongMaturedAtLeast1B": {
+          "maturedSampleSize": 0,
+          "meanMfePct": null,
+          "medianMfePct": null,
+          "meanMaePct": null,
+          "medianMaePct": null
+        },
+        "sampleSufficiencyVerdict": "INSUFFICIENT_MATURED_SAMPLE_ZERO_POST_BARS",
+        "statisticalAuditNote": "All 49 signals in MEDIUM_CLEAN are at T+0 (0 completed post-signal 4H blocks). Pending T+0 signals are excluded from performance rate denominators and must NOT be interpreted as 100% untriggered performance."
+      },
+      "LONG_CLEAN": {
+        "cohort": "LONG_CLEAN",
+        "totalCapturedSignals": 18,
+        "maturityDistribution": {
+          "pendingZeroPostBars": 18,
+          "atLeast1PostBlock": 0,
+          "atLeast5PostBlocks": 0,
+          "atLeast10PostBlocks": 0,
+          "atLeast20PostBlocks": 0
+        },
+        "countsAmongMaturedAtLeast1B": {
+          "denominatorMatured1B": 0,
+          "breakoutCount": 0,
+          "invalidationBeforeBreakoutCount": 0,
+          "untriggeredMaturedCount": 0,
+          "pendingExcludedFromDenominatorCount": 18
+        },
+        "ratesAmongMaturedAtLeast1B": {
+          "denominator": 0,
+          "breakoutRatePct": null,
+          "breakoutRate95Ci": null,
+          "invalidationRatePct": null,
+          "invalidationRate95Ci": null,
+          "untriggeredMaturedRatePct": null,
+          "untriggeredMaturedRate95Ci": null
+        },
+        "ratesAmongMaturedAtLeast20B": {
+          "denominator": 0,
+          "breakoutRatePct": null,
+          "breakoutRate95Ci": null,
+          "invalidationRatePct": null,
+          "invalidationRate95Ci": null,
+          "untriggeredRatePct": null,
+          "untriggeredRate95Ci": null
+        },
+        "medianBlocksToBreakout": null,
+        "medianHoursToBreakout": null,
+        "mfeMaeAmongMaturedAtLeast1B": {
+          "maturedSampleSize": 0,
+          "meanMfePct": null,
+          "medianMfePct": null,
+          "meanMaePct": null,
+          "medianMaePct": null
+        },
+        "sampleSufficiencyVerdict": "INSUFFICIENT_MATURED_SAMPLE_ZERO_POST_BARS",
+        "statisticalAuditNote": "All 18 signals in LONG_CLEAN are at T+0 (0 completed post-signal 4H blocks). Pending T+0 signals are excluded from performance rate denominators and must NOT be interpreted as 100% untriggered performance."
+      },
+      "ALL_TRACKED_COHORTS": {
+        "cohort": "ALL_TRACKED_COHORTS",
+        "totalCapturedSignals": 83,
+        "maturityDistribution": {
+          "pendingZeroPostBars": 83,
+          "atLeast1PostBlock": 0,
+          "atLeast5PostBlocks": 0,
+          "atLeast10PostBlocks": 0,
+          "atLeast20PostBlocks": 0
+        },
+        "countsAmongMaturedAtLeast1B": {
+          "denominatorMatured1B": 0,
+          "breakoutCount": 0,
+          "invalidationBeforeBreakoutCount": 0,
+          "untriggeredMaturedCount": 0,
+          "pendingExcludedFromDenominatorCount": 83
+        },
+        "ratesAmongMaturedAtLeast1B": {
+          "denominator": 0,
+          "breakoutRatePct": null,
+          "breakoutRate95Ci": null,
+          "invalidationRatePct": null,
+          "invalidationRate95Ci": null,
+          "untriggeredMaturedRatePct": null,
+          "untriggeredMaturedRate95Ci": null
+        },
+        "ratesAmongMaturedAtLeast20B": {
+          "denominator": 0,
+          "breakoutRatePct": null,
+          "breakoutRate95Ci": null,
+          "invalidationRatePct": null,
+          "invalidationRate95Ci": null,
+          "untriggeredRatePct": null,
+          "untriggeredRate95Ci": null
+        },
+        "medianBlocksToBreakout": null,
+        "medianHoursToBreakout": null,
+        "mfeMaeAmongMaturedAtLeast1B": {
+          "maturedSampleSize": 0,
+          "meanMfePct": null,
+          "medianMfePct": null,
+          "meanMaePct": null,
+          "medianMaePct": null
+        },
+        "sampleSufficiencyVerdict": "INSUFFICIENT_MATURED_SAMPLE_ZERO_POST_BARS",
+        "statisticalAuditNote": "All 83 signals in ALL_TRACKED_COHORTS are at T+0 (0 completed post-signal 4H blocks). Pending T+0 signals are excluded from performance rate denominators and must NOT be interpreted as 100% untriggered performance."
+      }
+    }
+  }
+]

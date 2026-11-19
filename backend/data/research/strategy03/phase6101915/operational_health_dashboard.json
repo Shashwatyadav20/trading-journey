@@ -1,0 +1,116 @@
+{
+  "generatedAtIso": "2026-11-18T14:46:11.000Z",
+  "phase": "6.10.19.15",
+  "operationalHealth": {
+    "schedulerStatus": "HEALTHY_CYCLE_COMPLETED",
+    "schedulerRunning": true,
+    "isCycleInProgress": false,
+    "timezone": "Asia/Kolkata",
+    "sessionBlockScheduleIst": {
+      "AM_240M": "09:15–13:14 IST (eligible trigger >= 13:20 IST)",
+      "PM_135M": "13:15–15:30 IST (eligible trigger >= 15:35 IST)"
+    },
+    "lastScheduledAttemptTimestampIso": "2026-11-18T14:48:00.000Z",
+    "lastSuccessfulMonitoringCycle": {
+      "cycleId": "s03_4h_cycle_2026-11-18_PM_135M",
+      "completedAtIso": "2026-11-18T14:46:11.000Z",
+      "blockSlot": "PM_135M",
+      "blockTimestampIst": "2026-11-18T13:15:00.000+05:30"
+    },
+    "nextExpectedEligibleMonitoringWindowIst": "2026-11-19T13:20:00+05:30 (AM_240M)",
+    "lastCompletedNse4hBlockProcessedIst": "2026-11-18T09:15:00.000+05:30",
+    "newlyProcessedBarsInLastCycle": 0,
+    "signalsUpdatedInLastCycle": 0,
+    "duplicateCyclesPreventedCount": 2,
+    "overlappingInvocationsPreventedCount": 0,
+    "failedCycleCount": 0,
+    "remotePersistenceHealth": "REMOTE_SYNCED",
+    "remoteTablesAvailable": true,
+    "walPendingCount": 0,
+    "lastReconciliationInSync": true,
+    "independentAuditStatus": {
+      "allIntegrityChecksPassed": true,
+      "candleCalculationMismatchCount": 0,
+      "auditWarningRaised": false
+    },
+    "operationalAlertsCount": 2,
+    "latestOperationalAlerts": [
+      {
+        "alertId": "OP_ALERT::DUPLICATE_OR_OVERLAPPING_EXECUTION::s03_4h_cycle_2026-11-18_AM_240M",
+        "alertType": "DUPLICATE_OR_OVERLAPPING_EXECUTION",
+        "cycleId": "s03_4h_cycle_2026-11-18_AM_240M",
+        "timestampIso": "2026-11-18T08:00:00.000Z",
+        "severity": "WARNING",
+        "message": "Duplicate scheduled invocation prevented for already-completed 4H session cycle s03_4h_cycle_2026-11-18_AM_240M.",
+        "readOnly": true
+      },
+      {
+        "alertId": "OP_ALERT::DUPLICATE_OR_OVERLAPPING_EXECUTION::s03_4h_cycle_2026-11-18_PM_135M",
+        "alertType": "DUPLICATE_OR_OVERLAPPING_EXECUTION",
+        "cycleId": "s03_4h_cycle_2026-11-18_PM_135M",
+        "timestampIso": "2026-11-18T14:48:00.000Z",
+        "severity": "WARNING",
+        "message": "Duplicate scheduled invocation prevented for already-completed 4H session cycle s03_4h_cycle_2026-11-18_PM_135M.",
+        "readOnly": true
+      }
+    ],
+    "latestUnresolvedOperationalErrors": [],
+    "schedulerAuditFindings": {
+      "existingDailyShadowSchedulerInspected": true,
+      "existingDailyShadowSchedulerFile": "backend/src/indian/swing/research/strategy03/Strategy03ShadowScheduler.ts",
+      "existingDailySchedulerTargetIst": "15:45 (once daily EOD fundamental/momentum scan)",
+      "existing4hMonitoringWasAutomated": false,
+      "existing4hMonitoringRanAfterEach4hBlock": false,
+      "newFourHourBlockSchedulerRequired": true,
+      "auditExplanation": "Strategy03ShadowScheduler and Strategy03ShadowService only run a once-daily 15:45 IST EOD fundamental/momentum scan across 56 stocks. Phase 6.10.19.9–13 4H pre-breakout and forward maturity monitoring existed only as CLI scripts without an automated AM_240M (13:20 IST) / PM_135M (15:35 IST) session-block scheduler. Strategy03FourHourMonitoringScheduler was therefore required and created to orchestrate 4H session-block monitoring without duplicating the daily EOD scheduler."
+    }
+  },
+  "cycleVerification": {
+    "am240mCycle": {
+      "executed": true,
+      "cycleId": "s03_4h_cycle_2026-11-18_AM_240M",
+      "persistenceStatus": "REMOTE_SYNCED",
+      "remoteInSync": true
+    },
+    "amDuplicateInvocation": {
+      "executed": false,
+      "skippedReason": "DUPLICATE_CYCLE_PREVENTED"
+    },
+    "pm135mPostRestartCycle": {
+      "executed": true,
+      "cycleId": "s03_4h_cycle_2026-11-18_PM_135M",
+      "persistenceStatus": "REMOTE_SYNCED",
+      "remoteInSync": true,
+      "remoteCounts": {
+        "runs": 3,
+        "states": 333,
+        "alerts": 579
+      },
+      "localCounts": {
+        "runs": 3,
+        "states": 333,
+        "alerts": 579,
+        "pendingWal": 0
+      }
+    },
+    "pmDuplicateInvocation": {
+      "executed": false,
+      "skippedReason": "DUPLICATE_CYCLE_PREVENTED"
+    }
+  },
+  "immutabilityCheck": {
+    "phase6101911Unchanged": true,
+    "phase6101912Unchanged": true,
+    "phase6101913Unchanged": true,
+    "phase6101914Unchanged": true
+  },
+  "safetyLocks": {
+    "STRATEGY_01": false,
+    "STRATEGY_02": false,
+    "STRATEGY_03": false,
+    "LIVE_TRADING": false,
+    "BROKER_EXECUTION_ENABLED": false,
+    "paperIsolationEnabled": false,
+    "experimentalPaperTradesCount": 0
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "schedulerStatus": "RUNNING_CYCLE",
+  "schedulerRunning": true,
+  "isCycleInProgress": true,
+  "timezone": "Asia/Kolkata",
+  "sessionBlockScheduleIst": {
+    "AM_240M": "09:15–13:14 IST (eligible trigger >= 13:20 IST)",
+    "PM_135M": "13:15–15:30 IST (eligible trigger >= 15:35 IST)"
+  },
+  "lastScheduledAttemptTimestampIso": "2026-11-18T15:17:26.000Z",
+  "lastSuccessfulMonitoringCycle": {
+    "cycleId": "s03_4h_cycle_2026-11-18_AM_240M",
+    "completedAtIso": "2026-11-18T15:17:26.000Z",
+    "blockSlot": "AM_240M",
+    "blockTimestampIst": "2026-11-18T09:15:00.000+05:30"
+  },
+  "nextExpectedEligibleMonitoringWindowIst": "2026-11-19T13:20:00+05:30 (AM_240M)",
+  "lastCompletedNse4hBlockProcessedIst": "2026-11-18T09:15:00.000+05:30",
+  "newlyProcessedBarsInLastCycle": 0,
+  "signalsUpdatedInLastCycle": 0,
+  "duplicateCyclesPreventedCount": 0,
+  "overlappingInvocationsPreventedCount": 0,
+  "failedCycleCount": 0,
+  "remotePersistenceHealth": "REMOTE_SYNCED",
+  "remoteTablesAvailable": true,
+  "walPendingCount": 0,
+  "lastReconciliationInSync": true,
+  "independentAuditStatus": {
+    "allIntegrityChecksPassed": true,
+    "candleCalculationMismatchCount": 0,
+    "auditWarningRaised": false
+  },
+  "operationalAlertsCount": 0,
+  "latestOperationalAlerts": [],
+  "latestUnresolvedOperationalErrors": [],
+  "schedulerAuditFindings": {
+    "existingDailyShadowSchedulerInspected": true,
+    "existingDailyShadowSchedulerFile": "backend/src/indian/swing/research/strategy03/Strategy03ShadowScheduler.ts",
+    "existingDailySchedulerTargetIst": "15:45 (once daily EOD fundamental/momentum scan)",
+    "existing4hMonitoringWasAutomated": false,
+    "existing4hMonitoringRanAfterEach4hBlock": false,
+    "newFourHourBlockSchedulerRequired": true,
+    "auditExplanation": "Strategy03ShadowScheduler and Strategy03ShadowService only run a once-daily 15:45 IST EOD fundamental/momentum scan across 56 stocks. Phase 6.10.19.9–13 4H pre-breakout and forward maturity monitoring existed only as CLI scripts without an automated AM_240M (13:20 IST) / PM_135M (15:35 IST) session-block scheduler. Strategy03FourHourMonitoringScheduler was therefore required and created to orchestrate 4H session-block monitoring without duplicating the daily EOD scheduler."
+  }
+}

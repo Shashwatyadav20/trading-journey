@@ -1,0 +1,11 @@
+{
+  "updatedAt": "2026-11-18T07:56:08.308Z",
+  "status": "REMOTE_SYNCED",
+  "remoteTablesAvailable": true,
+  "runsPersistedRemotely": 0,
+  "statesPersistedRemotely": 0,
+  "alertsPersistedRemotely": 0,
+  "pendingWalCount": 0,
+  "blockerCode": null,
+  "blockerMessage": null
+}

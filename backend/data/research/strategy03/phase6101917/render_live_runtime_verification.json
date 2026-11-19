@@ -1,0 +1,136 @@
+{
+  "verifiedAtIso": "2026-11-18T15:17:26.000Z",
+  "verifiedAtIst": "2026-11-18T20:47:26.000+05:30",
+  "phase": "6.10.19.17",
+  "renderServiceUrl": "https://trading-journey-backend.onrender.com",
+  "gitWorkspaceAudit": {
+    "branch": "main",
+    "lastCommittedHeadSha": "3480a1677919c8fe14aab6a705c66fcf9a91ff54",
+    "lastCommittedMessage": "commit: Add AI Research & Company Intelligence Module with Institutional Conviction Scoring",
+    "hasUncommittedStrategy03ChangesInWorkingTree": true,
+    "gitBinaryInstalledInPath": false
+  },
+  "liveRenderProbes": {
+    "healthEndpoint": {
+      "url": "https://trading-journey-backend.onrender.com/health",
+      "httpStatus": 200,
+      "reachable": true,
+      "responseBodyPreview": "{\"status\":\"ok\",\"service\":\"trading-backend\",\"timestamp\":\"2026-11-18T15:27:11.663Z\",\"persistence\":{\"configured\":true,\"reachable\":true,\"mode\":\"supabase\"}}",
+      "parsedJson": {
+        "status": "ok",
+        "service": "trading-backend",
+        "timestamp": "2026-11-18T15:27:11.663Z",
+        "persistence": {
+          "configured": true,
+          "reachable": true,
+          "mode": "supabase"
+        }
+      },
+      "errorMessage": null
+    },
+    "strategy03ShadowEndpoint": {
+      "url": "https://trading-journey-backend.onrender.com/api/indian/strategy03/research/shadow",
+      "httpStatus": 404,
+      "reachable": true,
+      "responseBodyPreview": "{\"message\":\"Route GET:/api/indian/strategy03/research/shadow not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+      "parsedJson": {
+        "message": "Route GET:/api/indian/strategy03/research/shadow not found",
+        "error": "Not Found",
+        "statusCode": 404
+      },
+      "errorMessage": null
+    },
+    "strategy03RuntimeHealthEndpoint": {
+      "url": "https://trading-journey-backend.onrender.com/health/strategy03-4h-runtime",
+      "httpStatus": 404,
+      "reachable": true,
+      "responseBodyPreview": "{\"message\":\"Route GET:/health/strategy03-4h-runtime not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+      "parsedJson": {
+        "message": "Route GET:/health/strategy03-4h-runtime not found",
+        "error": "Not Found",
+        "statusCode": 404
+      },
+      "errorMessage": null
+    }
+  },
+  "deploymentVerificationStatus": "RENDER_SERVICE_ONLINE_STALE_COMMIT_NOT_YET_DEPLOYED",
+  "deployedBuildVerification": {
+    "renderServiceReachable": true,
+    "renderSupabasePersistenceReachable": true,
+    "latestPhase6101916CodeDeployedOnRender": false,
+    "serverTsStep2fExecutedInDeployedRender": false,
+    "executionEnvironmentReported": "UNDEPLOYED_ON_RENDER_LOCAL_ONLY",
+    "isActualDeployedProductionEvidence": false,
+    "activeSchedulerInstanceCountInDeployedRender": null,
+    "rootDirectoryConfigured": "backend",
+    "buildCommandConfigured": "npm install && npm run build",
+    "startCommandConfigured": "npm run start (node dist/backend/src/server.js)"
+  },
+  "controlledProductionCycleVerification": {
+    "status": "WAITING_FOR_NEXT_ELIGIBLE_SESSION",
+    "currentSessionEvaluation": {
+      "istDate": "2026-11-18",
+      "istTime": "20:47:26",
+      "isTradingDay": true,
+      "nonTradingReason": null,
+      "eligibleBlockSlot": "PM_135M",
+      "eligibleBlockStartTimestampIst": "2026-11-18T13:15:00.000+05:30",
+      "deterministicCycleId": "s03_4h_cycle_2026-11-18_PM_135M",
+      "nextExpectedEligibleWindowIst": "2026-11-19T13:20:00+05:30 (AM_240M)",
+      "reason": "ELIGIBLE_PM_135M_BLOCK_COMPLETED"
+    },
+    "nextEligibleNseSessionBlockIst": "2026-11-19T13:20:00+05:30 (AM_240M)",
+    "manufacturedOrBackdatedCandlesUsed": false,
+    "actualDeployedProductionCycleCompleted": false,
+    "productionCycleId": null,
+    "explanation": "WAITING_FOR_NEXT_ELIGIBLE_SESSION (and awaiting git commit/push of Phase 6.10.19.16–17 to Render). Today's NSE sessions on 2026-11-18 have closed; the next genuinely eligible completed NSE 4H session block is 2026-11-19T13:20:00+05:30 (AM_240M). No candles were manufactured or backdated."
+  },
+  "supabaseReconciliation": {
+    "persistenceStatus": "REMOTE_SYNCED",
+    "remoteTablesAvailable": true,
+    "inSync": true,
+    "walPendingCount": 0,
+    "localCounts": {
+      "runs": 3,
+      "states": 333,
+      "alerts": 579,
+      "pendingWal": 0
+    },
+    "remoteCounts": {
+      "runs": 3,
+      "states": 333,
+      "alerts": 579
+    }
+  },
+  "localRuntimeReadinessCheck": {
+    "localBootstrapStatus": "BOOTSTRAPPED_ACTIVE",
+    "localActiveSchedulerInstances": 1,
+    "localExecutionEnvironment": "LOCAL_CLI_VERIFICATION_HARNESS",
+    "localIndependentAuditPassed": true
+  },
+  "unresolvedBlockers": [
+    "Live Render service (https://trading-journey-backend.onrender.com) is online (GET /health -> 200 OK, Supabase reachable=true), but is currently running commit 3480a1677919 (\"commit: Add AI Research & Company Intelligence Module with Institutional Conviction Scoring\"), which predates the Phase 6.10.19.16–17 Strategy 03 routes and server.ts Step 2f bootstrap (GET /api/indian/strategy03/research/shadow -> 404 Not Found; GET /health/strategy03-4h-runtime -> 404 Not Found).",
+    "Today's NSE market session (2026-11-18) closed at 15:30 IST. The next genuinely eligible completed NSE 4H session block is 2026-11-19T13:20:00+05:30 (AM_240M)."
+  ],
+  "requiredDeploymentActions": [
+    "Commit and push the local working tree changes (backend/src/server.ts, backend/src/routes/health.ts, backend/src/routes/strategy03Data.ts, and backend/src/indian/swing/research/strategy03/**) to origin/main on GitHub so Render auto-deploys the latest build.",
+    "After Render finishes deploying, probe GET https://trading-journey-backend.onrender.com/health/strategy03-4h-runtime to confirm schedulerBootstrapStatus=\"BOOTSTRAPPED_ACTIVE\", executionEnvironment=\"DEPLOYED_PRODUCTION_RUNTIME\", isActualDeployedProductionEvidence=true, and activeSchedulerInstanceCount=1."
+  ],
+  "immutabilityVerification": {
+    "phase6101911Unchanged": true,
+    "phase6101912Unchanged": true,
+    "phase6101913Unchanged": true,
+    "phase6101914Unchanged": true,
+    "phase6101915Unchanged": true,
+    "phase6101916Unchanged": true
+  },
+  "safetyLocks": {
+    "STRATEGY_01": false,
+    "STRATEGY_02": false,
+    "STRATEGY_03": false,
+    "LIVE_TRADING": false,
+    "BROKER_EXECUTION_ENABLED": false,
+    "paperIsolationEnabled": false,
+    "experimentalPaperTradesCount": 0
+  }
+}

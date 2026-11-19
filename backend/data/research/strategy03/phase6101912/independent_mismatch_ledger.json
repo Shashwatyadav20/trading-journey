@@ -1,0 +1,1651 @@
+{
+  "candleCalculationMismatchCount": 0,
+  "methodologyImmatureDenominatorMismatchCount": 83,
+  "cohortStatMismatchCount": 8,
+  "outcomeMismatches": [
+    {
+      "signalId": "HDFCBANK::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "HDFCBANK",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ICICIBANK::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ICICIBANK",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "BAJFINANCE::READY::MEDIUM_CLEAN::2026-11-17T09:15:00.000+05:30",
+      "symbol": "BAJFINANCE",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "LT::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "LT",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "HINDUNILVR::READY::MEDIUM_CLEAN::2026-11-17T09:15:00.000+05:30",
+      "symbol": "HINDUNILVR",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "SUNPHARMA::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "SUNPHARMA",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "AXISBANK::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "AXISBANK",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "M&M::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "M&M",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ULTRACEMCO::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ULTRACEMCO",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "JSWSTEEL::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "JSWSTEEL",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "BAJAJFINSV::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "BAJAJFINSV",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "BEL::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "BEL",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "NESTLEIND::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "NESTLEIND",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "SHRIRAMFIN::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "SHRIRAMFIN",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "DMART::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "DMART",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "INDIGO::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "INDIGO",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "DLF::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "DLF",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "TORNTPHARM::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "TORNTPHARM",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ADANIENSOL::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ADANIENSOL",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "UNIONBANK::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "UNIONBANK",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "BANKBARODA::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "BANKBARODA",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "INDHOTEL::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "INDHOTEL",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "INDIANB::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "INDIANB",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "APOLLOHOSP::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "APOLLOHOSP",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "GAIL::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "GAIL",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "CANBK::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "CANBK",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "MARICO::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "MARICO",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "DRREDDY::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "DRREDDY",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "AMBUJACEM::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "AMBUJACEM",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "JSWENERGY::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "JSWENERGY",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "HINDPETRO::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "HINDPETRO",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "UNOMINDA::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "UNOMINDA",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "GLENMARK::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "GLENMARK",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "IDFCFIRSTB::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "IDFCFIRSTB",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "RADICO::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "RADICO",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "IOB::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "IOB",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "RBLBANK::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "RBLBANK",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "JSL::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "JSL",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "GICRE::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "GICRE",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "LINDEINDIA::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "LINDEINDIA",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "SCHAEFFLER::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "SCHAEFFLER",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "MRF::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "MRF",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "NAVINFLUOR::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "NAVINFLUOR",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "PETRONET::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "PETRONET",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "360ONE::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "360ONE",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "GLAXO::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "GLAXO",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ANANDRATHI::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ANANDRATHI",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ENDURANCE::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ENDURANCE",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "PNBHOUSING::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "PNBHOUSING",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "BANDHANBNK::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "BANDHANBNK",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "CUB::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "CUB",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ACC::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ACC",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "EMAMILTD::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "EMAMILTD",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "BRIGADE::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "BRIGADE",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "MINDACORP::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "MINDACORP",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "POLYMED::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "POLYMED",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "CEATLTD::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "CEATLTD",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ARVIND::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ARVIND",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "TMB::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "TMB",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "HORIZONIND::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "HORIZONIND",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "SOBHA::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "SOBHA",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "DOMS::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "DOMS",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "GPPL::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "GPPL",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "DCBBANK::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "DCBBANK",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "LGBBROSLTD::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "LGBBROSLTD",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "CRAMC::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "CRAMC",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "INDIGOPNTS::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "INDIGOPNTS",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "SUNTECK::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "SUNTECK",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "GHCL::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "GHCL",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "KSCL::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "KSCL",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "NILKAMAL::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "NILKAMAL",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "KNACK::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "KNACK",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ROSSARI::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ROSSARI",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "SIYSIL::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "SIYSIL",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "GEOJITFSL::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "GEOJITFSL",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "DLINKINDIA::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "DLINKINDIA",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ULTRAMAR::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ULTRAMAR",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "JINDALPHOT::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "JINDALPHOT",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "SIGACHI::READY::LONG_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "SIGACHI",
+      "cohort": "LONG_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "AWHCL::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "AWHCL",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "CORALFINAC::READY::SHORT_HIGH_QUALITY::2026-11-18T09:15:00.000+05:30",
+      "symbol": "CORALFINAC",
+      "cohort": "SHORT_HIGH_QUALITY",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "ZOTA::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "ZOTA",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    },
+    {
+      "signalId": "KAPSTON::READY::MEDIUM_CLEAN::2026-11-18T09:15:00.000+05:30",
+      "symbol": "KAPSTON",
+      "cohort": "MEDIUM_CLEAN",
+      "category": "METHODOLOGY_IMMATURE_DENOMINATOR_MISMATCH",
+      "field": "outcomeStatusAndMfeMaeAtZeroPostBars",
+      "storedValue": {
+        "outcomeStatus": "UNTRIGGERED",
+        "mfePct": 0,
+        "maePct": 0
+      },
+      "independentValue": {
+        "independentAuditedMaturityStatus": "PENDING_ZERO_POST_BARS",
+        "mfePct": null,
+        "maePct": null
+      },
+      "reason": "Signal has 0 post-signal completed 4H blocks (T+0). Stored record labels it UNTRIGGERED with 0% MFE/MAE; independent audit classifies it as PENDING_ZERO_POST_BARS with null MFE/MAE so immature signals are excluded from performance rate denominators."
+    }
+  ],
+  "cohortStatMismatches": [
+    {
+      "cohort": "SHORT_HIGH_QUALITY",
+      "field": "untriggeredRatePct_and_95Ci_when_matured_eq_0",
+      "storedPhase6101911Value": {
+        "untriggeredCount": 16,
+        "untriggeredRatePct": 100,
+        "untriggeredRate95Ci": {
+          "lowerPct": 80.64,
+          "upperPct": 100,
+          "confidenceLevel": 0.95
+        },
+        "breakoutRatePct": 0,
+        "invalidationRatePct": 0
+      },
+      "independentAuditedValue": {
+        "pendingZeroPostBars": 16,
+        "untriggeredMaturedCount": 0,
+        "untriggeredMaturedRatePct": null,
+        "breakoutRatePct": null,
+        "invalidationRatePct": null,
+        "rates95Ci": null
+      },
+      "reason": "Phase 6.10.19.11 used totalSignals (all at T+0 with 0 post-signal bars) as the rate denominator, producing untriggeredRatePct=100% and 0% breakout/invalidation rates with Wilson CIs on immature signals. Independent audit separates pendingZeroPostBars from untriggeredMaturedCount and reports null rates/CIs when matured denominator is 0."
+    },
+    {
+      "cohort": "SHORT_HIGH_QUALITY",
+      "field": "meanMfePct_and_meanMaePct_when_matured_eq_0",
+      "storedPhase6101911Value": {
+        "meanMfePct": 0,
+        "meanMaePct": 0
+      },
+      "independentAuditedValue": {
+        "meanMfePct": null,
+        "meanMaePct": null
+      },
+      "reason": "Phase 6.10.19.11 reported 0% mean/median MFE and MAE across T+0 signals with 0 post-signal bars. Independent audit reports null MFE/MAE until at least 1 post-signal completed 4H block is observed."
+    },
+    {
+      "cohort": "MEDIUM_CLEAN",
+      "field": "untriggeredRatePct_and_95Ci_when_matured_eq_0",
+      "storedPhase6101911Value": {
+        "untriggeredCount": 49,
+        "untriggeredRatePct": 100,
+        "untriggeredRate95Ci": {
+          "lowerPct": 92.73,
+          "upperPct": 100,
+          "confidenceLevel": 0.95
+        },
+        "breakoutRatePct": 0,
+        "invalidationRatePct": 0
+      },
+      "independentAuditedValue": {
+        "pendingZeroPostBars": 49,
+        "untriggeredMaturedCount": 0,
+        "untriggeredMaturedRatePct": null,
+        "breakoutRatePct": null,
+        "invalidationRatePct": null,
+        "rates95Ci": null
+      },
+      "reason": "Phase 6.10.19.11 used totalSignals (all at T+0 with 0 post-signal bars) as the rate denominator, producing untriggeredRatePct=100% and 0% breakout/invalidation rates with Wilson CIs on immature signals. Independent audit separates pendingZeroPostBars from untriggeredMaturedCount and reports null rates/CIs when matured denominator is 0."
+    },
+    {
+      "cohort": "MEDIUM_CLEAN",
+      "field": "meanMfePct_and_meanMaePct_when_matured_eq_0",
+      "storedPhase6101911Value": {
+        "meanMfePct": 0,
+        "meanMaePct": 0
+      },
+      "independentAuditedValue": {
+        "meanMfePct": null,
+        "meanMaePct": null
+      },
+      "reason": "Phase 6.10.19.11 reported 0% mean/median MFE and MAE across T+0 signals with 0 post-signal bars. Independent audit reports null MFE/MAE until at least 1 post-signal completed 4H block is observed."
+    },
+    {
+      "cohort": "LONG_CLEAN",
+      "field": "untriggeredRatePct_and_95Ci_when_matured_eq_0",
+      "storedPhase6101911Value": {
+        "untriggeredCount": 18,
+        "untriggeredRatePct": 100,
+        "untriggeredRate95Ci": {
+          "lowerPct": 82.41,
+          "upperPct": 100,
+          "confidenceLevel": 0.95
+        },
+        "breakoutRatePct": 0,
+        "invalidationRatePct": 0
+      },
+      "independentAuditedValue": {
+        "pendingZeroPostBars": 18,
+        "untriggeredMaturedCount": 0,
+        "untriggeredMaturedRatePct": null,
+        "breakoutRatePct": null,
+        "invalidationRatePct": null,
+        "rates95Ci": null
+      },
+      "reason": "Phase 6.10.19.11 used totalSignals (all at T+0 with 0 post-signal bars) as the rate denominator, producing untriggeredRatePct=100% and 0% breakout/invalidation rates with Wilson CIs on immature signals. Independent audit separates pendingZeroPostBars from untriggeredMaturedCount and reports null rates/CIs when matured denominator is 0."
+    },
+    {
+      "cohort": "LONG_CLEAN",
+      "field": "meanMfePct_and_meanMaePct_when_matured_eq_0",
+      "storedPhase6101911Value": {
+        "meanMfePct": 0,
+        "meanMaePct": 0
+      },
+      "independentAuditedValue": {
+        "meanMfePct": null,
+        "meanMaePct": null
+      },
+      "reason": "Phase 6.10.19.11 reported 0% mean/median MFE and MAE across T+0 signals with 0 post-signal bars. Independent audit reports null MFE/MAE until at least 1 post-signal completed 4H block is observed."
+    },
+    {
+      "cohort": "ALL_TRACKED_COHORTS",
+      "field": "untriggeredRatePct_and_95Ci_when_matured_eq_0",
+      "storedPhase6101911Value": {
+        "untriggeredCount": 83,
+        "untriggeredRatePct": 100,
+        "untriggeredRate95Ci": {
+          "lowerPct": 95.58,
+          "upperPct": 100,
+          "confidenceLevel": 0.95
+        },
+        "breakoutRatePct": 0,
+        "invalidationRatePct": 0
+      },
+      "independentAuditedValue": {
+        "pendingZeroPostBars": 83,
+        "untriggeredMaturedCount": 0,
+        "untriggeredMaturedRatePct": null,
+        "breakoutRatePct": null,
+        "invalidationRatePct": null,
+        "rates95Ci": null
+      },
+      "reason": "Phase 6.10.19.11 used totalSignals (all at T+0 with 0 post-signal bars) as the rate denominator, producing untriggeredRatePct=100% and 0% breakout/invalidation rates with Wilson CIs on immature signals. Independent audit separates pendingZeroPostBars from untriggeredMaturedCount and reports null rates/CIs when matured denominator is 0."
+    },
+    {
+      "cohort": "ALL_TRACKED_COHORTS",
+      "field": "meanMfePct_and_meanMaePct_when_matured_eq_0",
+      "storedPhase6101911Value": {
+        "meanMfePct": 0,
+        "meanMaePct": 0
+      },
+      "independentAuditedValue": {
+        "meanMfePct": null,
+        "meanMaePct": null
+      },
+      "reason": "Phase 6.10.19.11 reported 0% mean/median MFE and MAE across T+0 signals with 0 post-signal bars. Independent audit reports null MFE/MAE until at least 1 post-signal completed 4H block is observed."
+    }
+  ]
+}
