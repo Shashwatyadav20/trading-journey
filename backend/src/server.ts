@@ -16,6 +16,7 @@ import { tradingStateRecovery } from './trading/TradingStateRecovery';
 import './trading/TradingEngine';
 import pineRoutes from './routes/pine';
 import indianTradingRoutes from './routes/indianTrading';
+import aiRoutes from './routes/ai';
 import strategy03DataRoutes from './routes/strategy03Data';
 import { pineLevelService } from './alerts/PineLevelService';
 import { scanScheduler } from './indian/swing/ScanScheduler';
@@ -82,6 +83,7 @@ server.register(tradingRoutes);
 server.register(websocketRoutes);
 server.register(pineRoutes);
 server.register(indianTradingRoutes);
+server.register(aiRoutes);
 server.register(strategy03DataRoutes);
 
 // Graceful shutdown

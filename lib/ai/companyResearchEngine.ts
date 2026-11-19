@@ -26,16 +26,29 @@ export interface FundamentalMetrics {
   priceToBook: number | null;
   roePct: number | null;
   roaPct: number | null;
+  rocePct?: number | null;
   debtToEquity: number | null;
   quarterlyRevenueGrowthPct: number | null;
   quarterlyEarningsGrowthPct: number | null;
   operatingMarginPct: number | null;
   profitMarginPct: number | null;
+  ebitdaMarginPct?: number | null;
   marketCapCr: number | null;
+  revenueCr?: number | null;
+  netProfitCr?: number | null;
+  ebitdaCr?: number | null;
+  totalDebtCr?: number | null;
+  operatingCashFlowCr?: number | null;
+  freeCashFlowCr?: number | null;
+  trailingEps?: number | null;
+  promoterPledgePct?: number | null;
   fiftyTwoWeekHigh: number | null;
   fiftyTwoWeekLow: number | null;
   sector: string | null;
   industry: string | null;
+  publishedAt?: string | null;
+  reportingPeriod?: string | null;
+  reportingBasis?: "CONSOLIDATED" | "STANDALONE" | null;
 }
 
 export interface InstitutionalHoldingTrend {
@@ -50,6 +63,7 @@ export interface InstitutionalHoldingTrend {
     reportDate: string | null;
   }>;
   trendLabel: "ACCUMULATING" | "HIGH_INSTITUTIONAL" | "MODERATE" | "LOW_OR_UNAVAILABLE";
+  publishedAt?: string | null;
 }
 
 export interface TechnicalConfluenceSignal {
@@ -68,25 +82,46 @@ export interface TechnicalConfluenceSignal {
     quality: "STRONG" | "MEDIUM" | "NONE";
     proximityPct: number | null;
   };
+  marketPublishedAt?: string | null;
 }
 
 export interface MacroAndRegulatoryItem {
   title: string;
   publisher: string;
   publishedAt: string;
+  publishedAtIso?: string | null;
   link?: string;
   category: "REGULATORY_SEBI" | "MACRO_RBI_CPI" | "EARNINGS_CATALYST" | "COMPANY_NEWS";
   sentiment: "BULLISH" | "BEARISH" | "NEUTRAL";
   impactScore: number;
 }
 
+export type LegacyResearchConclusionLabel =
+  | "POSITIVE"
+  | "CAUTIOUSLY_POSITIVE"
+  | "NEUTRAL"
+  | "CAUTIOUSLY_NEGATIVE"
+  | "NEGATIVE"
+  | "INSUFFICIENT_EVIDENCE";
+
+export type LegacyQualitativeConfidenceLabel =
+  | "HIGH"
+  | "MODERATE"
+  | "LOW"
+  | "INSUFFICIENT";
+
 export interface ConvictionBreakdown {
-  overallScore: number; // 0-100
+  overallScore: number | null; // Internal heuristic index (not a buy probability), null when INSUFFICIENT_DATA
   grade:
-    | "HIGH_CONVICTION_BUY"
+    | "POSITIVE"
     | "ACCUMULATE"
     | "NEUTRAL_WATCH"
-    | "CAUTION_AVOID";
+    | "CAUTION_AVOID"
+    | "INSUFFICIENT_DATA";
+  conclusion: LegacyResearchConclusionLabel;
+  confidenceClassification: LegacyQualitativeConfidenceLabel;
+  isCalculatedHeuristic: true;
+  activeCorePillars: number;
   fundamentalScore: number | null;
   institutionalScore: number | null;
   technical4HObVwapScore: number | null;
@@ -116,6 +151,7 @@ export interface CompanyResearchReport {
     fundamentalsSource: "YAHOO_QUOTE_SUMMARY_LIVE" | "YAHOO_CHART_ONLY_UNAVAILABLE";
     technicalsSource: "YAHOO_4H_VWAP_LIVE" | "UNAVAILABLE";
     newsSource: "GOOGLE_NEWS_RSS_AND_YAHOO_LIVE" | "NO_HEADLINES_RETURNED";
+    feedStatus: "LIVE DATA" | "PARTIAL LIVE DATA" | "CACHED DATA" | "UNAVAILABLE";
     zeroMockIntegrity: true;
   };
 }
@@ -127,19 +163,116 @@ const YAHOO_HEADERS = {
   "Accept-Language": "en-US,en;q=0.9",
 };
 
+const DEFAULT_HTTP_TIMEOUT_MS = 5_000;
+const MAX_YAHOO_COOLDOWN_WAIT_MS = 3_500;
+const DEFAULT_RESEARCH_CACHE_TTL_MS = 60_000;
+const MAX_RESEARCH_CACHE_ENTRIES = 100;
+
+export interface CompileCompanyResearchOptions {
+  forceRefresh?: boolean;
+  ttlMs?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  yahooTickerOverride?: string;
+  fetcherOverrideForTest?: (symbol: string) => Promise<CompanyResearchReport>;
+}
+
+interface CachedResearchEntry {
+  report: CompanyResearchReport;
+  cachedAt: number;
+  expiresAt: number;
+}
+
+const inFlightCompanyResearch = new Map<string, Promise<CompanyResearchReport>>();
+const companyResearchCache = new Map<string, CachedResearchEntry>();
+let totalNetworkFetchCount = 0;
+
+function cloneResearchReport(report: CompanyResearchReport): CompanyResearchReport {
+  return JSON.parse(JSON.stringify(report)) as CompanyResearchReport;
+}
+
+export function clearCompanyResearchCacheForTest(): void {
+  inFlightCompanyResearch.clear();
+  companyResearchCache.clear();
+  totalNetworkFetchCount = 0;
+}
+
+export function getCompanyResearchCacheStatsForTest(): {
+  cacheSize: number;
+  inFlightSize: number;
+  totalNetworkFetchCount: number;
+} {
+  return {
+    cacheSize: companyResearchCache.size,
+    inFlightSize: inFlightCompanyResearch.size,
+    totalNetworkFetchCount,
+  };
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs: number = DEFAULT_HTTP_TIMEOUT_MS,
+  parentSignal?: AbortSignal
+): Promise<Response> {
+  if (parentSignal?.aborted) {
+    throw new Error("Request aborted by caller signal");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`External HTTP request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  const onParentAbort = () => {
+    controller.abort(new Error("Request aborted by caller signal"));
+  };
+
+  if (parentSignal) {
+    parentSignal.addEventListener("abort", onParentAbort, { once: true });
+  }
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+    if (parentSignal) {
+      parentSignal.removeEventListener("abort", onParentAbort);
+    }
+  }
+}
+
 // Cached Yahoo Finance crumb + cookie for quoteSummary requests
 let cachedYahooAuth: { cookie: string; crumb: string; expiresAt: number } | null = null;
 
-async function getYahooAuth(): Promise<{ cookie: string; crumb: string } | null> {
+async function getYahooAuth(
+  timeoutMs: number = DEFAULT_HTTP_TIMEOUT_MS,
+  signal?: AbortSignal
+): Promise<{ cookie: string; crumb: string } | null> {
   if (cachedYahooAuth && Date.now() < cachedYahooAuth.expiresAt) {
     return { cookie: cachedYahooAuth.cookie, crumb: cachedYahooAuth.crumb };
   }
   try {
-    const fcRes = await fetch("https://fc.yahoo.com", {
-      headers: YAHOO_HEADERS,
-      redirect: "manual",
-      cache: "no-store",
-    });
+    const canProceed = await yahooRateLimiter.waitIfCoolingDown(MAX_YAHOO_COOLDOWN_WAIT_MS, signal);
+    if (!canProceed) return null;
+
+    const fcRes = await fetchWithTimeout(
+      "https://fc.yahoo.com",
+      {
+        headers: YAHOO_HEADERS,
+        redirect: "manual",
+        cache: "no-store",
+      },
+      timeoutMs,
+      signal
+    );
+    if (fcRes.status === 429) {
+      yahooRateLimiter.recordRateLimit();
+      return null;
+    }
     const setCookie = fcRes.headers.get("set-cookie") || "";
     const cookie = setCookie
       .split(",")
@@ -149,10 +282,19 @@ async function getYahooAuth(): Promise<{ cookie: string; crumb: string } | null>
 
     if (!cookie) return null;
 
-    const crumbRes = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
-      headers: { ...YAHOO_HEADERS, Cookie: cookie },
-      cache: "no-store",
-    });
+    const crumbRes = await fetchWithTimeout(
+      "https://query1.finance.yahoo.com/v1/test/getcrumb",
+      {
+        headers: { ...YAHOO_HEADERS, Cookie: cookie },
+        cache: "no-store",
+      },
+      timeoutMs,
+      signal
+    );
+    if (crumbRes.status === 429) {
+      yahooRateLimiter.recordRateLimit();
+      return null;
+    }
     if (!crumbRes.ok) return null;
     const crumb = (await crumbRes.text()).trim();
     if (!crumb || crumb.includes("<")) return null;
@@ -178,24 +320,129 @@ function numOrNull(val: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function fmtStringOrNull(val: unknown): string | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === "string" && val.trim().length > 0) return val.trim();
+  if (typeof val === "object" && val !== null && "fmt" in val) {
+    const fmt = (val as { fmt?: unknown }).fmt;
+    return typeof fmt === "string" && fmt.trim().length > 0 ? fmt.trim() : null;
+  }
+  return null;
+}
+
+function epochToIsoOrNull(val: unknown): string | null {
+  const num = numOrNull(val);
+  if (num === null || num <= 0) return null;
+  const ms = num > 1e12 ? num : num * 1000;
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+const COMPANY_NAME_TO_NSE_SYMBOL: Record<string, string> = {
+  "FORCE MOTOR": "FORCEMOT",
+  "FORCE MOTORS": "FORCEMOT",
+  "FORCE MOTORS LTD": "FORCEMOT",
+  "FORCE MOTORS LIMITED": "FORCEMOT",
+  "RELIANCE INDUSTRIES": "RELIANCE",
+  "RELIANCE INDUSTRIES LTD": "RELIANCE",
+  "HDFC BANK": "HDFCBANK",
+  "HDFC BANK LTD": "HDFCBANK",
+  "TATA CONSULTANCY": "TCS",
+  "TATA CONSULTANCY SERVICES": "TCS",
+  "BAJAJ FINANCE": "BAJFINANCE",
+  "ICICI BANK": "ICICIBANK",
+  "SOLAR INDUSTRIES": "SOLARINDS",
+  "BHARAT ELECTRONICS": "BEL",
+};
+
 export function cleanNseSymbol(input: string): string {
-  return input
+  const cleaned = input
     .trim()
     .toUpperCase()
     .replace(/^NSE:/i, "")
     .replace(/\.NS$/i, "")
-    .replace(/\.BO$/i, "");
+    .replace(/\.BO$/i, "")
+    .replace(/\s+/g, " ");
+
+  if (COMPANY_NAME_TO_NSE_SYMBOL[cleaned]) {
+    return COMPANY_NAME_TO_NSE_SYMBOL[cleaned];
+  }
+
+  for (const [sym, name] of Object.entries(NSE_EQUITY_COMPANY_NAMES)) {
+    if (name.toUpperCase() === cleaned) {
+      return sym;
+    }
+  }
+
+  return cleaned;
+}
+
+/**
+ * Resolves company names / multi-word inputs to canonical NSE ticker symbols
+ * via local alias map + Yahoo Finance search fallback when needed.
+ */
+export async function resolveCanonicalNseSymbol(
+  input: string,
+  timeoutMs: number = DEFAULT_HTTP_TIMEOUT_MS,
+  signal?: AbortSignal
+): Promise<string> {
+  const cleaned = cleanNseSymbol(input || "RELIANCE");
+  if (!cleaned.includes(" ") && /^[A-Z0-9&-]{1,20}$/.test(cleaned)) {
+    return cleaned;
+  }
+
+  try {
+    const canProceed = await yahooRateLimiter.waitIfCoolingDown(MAX_YAHOO_COOLDOWN_WAIT_MS, signal);
+    if (!canProceed) return cleaned;
+
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(
+      cleaned
+    )}&quotesCount=6&newsCount=0`;
+    const res = await fetchWithTimeout(
+      url,
+      { headers: YAHOO_HEADERS, cache: "no-store" },
+      timeoutMs,
+      signal
+    );
+    if (res.status === 429) {
+      yahooRateLimiter.recordRateLimit();
+      return cleaned;
+    }
+    if (res.ok) {
+      yahooRateLimiter.recordSuccess();
+      const json = (await res.json()) as {
+        quotes?: Array<{ symbol?: string; quoteType?: string; exchange?: string }>;
+      };
+      const nseMatch = (json.quotes ?? []).find(
+        (q) =>
+          typeof q.symbol === "string" &&
+          q.symbol.endsWith(".NS") &&
+          (q.quoteType === "EQUITY" || !q.quoteType)
+      );
+      if (nseMatch?.symbol) {
+        return nseMatch.symbol.replace(/\.NS$/i, "").toUpperCase();
+      }
+    }
+  } catch {
+    // Fall through to cleaned input
+  }
+
+  return cleaned;
 }
 
 /**
  * Fetches live fundamentals & FII/institutional ownership from Yahoo quoteSummary.
  * Never fabricates missing numbers; returns null fields when unavailable.
  */
-async function fetchLiveFundamentals(yahooTicker: string): Promise<{
+async function fetchLiveFundamentals(
+  yahooTicker: string,
+  timeoutMs: number = DEFAULT_HTTP_TIMEOUT_MS,
+  signal?: AbortSignal
+): Promise<{
   fundamentals: FundamentalMetrics;
   institutionalHoldings: InstitutionalHoldingTrend;
   longName: string | null;
@@ -207,16 +454,29 @@ async function fetchLiveFundamentals(yahooTicker: string): Promise<{
     priceToBook: null,
     roePct: null,
     roaPct: null,
+    rocePct: null,
     debtToEquity: null,
     quarterlyRevenueGrowthPct: null,
     quarterlyEarningsGrowthPct: null,
     operatingMarginPct: null,
     profitMarginPct: null,
+    ebitdaMarginPct: null,
     marketCapCr: null,
+    revenueCr: null,
+    netProfitCr: null,
+    ebitdaCr: null,
+    totalDebtCr: null,
+    operatingCashFlowCr: null,
+    freeCashFlowCr: null,
+    trailingEps: null,
+    promoterPledgePct: null,
     fiftyTwoWeekHigh: null,
     fiftyTwoWeekLow: null,
     sector: null,
     industry: null,
+    publishedAt: null,
+    reportingPeriod: null,
+    reportingBasis: null,
   };
 
   const emptyHoldings: InstitutionalHoldingTrend = {
@@ -226,11 +486,21 @@ async function fetchLiveFundamentals(yahooTicker: string): Promise<{
     institutionsCount: null,
     topHolders: [],
     trendLabel: "LOW_OR_UNAVAILABLE",
+    publishedAt: null,
   };
 
   try {
-    await yahooRateLimiter.waitIfCoolingDown();
-    const auth = await getYahooAuth();
+    const canProceed = await yahooRateLimiter.waitIfCoolingDown(MAX_YAHOO_COOLDOWN_WAIT_MS, signal);
+    if (!canProceed) {
+      return {
+        fundamentals: emptyFundamentals,
+        institutionalHoldings: emptyHoldings,
+        longName: null,
+        liveFromQuoteSummary: false,
+      };
+    }
+
+    const auth = await getYahooAuth(timeoutMs, signal);
     const modules =
       "summaryDetail,defaultKeyStatistics,financialData,majorHoldersBreakdown,institutionOwnership,assetProfile,price";
     const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
@@ -238,10 +508,15 @@ async function fetchLiveFundamentals(yahooTicker: string): Promise<{
       yahooTicker
     )}?modules=${modules}${crumbParam}`;
 
-    const res = await fetch(url, {
-      headers: auth ? { ...YAHOO_HEADERS, Cookie: auth.cookie } : YAHOO_HEADERS,
-      cache: "no-store",
-    });
+    const res = await fetchWithTimeout(
+      url,
+      {
+        headers: auth ? { ...YAHOO_HEADERS, Cookie: auth.cookie } : YAHOO_HEADERS,
+        cache: "no-store",
+      },
+      timeoutMs,
+      signal
+    );
 
     if (res.status === 429) {
       yahooRateLimiter.recordRateLimit();
@@ -284,12 +559,28 @@ async function fetchLiveFundamentals(yahooTicker: string): Promise<{
 
     const rawRoe = numOrNull(fd.returnOnEquity);
     const rawRoa = numOrNull(fd.returnOnAssets);
+    const rawRoce = numOrNull((fd as Record<string, unknown>).returnOnCapitalEmployed);
     const rawRevG = numOrNull(fd.revenueGrowth);
     const rawEarnG = numOrNull(fd.earningsGrowth ?? ks.earningsQuarterlyGrowth);
     const rawOpM = numOrNull(fd.operatingMargins);
     const rawProfM = numOrNull(fd.profitMargins);
+    const rawEbitdaM = numOrNull(fd.ebitdaMargins);
     const rawDte = numOrNull(fd.debtToEquity);
     const rawMcap = numOrNull(sd.marketCap ?? pr.marketCap);
+    const rawRev = numOrNull(fd.totalRevenue);
+    const rawNetIncome = numOrNull(ks.netIncomeToCommon ?? fd.netIncomeToCommon);
+    const rawEbitda = numOrNull(fd.ebitda);
+    const rawDebt = numOrNull(fd.totalDebt);
+    const rawOcf = numOrNull(fd.operatingCashflow);
+    const rawFcf = numOrNull(fd.freeCashflow);
+    const rawEps = numOrNull(ks.trailingEps ?? sd.trailingEps);
+    const rawPledge = numOrNull((mh as Record<string, unknown>).promoterPledgePercent);
+
+    // Yahoo quoteSummary provides reporting period end date (ks.mostRecentQuarter),
+    // not an explicit filing publication timestamp. Never copy periodEndDate into publishedAt.
+    const fundamentalsPublishedAt: string | null = null;
+    const reportingPeriod = fmtStringOrNull(ks.mostRecentQuarter);
+    const reportingBasis: "CONSOLIDATED" | "STANDALONE" | null = null;
 
     const fundamentals: FundamentalMetrics = {
       trailingPE: numOrNull(sd.trailingPE) !== null ? round2(numOrNull(sd.trailingPE)!) : null,
@@ -297,17 +588,30 @@ async function fetchLiveFundamentals(yahooTicker: string): Promise<{
       priceToBook: numOrNull(ks.priceToBook) !== null ? round2(numOrNull(ks.priceToBook)!) : null,
       roePct: rawRoe !== null ? round2(rawRoe * 100) : null,
       roaPct: rawRoa !== null ? round2(rawRoa * 100) : null,
+      rocePct: rawRoce !== null ? round2(rawRoce * 100) : null,
       // Yahoo reports debtToEquity as percentage (e.g. 42.5 = 0.425x); normalize > 10 to ratio
       debtToEquity: rawDte !== null ? round2(rawDte > 10 ? rawDte / 100 : rawDte) : null,
       quarterlyRevenueGrowthPct: rawRevG !== null ? round2(rawRevG * 100) : null,
       quarterlyEarningsGrowthPct: rawEarnG !== null ? round2(rawEarnG * 100) : null,
       operatingMarginPct: rawOpM !== null ? round2(rawOpM * 100) : null,
       profitMarginPct: rawProfM !== null ? round2(rawProfM * 100) : null,
+      ebitdaMarginPct: rawEbitdaM !== null ? round2(rawEbitdaM * 100) : null,
       marketCapCr: rawMcap !== null ? Math.round(rawMcap / 1e7) : null,
+      revenueCr: rawRev !== null ? round2(rawRev / 1e7) : null,
+      netProfitCr: rawNetIncome !== null ? round2(rawNetIncome / 1e7) : null,
+      ebitdaCr: rawEbitda !== null ? round2(rawEbitda / 1e7) : null,
+      totalDebtCr: rawDebt !== null ? round2(rawDebt / 1e7) : null,
+      operatingCashFlowCr: rawOcf !== null ? round2(rawOcf / 1e7) : null,
+      freeCashFlowCr: rawFcf !== null ? round2(rawFcf / 1e7) : null,
+      trailingEps: rawEps !== null ? round2(rawEps) : null,
+      promoterPledgePct: rawPledge !== null ? round2(rawPledge * 100) : null,
       fiftyTwoWeekHigh: numOrNull(sd.fiftyTwoWeekHigh),
       fiftyTwoWeekLow: numOrNull(sd.fiftyTwoWeekLow),
       sector: typeof ap.sector === "string" ? ap.sector : null,
       industry: typeof ap.industry === "string" ? ap.industry : null,
+      publishedAt: fundamentalsPublishedAt,
+      reportingPeriod,
+      reportingBasis,
     };
 
     const instPct = numOrNull(mh.institutionsPercentHeld);
@@ -320,12 +624,19 @@ async function fetchLiveFundamentals(yahooTicker: string): Promise<{
     const instFloatNorm = instFloatPct !== null ? round2(instFloatPct * 100) : null;
 
     const ownershipList = Array.isArray(io.ownershipList) ? io.ownershipList : [];
-    const topHolders = ownershipList.slice(0, 5).map((h: any) => ({
-      organization: String(h.organization || "Institutional Holder"),
-      pctHeld: numOrNull(h.pctHeld) !== null ? round2(numOrNull(h.pctHeld)! * 100) : null,
-      positionShares: numOrNull(h.position),
-      reportDate: typeof h.reportDate?.fmt === "string" ? h.reportDate.fmt : null,
-    }));
+    let holdingsPublishedAt = epochToIsoOrNull((mh as Record<string, unknown>).institutionsMostRecentDate);
+    const topHolders = ownershipList.slice(0, 5).map((h: any) => {
+      if (!holdingsPublishedAt) {
+        const holderIso = epochToIsoOrNull(h.reportDate);
+        if (holderIso) holdingsPublishedAt = holderIso;
+      }
+      return {
+        organization: String(h.organization || "Institutional Holder"),
+        pctHeld: numOrNull(h.pctHeld) !== null ? round2(numOrNull(h.pctHeld)! * 100) : null,
+        positionShares: numOrNull(h.position),
+        reportDate: typeof h.reportDate?.fmt === "string" ? h.reportDate.fmt : null,
+      };
+    });
 
     let trendLabel: InstitutionalHoldingTrend["trendLabel"] = "LOW_OR_UNAVAILABLE";
     if (instPctNorm !== null) {
@@ -343,6 +654,7 @@ async function fetchLiveFundamentals(yahooTicker: string): Promise<{
         institutionsCount: instCount,
         topHolders,
         trendLabel,
+        publishedAt: holdingsPublishedAt,
       },
       longName: typeof pr.longName === "string" ? pr.longName : typeof pr.shortName === "string" ? pr.shortName : null,
       liveFromQuoteSummary: true,
@@ -381,7 +693,9 @@ function computeEMA(values: number[], period: number): number | null {
  * 20-EMA trend alignment, and live VWAP proximity.
  */
 async function fetchLive4HObAndVwapSignal(
-  yahooTicker: string
+  yahooTicker: string,
+  timeoutMs: number = DEFAULT_HTTP_TIMEOUT_MS,
+  signal?: AbortSignal
 ): Promise<{ signal: TechnicalConfluenceSignal; live: boolean }> {
   const emptySignal: TechnicalConfluenceSignal = {
     ltp: null,
@@ -399,15 +713,24 @@ async function fetchLive4HObAndVwapSignal(
       quality: "NONE",
       proximityPct: null,
     },
+    marketPublishedAt: null,
   };
 
   try {
-    await yahooRateLimiter.waitIfCoolingDown();
+    const canProceed = await yahooRateLimiter.waitIfCoolingDown(MAX_YAHOO_COOLDOWN_WAIT_MS, signal);
+    if (!canProceed) {
+      return { signal: emptySignal, live: false };
+    }
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
       yahooTicker
     )}?range=1mo&interval=60m`;
 
-    const res = await fetch(url, { headers: YAHOO_HEADERS, cache: "no-store" });
+    const res = await fetchWithTimeout(
+      url,
+      { headers: YAHOO_HEADERS, cache: "no-store" },
+      timeoutMs,
+      signal
+    );
     if (res.status === 429) {
       yahooRateLimiter.recordRateLimit();
       return { signal: emptySignal, live: false };
@@ -420,6 +743,7 @@ async function fetchLive4HObAndVwapSignal(
     if (!chartRes) return { signal: emptySignal, live: false };
 
     const meta = chartRes.meta || {};
+    const marketPublishedAt = epochToIsoOrNull(meta.regularMarketTime);
     const timestamps: number[] = chartRes.timestamp || [];
     const quote = chartRes.indicators?.quote?.[0] || {};
 
@@ -550,6 +874,7 @@ async function fetchLive4HObAndVwapSignal(
         ema20,
         ema20Alignment,
         orderBlock4H: bestOB,
+        marketPublishedAt,
       },
       live: true,
     };
@@ -569,7 +894,9 @@ const BEARISH_KEYWORDS = [
   "outflow", "rate hike", "inflation spike", "weak",
 ];
 
-function classifyHeadline(headline: RawNewsHeadline): MacroAndRegulatoryItem {
+function classifyHeadline(
+  headline: RawNewsHeadline & { publishedAtIso?: string | null }
+): MacroAndRegulatoryItem {
   const lower = headline.title.toLowerCase();
   let bullHits = 0;
   let bearHits = 0;
@@ -593,6 +920,7 @@ function classifyHeadline(headline: RawNewsHeadline): MacroAndRegulatoryItem {
     title: headline.title,
     publisher: headline.publisher,
     publishedAt: headline.publishedAt,
+    publishedAtIso: headline.publishedAtIso ?? null,
     link: headline.link,
     category,
     sentiment,
@@ -602,22 +930,31 @@ function classifyHeadline(headline: RawNewsHeadline): MacroAndRegulatoryItem {
 
 /**
  * Fetches live company + regulatory + macro headlines from Google News RSS & Yahoo Finance.
+ * Preserves genuine source publication timestamp (publishedAtIso) when present, and never
+ * fabricates current retrieval time as publication time when missing.
  */
 async function fetchLiveNewsAndMacro(
   cleanSymbol: string,
-  companyName: string
+  companyName: string,
+  timeoutMs: number = DEFAULT_HTTP_TIMEOUT_MS,
+  signal?: AbortSignal
 ): Promise<MacroAndRegulatoryItem[]> {
-  const rawList: RawNewsHeadline[] = [];
+  const rawList: Array<RawNewsHeadline & { publishedAtIso?: string | null }> = [];
 
   try {
     const query = `${companyName} ${cleanSymbol} NSE stock RBI SEBI results`;
     const gNewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(
       query
     )}&hl=en-IN&gl=IN&ceid=IN:en`;
-    const res = await fetch(gNewsUrl, {
-      headers: { "User-Agent": YAHOO_HEADERS["User-Agent"] },
-      cache: "no-store",
-    });
+    const res = await fetchWithTimeout(
+      gNewsUrl,
+      {
+        headers: { "User-Agent": YAHOO_HEADERS["User-Agent"] },
+        cache: "no-store",
+      },
+      timeoutMs,
+      signal
+    );
 
     if (res.ok) {
       const xml = await res.text();
@@ -635,10 +972,12 @@ async function fetchLiveNewsAndMacro(
           publisher = parts.pop()!.trim();
           title = parts.join(" - ").trim();
         }
-        let publishedAt = new Date().toLocaleTimeString("en-IN", { hour12: false });
+        let publishedAt = "UNKNOWN";
+        let publishedAtIso: string | null = null;
         if (pubDate) {
           const d = new Date(pubDate);
           if (!Number.isNaN(d.getTime())) {
+            publishedAtIso = d.toISOString();
             publishedAt = d.toLocaleTimeString("en-IN", { hour12: false });
           }
         }
@@ -648,6 +987,7 @@ async function fetchLiveNewsAndMacro(
             publisher: publisher || "Indian Financial Feed",
             link,
             publishedAt,
+            publishedAtIso,
           });
         }
       }
@@ -658,26 +998,39 @@ async function fetchLiveNewsAndMacro(
 
   if (rawList.length < 3) {
     try {
-      const yUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(
-        `${cleanSymbol}.NS`
-      )}&quotesCount=1&newsCount=6`;
-      const res = await fetch(yUrl, { headers: YAHOO_HEADERS, cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
-        const newsList = Array.isArray(data?.news) ? data.news : [];
-        for (const n of newsList) {
-          const title = String(n.title || "").trim();
-          if (title && !rawList.some((r) => r.title.toLowerCase() === title.toLowerCase())) {
-            rawList.push({
-              title,
-              publisher: String(n.publisher || "Yahoo Finance"),
-              link: typeof n.link === "string" ? n.link : undefined,
-              publishedAt: n.providerPublishTime
-                ? new Date(n.providerPublishTime * 1000).toLocaleTimeString("en-IN", {
-                    hour12: false,
-                  })
-                : new Date().toLocaleTimeString("en-IN", { hour12: false }),
-            });
+      const canProceed = await yahooRateLimiter.waitIfCoolingDown(MAX_YAHOO_COOLDOWN_WAIT_MS, signal);
+      if (canProceed) {
+        const yUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(
+          `${cleanSymbol}.NS`
+        )}&quotesCount=1&newsCount=6`;
+        const res = await fetchWithTimeout(
+          yUrl,
+          { headers: YAHOO_HEADERS, cache: "no-store" },
+          timeoutMs,
+          signal
+        );
+        if (res.status === 429) {
+          yahooRateLimiter.recordRateLimit();
+        } else if (res.ok) {
+          yahooRateLimiter.recordSuccess();
+          const data = await res.json();
+          const newsList = Array.isArray(data?.news) ? data.news : [];
+          for (const n of newsList) {
+            const title = String(n.title || "").trim();
+            if (title && !rawList.some((r) => r.title.toLowerCase() === title.toLowerCase())) {
+              const publishedAtIso = epochToIsoOrNull(n.providerPublishTime);
+              rawList.push({
+                title,
+                publisher: String(n.publisher || "Yahoo Finance"),
+                link: typeof n.link === "string" ? n.link : undefined,
+                publishedAt: publishedAtIso
+                  ? new Date(publishedAtIso).toLocaleTimeString("en-IN", {
+                      hour12: false,
+                    })
+                  : "UNKNOWN",
+                publishedAtIso,
+              });
+            }
           }
         }
       }
@@ -690,7 +1043,9 @@ async function fetchLiveNewsAndMacro(
 }
 
 /**
- * Computes the unified Institutional Conviction Score (0–100%) from live pillars.
+ * Computes the qualitative Institutional Research Assessment from live pillars.
+ * Does not emit a misleading HIGH_CONVICTION_BUY label; maps to qualitative
+ * conclusion and confidence classifications aligned with Phase 9.4.
  */
 export function computeInstitutionalConviction(
   fundamentals: FundamentalMetrics,
@@ -768,22 +1123,56 @@ export function computeInstitutionalConviction(
   const sentimentMacroScore = Math.max(0, Math.min(100, Math.round(sentimentPts)));
   weightedParts.push({ score: sentimentMacroScore, weight: 0.15 });
 
+  const activeCorePillars = [
+    fundamentalScore,
+    institutionalScore,
+    technical4HObVwapScore,
+  ].filter((x) => x !== null).length;
+
   const totalWeight = weightedParts.reduce((a, p) => a + p.weight, 0);
-  const overallScore =
-    totalWeight > 0
-      ? Math.round(
-          weightedParts.reduce((a, p) => a + p.score * p.weight, 0) / totalWeight
-        )
-      : 50;
+
+  if (activeCorePillars < 2 || totalWeight < 0.5) {
+    return {
+      overallScore: null,
+      grade: "INSUFFICIENT_DATA",
+      conclusion: "INSUFFICIENT_EVIDENCE",
+      confidenceClassification: "INSUFFICIENT",
+      isCalculatedHeuristic: true,
+      activeCorePillars,
+      fundamentalScore,
+      institutionalScore,
+      technical4HObVwapScore,
+      sentimentMacroScore,
+    };
+  }
+
+  const overallScore = Math.round(
+    weightedParts.reduce((a, p) => a + p.score * p.weight, 0) / totalWeight
+  );
 
   let grade: ConvictionBreakdown["grade"] = "NEUTRAL_WATCH";
-  if (overallScore >= 75) grade = "HIGH_CONVICTION_BUY";
-  else if (overallScore >= 60) grade = "ACCUMULATE";
-  else if (overallScore < 42) grade = "CAUTION_AVOID";
+  let conclusion: LegacyResearchConclusionLabel = "NEUTRAL";
+  if (overallScore >= 75) {
+    grade = "POSITIVE";
+    conclusion = "POSITIVE";
+  } else if (overallScore >= 60) {
+    grade = "ACCUMULATE";
+    conclusion = "CAUTIOUSLY_POSITIVE";
+  } else if (overallScore < 42) {
+    grade = "CAUTION_AVOID";
+    conclusion = "CAUTIOUSLY_NEGATIVE";
+  }
+
+  const confidenceClassification: LegacyQualitativeConfidenceLabel =
+    activeCorePillars === 3 ? "HIGH" : activeCorePillars === 2 ? "MODERATE" : "LOW";
 
   return {
     overallScore,
     grade,
+    conclusion,
+    confidenceClassification,
+    isCalculatedHeuristic: true,
+    activeCorePillars,
     fundamentalScore,
     institutionalScore,
     technical4HObVwapScore,
@@ -791,29 +1180,31 @@ export function computeInstitutionalConviction(
   };
 }
 
-/**
- * Compiles the full live Company Research & Intelligence Report for an NSE equity.
- */
-export async function compileCompanyResearchReport(
-  symbolInput: string
+async function executeUncachedCompanyResearch(
+  symbolInput: string,
+  timeoutMs: number = DEFAULT_HTTP_TIMEOUT_MS,
+  signal?: AbortSignal,
+  yahooTickerOverride?: string
 ): Promise<CompanyResearchReport> {
-  const cleanSymbol = cleanNseSymbol(symbolInput || "RELIANCE");
+  totalNetworkFetchCount += 1;
+  const cleanSymbol = await resolveCanonicalNseSymbol(symbolInput || "RELIANCE", timeoutMs, signal);
   const yahooTicker =
-    cleanSymbol === "NIFTY"
+    yahooTickerOverride ||
+    (cleanSymbol === "NIFTY"
       ? "^NSEI"
       : cleanSymbol === "BANKNIFTY"
       ? "^NSEBANK"
-      : `${cleanSymbol}.NS`;
+      : `${cleanSymbol}.NS`);
 
   const fallbackName = NSE_EQUITY_COMPANY_NAMES[cleanSymbol] || cleanSymbol;
 
-  const [fundRes, techRes, newsItems] = await Promise.all([
-    fetchLiveFundamentals(yahooTicker),
-    fetchLive4HObAndVwapSignal(yahooTicker),
-    fetchLiveNewsAndMacro(cleanSymbol, fallbackName),
+  const [fundRes, techRes] = await Promise.all([
+    fetchLiveFundamentals(yahooTicker, timeoutMs, signal),
+    fetchLive4HObAndVwapSignal(yahooTicker, timeoutMs, signal),
   ]);
 
   const companyName = fundRes.longName || fallbackName;
+  const newsItems = await fetchLiveNewsAndMacro(cleanSymbol, companyName, timeoutMs, signal);
   const newsSentimentScore =
     newsItems.length > 0
       ? Math.round(
@@ -925,9 +1316,82 @@ export async function compileCompanyResearchReport(
         newsItems.length > 0
           ? "GOOGLE_NEWS_RSS_AND_YAHOO_LIVE"
           : "NO_HEADLINES_RETURNED",
+      feedStatus:
+        fundRes.liveFromQuoteSummary && techRes.live
+          ? "LIVE DATA"
+          : fundRes.liveFromQuoteSummary || techRes.live || newsItems.length > 0
+            ? "PARTIAL LIVE DATA"
+            : "UNAVAILABLE",
       zeroMockIntegrity: true,
     },
   };
+}
+
+/**
+ * Compiles the full live Company Research & Intelligence Report for an NSE equity.
+ * Shares in-flight duplicate requests for the same symbol and caches complete LIVE DATA
+ * snapshots for a short bounded TTL (default 60s), returning deep clones to prevent mutation.
+ */
+export async function compileCompanyResearchReport(
+  symbolInput: string,
+  options?: CompileCompanyResearchOptions
+): Promise<CompanyResearchReport> {
+  const normalizedKey = cleanNseSymbol(symbolInput || "RELIANCE");
+  const forceRefresh = options?.forceRefresh === true;
+  const ttlMs = options?.ttlMs ?? DEFAULT_RESEARCH_CACHE_TTL_MS;
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
+
+  if (!forceRefresh) {
+    const cached = companyResearchCache.get(normalizedKey);
+    if (cached) {
+      if (Date.now() < cached.expiresAt) {
+        return cloneResearchReport(cached.report);
+      }
+      companyResearchCache.delete(normalizedKey);
+    }
+  }
+
+  const existingInFlight = inFlightCompanyResearch.get(normalizedKey);
+  if (existingInFlight && !forceRefresh) {
+    const shared = await existingInFlight;
+    return cloneResearchReport(shared);
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const report = options?.fetcherOverrideForTest
+        ? await options.fetcherOverrideForTest(normalizedKey)
+        : await executeUncachedCompanyResearch(
+            symbolInput,
+            timeoutMs,
+            options?.signal,
+            options?.yahooTickerOverride
+          );
+
+      // Only cache complete LIVE DATA results; never cache failed or partial results as successful research
+      if (report.dataTelemetry.feedStatus === "LIVE DATA" && ttlMs > 0) {
+        if (companyResearchCache.size >= MAX_RESEARCH_CACHE_ENTRIES) {
+          const oldestKey = companyResearchCache.keys().next().value;
+          if (oldestKey) {
+            companyResearchCache.delete(oldestKey);
+          }
+        }
+        companyResearchCache.set(normalizedKey, {
+          report: cloneResearchReport(report),
+          cachedAt: Date.now(),
+          expiresAt: Date.now() + ttlMs,
+        });
+      }
+
+      return report;
+    } finally {
+      inFlightCompanyResearch.delete(normalizedKey);
+    }
+  })();
+
+  inFlightCompanyResearch.set(normalizedKey, fetchPromise);
+  const result = await fetchPromise;
+  return cloneResearchReport(result);
 }
 
 /**
@@ -976,8 +1440,15 @@ export function synthesizeGroundedResearchAnswer(
       `• Promoter / Insider Holding: ${fmt(h.insidersPromoterPercentHeld, "%")}`;
   }
 
-  return `Institutional Conviction Brief — ${report.cleanSymbol} (${report.companyName}):\n` +
-    `• Unified Conviction Score: ${report.conviction.overallScore}% (${report.conviction.grade.replace(/_/g, " ")})\n` +
+  const conclusionLabel =
+    report.conviction.conclusion ??
+    (report.conviction.grade === "INSUFFICIENT_DATA"
+      ? "INSUFFICIENT_EVIDENCE"
+      : report.conviction.grade.replace(/_/g, " "));
+  const confidenceLabel = report.conviction.confidenceClassification ?? "INSUFFICIENT";
+
+  return `Institutional Research Brief — ${report.cleanSymbol} (${report.companyName}):\n` +
+    `• Research Conclusion: ${conclusionLabel} (Evidence Confidence: ${confidenceLabel})\n` +
     `• Live LTP: ${report.technicals.ltp !== null ? `₹${report.technicals.ltp.toLocaleString("en-IN")}` : "N/A"} | VWAP: ${report.technicals.vwapAlignment} | 4H OB: ${report.technicals.orderBlock4H.direction}\n` +
     `• Fundamentals: P/E ${fmt(report.fundamentals.trailingPE, "x")} · ROE ${fmt(report.fundamentals.roePct, "%")} · D/E ${fmt(report.fundamentals.debtToEquity, "x")} · Qtr Rev Growth ${fmt(report.fundamentals.quarterlyRevenueGrowthPct, "%")}\n` +
     `• Institutional Holding: ${fmt(report.institutionalHoldings.institutionsPercentHeld, "%")} | News Sentiment: ${report.sentimentLabel} (${report.newsSentimentScore})`;
